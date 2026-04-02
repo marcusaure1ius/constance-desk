@@ -2,11 +2,14 @@
 
 import { useState, useTransition } from "react";
 import { DragDropContext, type DropResult } from "@hello-pangea/dnd";
+import { Plus } from "lucide-react";
 import { BoardColumn } from "./board-column";
 import { TaskCard } from "./task-card";
 import { moveTaskAction } from "@/lib/actions/tasks";
 import { toast } from "sonner";
 import { cn } from "@/lib/utils";
+import { Button } from "@/components/ui/button";
+import { CreateTaskModal } from "@/components/modals/create-task-modal";
 
 type Column = { id: string; title: string; position: number };
 type Task = {
@@ -37,6 +40,7 @@ export function KanbanBoard({
   const [tasks, setTasks] = useState(initialTasks);
   const [, startTransition] = useTransition();
   const [activeTab, setActiveTab] = useState(columns[0]?.id);
+  const [createModalOpen, setCreateModalOpen] = useState(false);
 
   function getTasksForColumn(columnId: string) {
     return tasks
@@ -98,6 +102,13 @@ export function KanbanBoard({
 
   return (
     <>
+      <div className="flex items-center justify-between p-4 pb-0">
+        <Button onClick={() => setCreateModalOpen(true)}>
+          <Plus className="mr-2 h-4 w-4" />
+          Добавить задачу
+        </Button>
+      </div>
+
       <DragDropContext onDragEnd={handleDragEnd}>
         {/* Desktop: horizontal columns */}
         <div className="hidden md:flex gap-4 overflow-x-auto p-4 h-full">
@@ -137,6 +148,14 @@ export function KanbanBoard({
             ))}
         </div>
       </div>
+
+      <CreateTaskModal
+        open={createModalOpen}
+        onOpenChange={setCreateModalOpen}
+        columns={columns}
+        categories={categories}
+        defaultColumnId={columns[0]?.id}
+      />
     </>
   );
 }
