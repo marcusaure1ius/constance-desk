@@ -29,6 +29,16 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle as AlertDialogTitleComponent,
+} from "@/components/ui/alert-dialog";
 import { updateTaskAction, deleteTaskAction } from "@/lib/actions/tasks";
 import { cn } from "@/lib/utils";
 
@@ -70,6 +80,7 @@ export function TaskEditDialog({
   const [plannedDate, setPlannedDate] = useState<Date | undefined>(
     task.plannedDate ? new Date(task.plannedDate) : undefined
   );
+  const [showDeleteConfirm, setShowDeleteConfirm] = useState(false);
 
   function handleSave(e: React.FormEvent) {
     e.preventDefault();
@@ -181,12 +192,17 @@ export function TaskEditDialog({
                 }
               >
                 <SelectTrigger className="w-full">
-                  <SelectValue placeholder="Без категории" />
+                  <SelectValue placeholder="Без категории">
+                    {(value: string) => {
+                      if (!value || value === "__none__") return "Без категории";
+                      return categories.find((c) => c.id === value)?.name ?? value;
+                    }}
+                  </SelectValue>
                 </SelectTrigger>
                 <SelectContent>
-                  <SelectItem value="__none__">Без категории</SelectItem>
+                  <SelectItem value="__none__" label="Без категории">Без категории</SelectItem>
                   {categories.map((cat) => (
-                    <SelectItem key={cat.id} value={cat.id}>
+                    <SelectItem key={cat.id} value={cat.id} label={cat.name}>
                       {cat.name}
                     </SelectItem>
                   ))}
@@ -198,51 +214,47 @@ export function TaskEditDialog({
           {/* Priority */}
           <div className="flex flex-col gap-1.5">
             <Label>Приоритет</Label>
-            <div className="flex items-center gap-3">
-              {/* Urgent - red */}
-              <button
-                type="button"
-                title="Срочный"
-                onClick={() => setPriority("urgent")}
-                className={cn(
-                  "size-7 rounded-full bg-red-500 transition-transform",
-                  priority === "urgent"
-                    ? "scale-125 ring-2 ring-red-500 ring-offset-2"
-                    : "opacity-60 hover:opacity-100"
-                )}
-              />
-              {/* High - yellow */}
-              <button
-                type="button"
-                title="Высокий"
-                onClick={() => setPriority("high")}
-                className={cn(
-                  "size-7 rounded-full bg-yellow-400 transition-transform",
-                  priority === "high"
-                    ? "scale-125 ring-2 ring-yellow-400 ring-offset-2"
-                    : "opacity-60 hover:opacity-100"
-                )}
-              />
-              {/* Normal - gray */}
-              <button
-                type="button"
-                title="Обычный"
-                onClick={() => setPriority("normal")}
-                className={cn(
-                  "size-7 rounded-full bg-gray-400 transition-transform",
-                  priority === "normal"
-                    ? "scale-125 ring-2 ring-gray-400 ring-offset-2"
-                    : "opacity-60 hover:opacity-100"
-                )}
-              />
-              <span className="text-sm text-muted-foreground">
-                {priority === "urgent"
-                  ? "Срочный"
-                  : priority === "high"
-                    ? "Высокий"
-                    : "Обычный"}
-              </span>
-            </div>
+            <Select value={priority} onValueChange={(val) => { if (val) setPriority(val as Priority); }}>
+              <SelectTrigger className="w-full">
+                <SelectValue placeholder="Выберите приоритет">
+                  {(value: string) => {
+                    const labels: Record<string, { label: string; color: string }> = {
+                      urgent: { label: "Срочный", color: "bg-red-500" },
+                      high: { label: "Высокий", color: "bg-yellow-400" },
+                      normal: { label: "Обычный", color: "bg-gray-400" },
+                    };
+                    const item = labels[value];
+                    if (!item) return value;
+                    return (
+                      <span className="flex items-center gap-2">
+                        <span className={cn("size-2.5 rounded-full", item.color)} />
+                        {item.label}
+                      </span>
+                    );
+                  }}
+                </SelectValue>
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value="urgent" label="Срочный">
+                  <span className="flex items-center gap-2">
+                    <span className="size-2.5 rounded-full bg-red-500" />
+                    Срочный
+                  </span>
+                </SelectItem>
+                <SelectItem value="high" label="Высокий">
+                  <span className="flex items-center gap-2">
+                    <span className="size-2.5 rounded-full bg-yellow-400" />
+                    Высокий
+                  </span>
+                </SelectItem>
+                <SelectItem value="normal" label="Обычный">
+                  <span className="flex items-center gap-2">
+                    <span className="size-2.5 rounded-full bg-gray-400" />
+                    Обычный
+                  </span>
+                </SelectItem>
+              </SelectContent>
+            </Select>
           </div>
 
           {/* Footer */}
@@ -251,7 +263,7 @@ export function TaskEditDialog({
               type="button"
               variant="destructive"
               size="sm"
-              onClick={handleDelete}
+              onClick={() => setShowDeleteConfirm(true)}
               disabled={isPending}
             >
               <Trash2 className="mr-2 h-4 w-4" />
@@ -273,6 +285,23 @@ export function TaskEditDialog({
           </div>
         </form>
       </DialogContent>
+
+      <AlertDialog open={showDeleteConfirm} onOpenChange={setShowDeleteConfirm}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitleComponent>Удалить задачу?</AlertDialogTitleComponent>
+            <AlertDialogDescription>
+              Это действие нельзя отменить. Задача будет удалена безвозвратно.
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel>Отмена</AlertDialogCancel>
+            <AlertDialogAction onClick={handleDelete}>
+              Удалить
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
     </Dialog>
   );
 }

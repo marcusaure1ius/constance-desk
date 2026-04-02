@@ -29,7 +29,7 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
-import { Checkbox } from "@/components/ui/checkbox";
+import { Switch } from "@/components/ui/switch";
 import { createTaskAction } from "@/lib/actions/tasks";
 import { cn } from "@/lib/utils";
 
@@ -149,11 +149,13 @@ export function CreateTaskModal({
             <Label>Колонка</Label>
             <Select value={columnId} onValueChange={(val) => { if (val !== null) setColumnId(val); }}>
               <SelectTrigger className="w-full">
-                <SelectValue placeholder="Выберите колонку" />
+                <SelectValue placeholder="Выберите колонку">
+                  {(value: string) => columns.find((c) => c.id === value)?.title ?? value}
+                </SelectValue>
               </SelectTrigger>
               <SelectContent>
                 {columns.map((col) => (
-                  <SelectItem key={col.id} value={col.id}>
+                  <SelectItem key={col.id} value={col.id} label={col.title}>
                     {col.title}
                   </SelectItem>
                 ))}
@@ -234,12 +236,17 @@ export function CreateTaskModal({
                 }
               >
                 <SelectTrigger className="w-full">
-                  <SelectValue placeholder="Без категории" />
+                  <SelectValue placeholder="Без категории">
+                    {(value: string) => {
+                      if (!value || value === "__none__") return "Без категории";
+                      return categories.find((c) => c.id === value)?.name ?? value;
+                    }}
+                  </SelectValue>
                 </SelectTrigger>
                 <SelectContent>
-                  <SelectItem value="__none__">Без категории</SelectItem>
+                  <SelectItem value="__none__" label="Без категории">Без категории</SelectItem>
                   {categories.map((cat) => (
-                    <SelectItem key={cat.id} value={cat.id}>
+                    <SelectItem key={cat.id} value={cat.id} label={cat.name}>
                       {cat.name}
                     </SelectItem>
                   ))}
@@ -251,65 +258,66 @@ export function CreateTaskModal({
           {/* Priority */}
           <div className="flex flex-col gap-1.5">
             <Label>Приоритет</Label>
-            <div className="flex items-center gap-3">
-              {/* Urgent - red */}
-              <button
-                type="button"
-                title="Срочный"
-                onClick={() => setPriority("urgent")}
-                className={cn(
-                  "size-7 rounded-full bg-red-500 transition-transform",
-                  priority === "urgent"
-                    ? "scale-125 ring-2 ring-red-500 ring-offset-2"
-                    : "opacity-60 hover:opacity-100"
-                )}
-              />
-              {/* High - yellow */}
-              <button
-                type="button"
-                title="Высокий"
-                onClick={() => setPriority("high")}
-                className={cn(
-                  "size-7 rounded-full bg-yellow-400 transition-transform",
-                  priority === "high"
-                    ? "scale-125 ring-2 ring-yellow-400 ring-offset-2"
-                    : "opacity-60 hover:opacity-100"
-                )}
-              />
-              {/* Normal - gray */}
-              <button
-                type="button"
-                title="Обычный"
-                onClick={() => setPriority("normal")}
-                className={cn(
-                  "size-7 rounded-full bg-gray-400 transition-transform",
-                  priority === "normal"
-                    ? "scale-125 ring-2 ring-gray-400 ring-offset-2"
-                    : "opacity-60 hover:opacity-100"
-                )}
-              />
-              <span className="text-sm text-muted-foreground">
-                {priority === "urgent"
-                  ? "Срочный"
-                  : priority === "high"
-                    ? "Высокий"
-                    : "Обычный"}
-              </span>
-            </div>
+            <Select value={priority} onValueChange={(val) => { if (val) setPriority(val as Priority); }}>
+              <SelectTrigger className="w-full">
+                <SelectValue placeholder="Выберите приоритет">
+                  {(value: string) => {
+                    const labels: Record<string, { label: string; color: string }> = {
+                      urgent: { label: "Срочный", color: "bg-red-500" },
+                      high: { label: "Высокий", color: "bg-yellow-400" },
+                      normal: { label: "Обычный", color: "bg-gray-400" },
+                    };
+                    const item = labels[value];
+                    if (!item) return value;
+                    return (
+                      <span className="flex items-center gap-2">
+                        <span className={cn("size-2.5 rounded-full", item.color)} />
+                        {item.label}
+                      </span>
+                    );
+                  }}
+                </SelectValue>
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value="urgent" label="Срочный">
+                  <span className="flex items-center gap-2">
+                    <span className="size-2.5 rounded-full bg-red-500" />
+                    Срочный
+                  </span>
+                </SelectItem>
+                <SelectItem value="high" label="Высокий">
+                  <span className="flex items-center gap-2">
+                    <span className="size-2.5 rounded-full bg-yellow-400" />
+                    Высокий
+                  </span>
+                </SelectItem>
+                <SelectItem value="normal" label="Обычный">
+                  <span className="flex items-center gap-2">
+                    <span className="size-2.5 rounded-full bg-gray-400" />
+                    Обычный
+                  </span>
+                </SelectItem>
+              </SelectContent>
+            </Select>
           </div>
 
           {/* Create Another */}
-          <div className="flex items-center gap-2">
-            <Checkbox
+          <div className="flex items-center justify-between border-t pt-4">
+            <div className="flex flex-col gap-0.5">
+              <Label htmlFor="create-another" className="font-semibold">
+                Создать ещё одну
+              </Label>
+              <span className="text-xs text-muted-foreground">
+                Форма останется открытой после создания
+              </span>
+            </div>
+            <Switch
               id="create-another"
               checked={createAnother}
               onCheckedChange={(checked) =>
                 setCreateAnother(checked === true)
               }
             />
-            <Label htmlFor="create-another" className="font-normal">
-              Создать ещё одну
-            </Label>
           </div>
 
           {/* Footer */}

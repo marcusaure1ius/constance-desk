@@ -1,6 +1,7 @@
 "use client";
 
-import { useState, useTransition } from "react";
+import { useState, useEffect, useTransition } from "react";
+import { useSearchParams } from "next/navigation";
 import { DragDropContext, type DropResult } from "@hello-pangea/dnd";
 import { Plus } from "lucide-react";
 import { BoardColumn } from "./board-column";
@@ -39,15 +40,23 @@ export function KanbanBoard({
   categories,
 }: KanbanBoardProps) {
   const [tasks, setTasks] = useState(initialTasks);
+  useEffect(() => { setTasks(initialTasks); }, [initialTasks]);
   const [, startTransition] = useTransition();
   const [activeTab, setActiveTab] = useState(columns[0]?.id);
   const [createModalOpen, setCreateModalOpen] = useState(false);
   const [editingTaskId, setEditingTaskId] = useState<string | null>(null);
   const editingTask = editingTaskId ? tasks.find((t) => t.id === editingTaskId) : null;
+  const searchParams = useSearchParams();
+  const searchQuery = searchParams.get("q")?.toLowerCase() ?? "";
+
+  const filteredCount = searchQuery
+    ? tasks.filter((t) => t.title.toLowerCase().includes(searchQuery)).length
+    : 0;
 
   function getTasksForColumn(columnId: string) {
     return tasks
       .filter((t) => t.columnId === columnId)
+      .filter((t) => !searchQuery || t.title.toLowerCase().includes(searchQuery))
       .sort((a, b) => a.position - b.position);
   }
 
@@ -105,16 +114,21 @@ export function KanbanBoard({
 
   return (
     <>
-      <div className="flex items-center justify-between p-4 pb-0">
+      <div className="flex items-center justify-between p-4 pb-0 container mx-auto">
         <Button onClick={() => setCreateModalOpen(true)}>
           <Plus className="mr-2 h-4 w-4" />
           Добавить задачу
         </Button>
+        {searchQuery && (
+          <span className="text-sm text-muted-foreground">
+            Найдено: {filteredCount}
+          </span>
+        )}
       </div>
 
-      <DragDropContext onDragEnd={handleDragEnd}>
+      <DragDropContext onDragEnd={searchQuery ? () => {} : handleDragEnd}>
         {/* Desktop: horizontal columns */}
-        <div className="hidden md:flex gap-4 overflow-x-auto p-4 h-full">
+        <div className="hidden md:flex gap-4 overflow-x-auto p-4 h-full container mx-auto">
           {columns.map((col) => (
             <BoardColumn
               key={col.id}

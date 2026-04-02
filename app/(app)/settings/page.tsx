@@ -13,7 +13,7 @@ export default async function SettingsPage() {
   ]);
 
   return (
-    <div className="container max-w-2xl px-4 py-6 space-y-6">
+    <div className="container mx-auto max-w-2xl px-4 py-6 space-y-6">
       <h1 className="text-2xl font-bold">Настройки</h1>
       <ColumnsManager columns={columns} />
       <CategoriesManager categories={categories} />

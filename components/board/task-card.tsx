@@ -25,36 +25,42 @@ interface TaskCardProps {
   onClick?: () => void;
 }
 
-const priorityColors = {
-  urgent: "border-l-red-500",
-  high: "border-l-yellow-500",
-  normal: "border-l-gray-300",
+const priorityDot = {
+  urgent: "bg-red-500",
+  high: "bg-yellow-400",
+  normal: "bg-gray-400",
 };
 
 export function TaskCard({ task, categories, onClick }: TaskCardProps) {
   const category = categories.find((c) => c.id === task.categoryId);
+  const hasDateOrCategory = task.completedAt || task.plannedDate || category;
 
   return (
     <div
       onClick={onClick}
-      className={cn(
-        "cursor-pointer rounded-lg border border-l-4 bg-card p-3 shadow-sm transition-shadow hover:shadow-md",
-        priorityColors[task.priority]
-      )}
+      className="cursor-pointer rounded-lg border bg-card p-3 shadow-sm transition-shadow hover:shadow-md"
     >
       <p className="font-medium text-sm">{task.title}</p>
-      <div className="mt-2 flex items-center gap-2 text-xs text-muted-foreground">
-        {category && (
-          <Badge variant="secondary" className="text-xs">
-            {category.name}
-          </Badge>
-        )}
-        {task.completedAt ? (
-          <span>✓ {formatDate(task.completedAt)}</span>
-        ) : task.plannedDate ? (
-          <span>до {formatDate(task.plannedDate)}</span>
-        ) : null}
-      </div>
+      {hasDateOrCategory && (
+        <div className="mt-2 flex flex-wrap items-center gap-1.5">
+          {task.completedAt ? (
+            <span className="inline-flex items-center gap-1.5 rounded-full border px-2 py-0.5 text-xs text-muted-foreground">
+              <span className="size-2 shrink-0 rounded-full bg-green-500" />
+              {formatDate(task.completedAt)}
+            </span>
+          ) : task.plannedDate ? (
+            <span className="inline-flex items-center gap-1.5 rounded-full border px-2 py-0.5 text-xs text-muted-foreground">
+              <span className={cn("size-2 shrink-0 rounded-full", priorityDot[task.priority])} />
+              до {formatDate(task.plannedDate)}
+            </span>
+          ) : null}
+          {category && (
+            <Badge variant="secondary" className="text-xs">
+              {category.name}
+            </Badge>
+          )}
+        </div>
+      )}
     </div>
   );
 }
