@@ -43,3 +43,16 @@ export async function moveTaskAction(
   await moveTaskService(taskId, targetColumnId, targetPosition);
   revalidatePath("/");
 }
+
+import { getWeeklyReport, formatReportAsText } from "@/lib/services/reports";
+
+export async function getReportAction(dateStr: string) {
+  const date = new Date(dateStr);
+  return getWeeklyReport(date);
+}
+
+export async function getReportTextAction(dateStr: string) {
+  const date = new Date(dateStr);
+  const report = await getWeeklyReport(date);
+  return formatReportAsText(report);
+}
