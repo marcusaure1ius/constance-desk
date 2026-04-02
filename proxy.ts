@@ -1,8 +1,12 @@
 import { NextRequest, NextResponse } from "next/server";
 import { jwtVerify } from "jose";
 
+const secret = process.env.SESSION_SECRET;
+if (!secret && process.env.NODE_ENV === "production") {
+  throw new Error("SESSION_SECRET is required in production");
+}
 const SESSION_SECRET = new TextEncoder().encode(
-  process.env.SESSION_SECRET || "constance-default-secret-change-me"
+  secret || "constance-default-secret-change-me"
 );
 
 export async function proxy(request: NextRequest) {

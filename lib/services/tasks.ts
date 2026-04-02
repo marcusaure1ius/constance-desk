@@ -76,6 +76,13 @@ export async function moveTask(
   targetColumnId: string,
   targetPosition: number
 ) {
+  // Capture source column before moving
+  const [currentTask] = await db
+    .select({ columnId: tasks.columnId })
+    .from(tasks)
+    .where(eq(tasks.id, taskId));
+  const sourceColumnId = currentTask?.columnId;
+
   // Определить, является ли целевая колонка последней
   const allColumns = await db
     .select()
@@ -112,6 +119,21 @@ export async function moveTask(
         .where(eq(tasks.id, t.id))
     )
   );
+
+  // Also renumber source column if different from target
+  if (sourceColumnId && sourceColumnId !== targetColumnId) {
+    const allInSource = await db
+      .select()
+      .from(tasks)
+      .where(eq(tasks.columnId, sourceColumnId))
+      .orderBy(asc(tasks.position));
+
+    await Promise.all(
+      allInSource.map((t, idx) =>
+        db.update(tasks).set({ position: idx }).where(eq(tasks.id, t.id))
+      )
+    );
+  }
 }
 
 export async function getTasksForToday() {

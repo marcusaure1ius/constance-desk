@@ -5,8 +5,12 @@ import bcrypt from "bcryptjs";
 import { cookies } from "next/headers";
 import { SignJWT, jwtVerify } from "jose";
 
+const secret = process.env.SESSION_SECRET;
+if (!secret && process.env.NODE_ENV === "production") {
+  throw new Error("SESSION_SECRET is required in production");
+}
 const SESSION_SECRET = new TextEncoder().encode(
-  process.env.SESSION_SECRET || "constance-default-secret-change-me"
+  secret || "constance-default-secret-change-me"
 );
 const SESSION_COOKIE = "constance-session";
 const SESSION_DURATION = 30 * 24 * 60 * 60; // 30 дней в секундах
