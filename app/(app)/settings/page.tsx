@@ -4,6 +4,8 @@ import { ColumnsManager } from "@/components/settings/columns-manager";
 import { CategoriesManager } from "@/components/settings/categories-manager";
 import { PinChangeForm } from "@/components/settings/pin-change-form";
 
+export const dynamic = "force-dynamic";
+
 export default async function SettingsPage() {
   const [columns, categories] = await Promise.all([
     getColumns(),

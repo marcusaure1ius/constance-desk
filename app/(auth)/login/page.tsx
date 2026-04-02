@@ -1,6 +1,8 @@
 import { isPinSet } from "@/lib/services/auth";
 import { PinForm } from "@/components/auth/pin-form";
 
+export const dynamic = "force-dynamic";
+
 export default async function LoginPage() {
   const pinExists = await isPinSet();
 

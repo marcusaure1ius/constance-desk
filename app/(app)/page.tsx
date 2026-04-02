@@ -3,6 +3,8 @@ import { getTasks } from "@/lib/services/tasks";
 import { getCategories } from "@/lib/services/categories";
 import { KanbanBoard } from "@/components/board/kanban-board";
 
+export const dynamic = "force-dynamic";
+
 export default async function BoardPage() {
   const [columnsData, tasksData, categoriesData] = await Promise.all([
     getColumns(),

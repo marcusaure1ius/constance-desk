@@ -5,7 +5,7 @@ const SESSION_SECRET = new TextEncoder().encode(
   process.env.SESSION_SECRET || "constance-default-secret-change-me"
 );
 
-export async function middleware(request: NextRequest) {
+export async function proxy(request: NextRequest) {
   const { pathname } = request.nextUrl;
 
   // Пропускаем статику, API авторизации и страницу логина
