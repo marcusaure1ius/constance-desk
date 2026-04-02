@@ -4,9 +4,10 @@ import * as React from "react";
 import Link from "next/link";
 import { Button, buttonVariants } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
-import { CalendarDays, BarChart3, Settings } from "lucide-react";
+import { CalendarDays, BarChart3, Settings, LayoutDashboard } from "lucide-react";
 import { ReportSidebar } from "@/components/report/report-sidebar";
 import { TodayPlanModal } from "@/components/modals/today-plan-modal";
+import { UserMenu } from "@/components/user-menu";
 
 interface AppShellProps {
   children: React.ReactNode;
@@ -19,11 +20,18 @@ export function AppShell({ children }: AppShellProps) {
   return (
     <div className="flex min-h-screen flex-col">
       <header className="border-b bg-background">
-        <div className="container flex h-14 items-center justify-between px-4">
+        <div className="container mx-auto flex h-14 items-center justify-between px-4">
           <Link href="/" className="text-lg font-bold">
             Constance
           </Link>
           <div className="flex items-center gap-2">
+            <Link
+              href="/"
+              className={cn(buttonVariants({ variant: "ghost", size: "sm" }))}
+            >
+              <LayoutDashboard className="mr-2 h-4 w-4" />
+              <span className="hidden sm:inline">Доска</span>
+            </Link>
             <Button variant="ghost" size="sm" onClick={() => setTodayPlanOpen(true)}>
               <CalendarDays className="mr-2 h-4 w-4" />
               <span className="hidden sm:inline">План на сегодня</span>
@@ -39,6 +47,7 @@ export function AppShell({ children }: AppShellProps) {
               <Settings className="mr-2 h-4 w-4" />
               <span className="hidden sm:inline">Настройки</span>
             </Link>
+            <UserMenu />
           </div>
         </div>
       </header>
