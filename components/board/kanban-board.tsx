@@ -126,7 +126,7 @@ export function KanbanBoard({
         )}
       </div>
 
-      <DragDropContext onDragEnd={handleDragEnd}>
+      <DragDropContext onDragEnd={searchQuery ? () => {} : handleDragEnd}>
         {/* Desktop: horizontal columns */}
         <div className="hidden md:flex gap-4 overflow-x-auto p-4 h-full container mx-auto">
           {columns.map((col) => (

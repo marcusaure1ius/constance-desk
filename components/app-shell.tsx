@@ -20,14 +20,26 @@ export function AppShell({ children }: AppShellProps) {
   const [todayPlanOpen, setTodayPlanOpen] = React.useState(false);
   const router = useRouter();
   const searchParams = useSearchParams();
+  const searchParamsRef = React.useRef(searchParams);
+  searchParamsRef.current = searchParams;
   const [searchValue, setSearchValue] = React.useState(searchParams.get("q") ?? "");
   const debounceRef = React.useRef<ReturnType<typeof setTimeout>>(null);
+
+  React.useEffect(() => {
+    setSearchValue(searchParams.get("q") ?? "");
+  }, [searchParams]);
+
+  React.useEffect(() => {
+    return () => {
+      if (debounceRef.current) clearTimeout(debounceRef.current);
+    };
+  }, []);
 
   function handleSearchChange(value: string) {
     setSearchValue(value);
     if (debounceRef.current) clearTimeout(debounceRef.current);
     debounceRef.current = setTimeout(() => {
-      const params = new URLSearchParams(searchParams.toString());
+      const params = new URLSearchParams(searchParamsRef.current.toString());
       if (value.trim()) {
         params.set("q", value.trim());
       } else {
