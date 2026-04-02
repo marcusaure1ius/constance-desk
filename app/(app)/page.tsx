@@ -1,7 +1,22 @@
-export default function BoardPage() {
+import { getColumns } from "@/lib/services/columns";
+import { getTasks } from "@/lib/services/tasks";
+import { getCategories } from "@/lib/services/categories";
+import { KanbanBoard } from "@/components/board/kanban-board";
+
+export default async function BoardPage() {
+  const [columnsData, tasksData, categoriesData] = await Promise.all([
+    getColumns(),
+    getTasks(),
+    getCategories(),
+  ]);
+
   return (
-    <div className="container px-4 py-6">
-      <p className="text-muted-foreground">Канбан-доска будет здесь</p>
+    <div className="flex-1 overflow-hidden">
+      <KanbanBoard
+        columns={columnsData}
+        tasks={tasksData}
+        categories={categoriesData}
+      />
     </div>
   );
 }
