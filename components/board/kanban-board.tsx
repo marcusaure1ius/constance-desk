@@ -10,6 +10,7 @@ import { toast } from "sonner";
 import { cn } from "@/lib/utils";
 import { Button } from "@/components/ui/button";
 import { CreateTaskModal } from "@/components/modals/create-task-modal";
+import { TaskEditDialog } from "./task-edit-dialog";
 
 type Column = { id: string; title: string; position: number };
 type Task = {
@@ -41,6 +42,8 @@ export function KanbanBoard({
   const [, startTransition] = useTransition();
   const [activeTab, setActiveTab] = useState(columns[0]?.id);
   const [createModalOpen, setCreateModalOpen] = useState(false);
+  const [editingTaskId, setEditingTaskId] = useState<string | null>(null);
+  const editingTask = editingTaskId ? tasks.find((t) => t.id === editingTaskId) : null;
 
   function getTasksForColumn(columnId: string) {
     return tasks
@@ -118,6 +121,7 @@ export function KanbanBoard({
               column={col}
               tasks={getTasksForColumn(col.id)}
               categories={categories}
+              onTaskClick={setEditingTaskId}
             />
           ))}
         </div>
@@ -144,7 +148,12 @@ export function KanbanBoard({
         <div className="p-4 space-y-2">
           {activeTab &&
             getTasksForColumn(activeTab).map((task) => (
-              <TaskCard key={task.id} task={task} categories={categories} />
+              <TaskCard
+                key={task.id}
+                task={task}
+                categories={categories}
+                onClick={() => setEditingTaskId(task.id)}
+              />
             ))}
         </div>
       </div>
@@ -156,6 +165,17 @@ export function KanbanBoard({
         categories={categories}
         defaultColumnId={columns[0]?.id}
       />
+
+      {editingTask && (
+        <TaskEditDialog
+          task={editingTask}
+          categories={categories}
+          open={true}
+          onOpenChange={(open) => {
+            if (!open) setEditingTaskId(null);
+          }}
+        />
+      )}
     </>
   );
 }
