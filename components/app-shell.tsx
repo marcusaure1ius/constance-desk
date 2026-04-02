@@ -6,12 +6,7 @@ import { Button, buttonVariants } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
 import { CalendarDays, BarChart3, Settings } from "lucide-react";
 import { ReportSidebar } from "@/components/report/report-sidebar";
-
-// Placeholder — replaced in Task 14
-function TodayPlanModal({ open, onOpenChange }: { open: boolean; onOpenChange: (v: boolean) => void }) {
-  if (!open) return null;
-  return null;
-}
+import { TodayPlanModal } from "@/components/modals/today-plan-modal";
 
 interface AppShellProps {
   children: React.ReactNode;
