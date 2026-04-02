@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useTransition, useEffect } from "react";
+import { useState, useTransition } from "react";
 import { DragDropContext, type DropResult } from "@hello-pangea/dnd";
 import { BoardColumn } from "./board-column";
 import { TaskCard } from "./task-card";
@@ -35,13 +35,8 @@ export function KanbanBoard({
   categories,
 }: KanbanBoardProps) {
   const [tasks, setTasks] = useState(initialTasks);
-  const [isPending, startTransition] = useTransition();
+  const [, startTransition] = useTransition();
   const [activeTab, setActiveTab] = useState(columns[0]?.id);
-  const [mounted, setMounted] = useState(false);
-
-  useEffect(() => {
-    setMounted(true);
-  }, []);
 
   function getTasksForColumn(columnId: string) {
     return tasks
@@ -61,14 +56,27 @@ export function KanbanBoard({
     // Optimistic update
     const previousTasks = tasks;
     setTasks((prev) => {
-      const updated = [...prev];
+      const updated = prev.map(t => ({...t})); // deep copy
       const taskIndex = updated.findIndex((t) => t.id === draggableId);
       if (taskIndex === -1) return prev;
 
-      const task = { ...updated[taskIndex] };
-      task.columnId = destination.droppableId;
-      task.position = destination.index;
-      updated[taskIndex] = task;
+      const movedTask = updated[taskIndex];
+
+      // Remove from source
+      const sourceTasks = updated
+        .filter((t) => t.columnId === source.droppableId && t.id !== draggableId)
+        .sort((a, b) => a.position - b.position);
+      sourceTasks.forEach((t, i) => { t.position = i; });
+
+      // Update moved task
+      movedTask.columnId = destination.droppableId;
+
+      // Insert into destination
+      const destTasks = updated
+        .filter((t) => t.columnId === destination.droppableId && t.id !== draggableId)
+        .sort((a, b) => a.position - b.position);
+      destTasks.splice(destination.index, 0, movedTask);
+      destTasks.forEach((t, i) => { t.position = i; });
 
       return updated;
     });
@@ -86,27 +94,6 @@ export function KanbanBoard({
         toast.error("Не удалось переместить задачу");
       }
     });
-  }
-
-  if (!mounted) {
-    return (
-      <div className="flex gap-4 overflow-x-auto p-4">
-        {columns.map((col) => (
-          <div
-            key={col.id}
-            className="flex w-72 flex-shrink-0 flex-col rounded-lg bg-muted/50 p-2"
-          >
-            <div className="mb-2 flex items-center justify-between px-2">
-              <h3 className="text-sm font-semibold">{col.title}</h3>
-              <span className="text-xs text-muted-foreground">
-                {getTasksForColumn(col.id).length}
-              </span>
-            </div>
-            <div className="flex min-h-[100px] flex-1 flex-col gap-2 rounded-md p-1" />
-          </div>
-        ))}
-      </div>
-    );
   }
 
   return (
