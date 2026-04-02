@@ -2,6 +2,7 @@
 
 import { useState, useTransition } from "react";
 import { toast } from "sonner";
+import { DragDropContext, Droppable, Draggable, type DropResult } from "@hello-pangea/dnd";
 import { GripVertical, Pencil, Trash2, Check, X } from "lucide-react";
 import {
   Card,
@@ -15,6 +16,7 @@ import {
   createColumnAction,
   updateColumnAction,
   deleteColumnAction,
+  reorderColumnsAction,
 } from "@/lib/actions/columns";
 
 type Column = {
@@ -76,67 +78,112 @@ export function ColumnsManager({ columns: initialColumns }: ColumnsManagerProps)
     });
   }
 
+  function handleDragEnd(result: DropResult) {
+    if (!result.destination) return;
+    const from = result.source.index;
+    const to = result.destination.index;
+    if (from === to) return;
+
+    const reordered = Array.from(columns);
+    const [moved] = reordered.splice(from, 1);
+    reordered.splice(to, 0, moved);
+
+    const updated = reordered.map((col, i) => ({ ...col, position: i }));
+    setColumns(updated);
+
+    startTransition(async () => {
+      try {
+        await reorderColumnsAction(updated.map((c) => c.id));
+      } catch {
+        setColumns(columns);
+        toast.error("Не удалось изменить порядок");
+      }
+    });
+  }
+
   return (
     <Card>
       <CardHeader>
         <CardTitle>Колонки</CardTitle>
       </CardHeader>
       <CardContent className="space-y-2">
-        {columns.map((col) => (
-          <div key={col.id} className="flex items-center gap-2">
-            <GripVertical className="size-4 text-muted-foreground shrink-0" />
-            {editingId === col.id ? (
-              <>
-                <Input
-                  value={editValue}
-                  onChange={(e) => setEditValue(e.target.value)}
-                  onKeyDown={(e) => {
-                    if (e.key === "Enter") handleUpdate(col.id);
-                    if (e.key === "Escape") cancelEdit();
-                  }}
-                  className="flex-1"
-                  autoFocus
-                />
-                <Button
-                  size="icon"
-                  variant="ghost"
-                  onClick={() => handleUpdate(col.id)}
-                  disabled={isPending}
-                >
-                  <Check className="size-4" />
-                </Button>
-                <Button
-                  size="icon"
-                  variant="ghost"
-                  onClick={cancelEdit}
-                  disabled={isPending}
-                >
-                  <X className="size-4" />
-                </Button>
-              </>
-            ) : (
-              <>
-                <span className="flex-1 text-sm">{col.title}</span>
-                <Button
-                  size="icon"
-                  variant="ghost"
-                  onClick={() => startEdit(col)}
-                  disabled={isPending}
-                >
-                  <Pencil className="size-4" />
-                </Button>
-                <Button
-                  size="icon"
-                  variant="ghost"
-                  onClick={() => handleDelete(col.id)}
-                  disabled={isPending}
-                >
-                  <Trash2 className="size-4" />
-                </Button>
-              </>
+        <DragDropContext onDragEnd={handleDragEnd}>
+          <Droppable droppableId="columns">
+            {(provided) => (
+              <div ref={provided.innerRef} {...provided.droppableProps} className="space-y-2">
+                {columns.map((col, index) => (
+                  <Draggable key={col.id} draggableId={col.id} index={index}>
+                    {(provided, snapshot) => (
+                      <div
+                        ref={provided.innerRef}
+                        {...provided.draggableProps}
+                        className={`flex items-center gap-2 rounded-lg p-1 ${snapshot.isDragging ? "bg-muted shadow-md" : ""}`}
+                      >
+                        <span
+                          {...provided.dragHandleProps}
+                          className="cursor-grab active:cursor-grabbing"
+                        >
+                          <GripVertical className="size-4 text-muted-foreground shrink-0" />
+                        </span>
+                        {editingId === col.id ? (
+                          <>
+                            <Input
+                              value={editValue}
+                              onChange={(e) => setEditValue(e.target.value)}
+                              onKeyDown={(e) => {
+                                if (e.key === "Enter") handleUpdate(col.id);
+                                if (e.key === "Escape") cancelEdit();
+                              }}
+                              className="flex-1"
+                              autoFocus
+                            />
+                            <Button
+                              size="icon"
+                              variant="ghost"
+                              onClick={() => handleUpdate(col.id)}
+                              disabled={isPending}
+                            >
+                              <Check className="size-4" />
+                            </Button>
+                            <Button
+                              size="icon"
+                              variant="ghost"
+                              onClick={cancelEdit}
+                              disabled={isPending}
+                            >
+                              <X className="size-4" />
+                            </Button>
+                          </>
+                        ) : (
+                          <>
+                            <span className="flex-1 text-sm">{col.title}</span>
+                            <Button
+                              size="icon"
+                              variant="ghost"
+                              onClick={() => startEdit(col)}
+                              disabled={isPending}
+                            >
+                              <Pencil className="size-4" />
+                            </Button>
+                            <Button
+                              size="icon"
+                              variant="ghost"
+                              onClick={() => handleDelete(col.id)}
+                              disabled={isPending}
+                            >
+                              <Trash2 className="size-4" />
+                            </Button>
+                          </>
+                        )}
+                      </div>
+                    )}
+                  </Draggable>
+                ))}
+                {provided.placeholder}
+              </div>
             )}
-          </div>
-        ))}
+          </Droppable>
+        </DragDropContext>
 
         <div className="flex items-center gap-2 pt-2">
           <Input
