@@ -8,8 +8,8 @@ import {
   reorderColumns,
 } from "@/lib/services/columns";
 
-export async function createColumnAction(title: string) {
-  const col = await createColumn(title);
+export async function createColumnAction(title: string, environmentId: string) {
+  const col = await createColumn(title, environmentId);
   revalidatePath("/");
   revalidatePath("/settings");
   return col;

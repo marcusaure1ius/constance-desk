@@ -7,8 +7,8 @@ import {
   deleteCategory,
 } from "@/lib/services/categories";
 
-export async function createCategoryAction(name: string, color?: string) {
-  const cat = await createCategory(name, color);
+export async function createCategoryAction(name: string, color: string | undefined, environmentId: string) {
+  const cat = await createCategory(name, color, environmentId);
   revalidatePath("/");
   revalidatePath("/settings");
   return cat;

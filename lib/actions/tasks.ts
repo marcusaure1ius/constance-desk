@@ -46,13 +46,13 @@ export async function moveTaskAction(
 
 import { getWeeklyReport, formatReportAsText } from "@/lib/services/reports";
 
-export async function getReportAction(dateStr: string) {
+export async function getReportAction(dateStr: string, environmentId: string) {
   const date = new Date(dateStr);
-  return getWeeklyReport(date);
+  return getWeeklyReport(date, environmentId);
 }
 
-export async function getReportTextAction(dateStr: string) {
+export async function getReportTextAction(dateStr: string, environmentId: string) {
   const date = new Date(dateStr);
-  const report = await getWeeklyReport(date);
+  const report = await getWeeklyReport(date, environmentId);
   return formatReportAsText(report);
 }

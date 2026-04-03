@@ -3,10 +3,10 @@
 import { getTasksForToday } from "@/lib/services/tasks";
 import { getColumns } from "@/lib/services/columns";
 
-export async function getTodayPlanAction() {
+export async function getTodayPlanAction(environmentId: string) {
   const [todayTasks, columns] = await Promise.all([
-    getTasksForToday(),
-    getColumns(),
+    getTasksForToday(environmentId),
+    getColumns(environmentId),
   ]);
 
   const grouped = columns
