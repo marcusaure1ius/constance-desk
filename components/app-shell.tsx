@@ -11,11 +11,20 @@ import { ReportSidebar } from "@/components/report/report-sidebar";
 import { TodayPlanModal } from "@/components/modals/today-plan-modal";
 import { UserMenu } from "@/components/user-menu";
 
+type Environment = {
+  id: string;
+  name: string;
+  color: string;
+  position: number;
+};
+
 interface AppShellProps {
   children: React.ReactNode;
+  activeEnvironment: Environment | null;
+  environments: Environment[];
 }
 
-export function AppShell({ children }: AppShellProps) {
+export function AppShell({ children, activeEnvironment, environments }: AppShellProps) {
   const [reportOpen, setReportOpen] = React.useState(false);
   const [todayPlanOpen, setTodayPlanOpen] = React.useState(false);
   const router = useRouter();
@@ -88,14 +97,14 @@ export function AppShell({ children }: AppShellProps) {
               <Settings className="mr-2 h-4 w-4" />
               <span className="hidden sm:inline">Настройки</span>
             </Link>
-            <UserMenu />
+            <UserMenu activeEnvironment={activeEnvironment} environments={environments} />
           </div>
         </div>
       </header>
       <main className="flex-1">{children}</main>
 
-      <ReportSidebar open={reportOpen} onOpenChange={setReportOpen} />
-      <TodayPlanModal open={todayPlanOpen} onOpenChange={setTodayPlanOpen} />
+      <ReportSidebar open={reportOpen} onOpenChange={setReportOpen} environmentId={activeEnvironment?.id ?? ""} />
+      <TodayPlanModal open={todayPlanOpen} onOpenChange={setTodayPlanOpen} environmentId={activeEnvironment?.id ?? ""} />
     </div>
   );
 }
