@@ -18,9 +18,10 @@ import type { WeeklyReport } from "@/lib/services/reports";
 interface ReportSidebarProps {
   open: boolean;
   onOpenChange: (open: boolean) => void;
+  environmentId: string;
 }
 
-export function ReportSidebar({ open, onOpenChange }: ReportSidebarProps) {
+export function ReportSidebar({ open, onOpenChange, environmentId }: ReportSidebarProps) {
   const [currentDate, setCurrentDate] = React.useState(() => new Date());
   const [report, setReport] = React.useState<WeeklyReport | null>(null);
   const [loading, setLoading] = React.useState(false);
@@ -40,10 +41,10 @@ export function ReportSidebar({ open, onOpenChange }: ReportSidebarProps) {
   React.useEffect(() => {
     if (!open) return;
     setLoading(true);
-    getReportAction(currentDate.toISOString())
+    getReportAction(currentDate.toISOString(), environmentId)
       .then((data) => setReport(data))
       .finally(() => setLoading(false));
-  }, [open, currentDate]);
+  }, [open, currentDate, environmentId]);
 
   function goToPrevWeek() {
     setCurrentDate((d) => subWeeks(d, 1));
@@ -60,7 +61,7 @@ export function ReportSidebar({ open, onOpenChange }: ReportSidebarProps) {
   async function handleCopy() {
     setCopying(true);
     try {
-      const text = await getReportTextAction(currentDate.toISOString());
+      const text = await getReportTextAction(currentDate.toISOString(), environmentId);
       await navigator.clipboard.writeText(text);
     } finally {
       setCopying(false);

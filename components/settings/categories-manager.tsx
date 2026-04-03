@@ -25,9 +25,10 @@ type Category = {
 
 interface CategoriesManagerProps {
   categories: Category[];
+  environmentId: string;
 }
 
-export function CategoriesManager({ categories: initialCategories }: CategoriesManagerProps) {
+export function CategoriesManager({ categories: initialCategories, environmentId }: CategoriesManagerProps) {
   const [categories, setCategories] = useState(initialCategories);
   const [editingId, setEditingId] = useState<string | null>(null);
   const [editValue, setEditValue] = useState("");
@@ -70,7 +71,7 @@ export function CategoriesManager({ categories: initialCategories }: CategoriesM
   function handleAdd() {
     if (!newName.trim()) return;
     startTransition(async () => {
-      const created = await createCategoryAction(newName.trim());
+      const created = await createCategoryAction(newName.trim(), undefined, environmentId);
       setCategories((prev) => [...prev, created]);
       setNewName("");
     });

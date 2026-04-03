@@ -27,9 +27,10 @@ type Column = {
 
 interface ColumnsManagerProps {
   columns: Column[];
+  environmentId: string;
 }
 
-export function ColumnsManager({ columns: initialColumns }: ColumnsManagerProps) {
+export function ColumnsManager({ columns: initialColumns, environmentId }: ColumnsManagerProps) {
   const [columns, setColumns] = useState(initialColumns);
   const [editingId, setEditingId] = useState<string | null>(null);
   const [editValue, setEditValue] = useState("");
@@ -72,7 +73,7 @@ export function ColumnsManager({ columns: initialColumns }: ColumnsManagerProps)
   function handleAdd() {
     if (!newTitle.trim()) return;
     startTransition(async () => {
-      const created = await createColumnAction(newTitle.trim());
+      const created = await createColumnAction(newTitle.trim(), environmentId);
       setColumns((prev) => [...prev, created]);
       setNewTitle("");
     });

@@ -26,9 +26,10 @@ type TodayPlanData = Awaited<ReturnType<typeof getTodayPlanAction>>;
 interface TodayPlanModalProps {
   open: boolean;
   onOpenChange: (open: boolean) => void;
+  environmentId: string;
 }
 
-export function TodayPlanModal({ open, onOpenChange }: TodayPlanModalProps) {
+export function TodayPlanModal({ open, onOpenChange, environmentId }: TodayPlanModalProps) {
   const [data, setData] = useState<TodayPlanData | null>(null);
   const [loading, setLoading] = useState(false);
 
@@ -38,14 +39,14 @@ export function TodayPlanModal({ open, onOpenChange }: TodayPlanModalProps) {
     setLoading(true);
     setData(null);
 
-    getTodayPlanAction()
+    getTodayPlanAction(environmentId)
       .then((result) => {
         setData(result);
       })
       .finally(() => {
         setLoading(false);
       });
-  }, [open]);
+  }, [open, environmentId]);
 
   const todayLabel = format(new Date(), "dd.MM.yyyy", { locale: ru });
 
