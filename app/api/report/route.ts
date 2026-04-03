@@ -6,8 +6,15 @@ import { startOfWeek } from "date-fns";
 export async function GET(request: NextRequest) {
   return withApiAuth(request, async () => {
     const weekParam = request.nextUrl.searchParams.get("week");
+    const environmentId = request.nextUrl.searchParams.get("environmentId");
+    if (!environmentId) {
+      return NextResponse.json(
+        { error: "environmentId is required" },
+        { status: 400 }
+      );
+    }
     const date = weekParam ? parseISOWeek(weekParam) : new Date();
-    const report = await getWeeklyReport(date);
+    const report = await getWeeklyReport(date, environmentId);
     const fmt = request.nextUrl.searchParams.get("format");
 
     if (fmt === "text") {

@@ -4,7 +4,14 @@ import { getTasks, createTask } from "@/lib/services/tasks";
 
 export async function GET(request: NextRequest) {
   return withApiAuth(request, async () => {
-    const tasks = await getTasks();
+    const environmentId = request.nextUrl.searchParams.get("environmentId");
+    if (!environmentId) {
+      return NextResponse.json(
+        { error: "environmentId is required" },
+        { status: 400 }
+      );
+    }
+    const tasks = await getTasks(environmentId);
     return NextResponse.json(tasks);
   });
 }
