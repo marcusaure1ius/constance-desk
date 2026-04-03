@@ -34,11 +34,9 @@ export function UserMenu({ activeEnvironment, environments }: UserMenuProps) {
   const [createOpen, setCreateOpen] = useState(false);
   const router = useRouter();
 
-  function handleLogout() {
-    startTransition(async () => {
-      await logoutAction();
-      router.push("/login");
-    });
+  async function handleLogout() {
+    await logoutAction();
+    router.push("/login");
   }
 
   function handleSwitch(envId: string) {
