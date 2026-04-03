@@ -1,8 +1,8 @@
 "use client";
 
-import { useState, useTransition } from "react";
+import { useRef, useState, useTransition } from "react";
 import { useRouter } from "next/navigation";
-import { LogOut, Plus, Check } from "lucide-react";
+import { LogOut, Plus, Check, Moon, Sun } from "lucide-react";
 import { Avatar, AvatarFallback } from "@/components/ui/avatar";
 import {
   DropdownMenu,
@@ -13,9 +13,11 @@ import {
   DropdownMenuSeparator,
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
+import { Switch } from "@/components/ui/switch";
 import { logoutAction } from "@/lib/actions/auth";
 import { switchEnvironmentAction } from "@/lib/actions/environments";
 import { CreateEnvironmentDialog } from "@/components/create-environment-dialog";
+import { useThemeTransition } from "@/hooks/use-theme-transition";
 
 type Environment = {
   id: string;
@@ -33,6 +35,8 @@ export function UserMenu({ activeEnvironment, environments }: UserMenuProps) {
   const [isPending, startTransition] = useTransition();
   const [createOpen, setCreateOpen] = useState(false);
   const router = useRouter();
+  const triggerRef = useRef<HTMLButtonElement>(null);
+  const { isDark, toggleTheme } = useThemeTransition();
 
   async function handleLogout() {
     await logoutAction();
@@ -52,7 +56,10 @@ export function UserMenu({ activeEnvironment, environments }: UserMenuProps) {
   return (
     <>
       <DropdownMenu>
-        <DropdownMenuTrigger className="cursor-pointer rounded-full outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2">
+        <DropdownMenuTrigger
+          ref={triggerRef}
+          className="cursor-pointer rounded-full outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2"
+        >
           <Avatar
             className="border-[3px]"
             style={{ borderColor: ringColor }}
@@ -87,6 +94,20 @@ export function UserMenu({ activeEnvironment, environments }: UserMenuProps) {
               <span className="text-muted-foreground">Создать</span>
             </DropdownMenuItem>
           </DropdownMenuGroup>
+          <DropdownMenuSeparator />
+          <DropdownMenuItem
+            closeOnClick={false}
+            onClick={() => toggleTheme(triggerRef)}
+          >
+            {isDark ? <Moon className="size-4" /> : <Sun className="size-4" />}
+            <span className="flex-1">Тёмная тема</span>
+            <Switch
+              size="sm"
+              checked={isDark}
+              onCheckedChange={() => toggleTheme(triggerRef)}
+              onClick={(e) => e.stopPropagation()}
+            />
+          </DropdownMenuItem>
           <DropdownMenuSeparator />
           <DropdownMenuItem onClick={handleLogout} disabled={isPending}>
             <LogOut />
