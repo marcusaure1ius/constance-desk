@@ -46,12 +46,17 @@ describe("getTasks", () => {
   });
 
   it("возвращает задачи отсортированные по позиции", async () => {
+    const envColumns = [{ id: "col-1" }, { id: "col-2" }];
     const taskList = [
       { id: "1", title: "Задача 1", position: 0 },
       { id: "2", title: "Задача 2", position: 1 },
     ];
+    // Первый вызов select — колонки среды
+    selectChain.where.mockResolvedValueOnce(envColumns);
+    // Второй вызов select — задачи
+    selectChain.where.mockReturnValueOnce(selectChain);
     selectChain.orderBy.mockResolvedValue(taskList);
-    const result = await getTasks();
+    const result = await getTasks("env-1");
     expect(result).toEqual(taskList);
   });
 });

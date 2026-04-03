@@ -4,6 +4,7 @@ const { mockDb, selectChain, insertChain, updateChain, deleteChain } =
   vi.hoisted(() => {
     const selectChain = {
       from: vi.fn().mockReturnThis(),
+      where: vi.fn().mockReturnThis(),
       orderBy: vi.fn(),
     };
     const insertChain = {
@@ -49,7 +50,7 @@ describe("getCategories", () => {
       { id: "2", name: "Фичи", color: "#0f0" },
     ];
     selectChain.orderBy.mockResolvedValue(cats);
-    const result = await getCategories();
+    const result = await getCategories("env-1");
     expect(result).toEqual(cats);
   });
 });
@@ -64,14 +65,14 @@ describe("createCategory", () => {
   it("создаёт категорию с цветом", async () => {
     const cat = { id: "1", name: "Баги", color: "#f00" };
     insertChain.returning.mockResolvedValue([cat]);
-    const result = await createCategory("Баги", "#f00");
+    const result = await createCategory("Баги", "#f00", "env-1");
     expect(result).toEqual(cat);
   });
 
   it("создаёт категорию без цвета", async () => {
     const cat = { id: "2", name: "Другое", color: undefined };
     insertChain.returning.mockResolvedValue([cat]);
-    const result = await createCategory("Другое");
+    const result = await createCategory("Другое", undefined, "env-1");
     expect(result).toEqual(cat);
   });
 });

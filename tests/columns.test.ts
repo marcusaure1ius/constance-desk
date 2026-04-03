@@ -4,7 +4,7 @@ const { mockDb, selectChain, insertChain, updateChain, deleteChain } =
   vi.hoisted(() => {
     const selectChain = {
       from: vi.fn().mockReturnThis(),
-      where: vi.fn(),
+      where: vi.fn().mockReturnThis(),
       orderBy: vi.fn(),
     };
     const insertChain = {
@@ -49,7 +49,7 @@ describe("getColumns", () => {
       { id: "2", title: "В работе", position: 1 },
     ];
     selectChain.orderBy.mockResolvedValue(cols);
-    const result = await getColumns();
+    const result = await getColumns("env-1");
     expect(result).toEqual(cols);
   });
 });
@@ -59,6 +59,7 @@ describe("createColumn", () => {
     vi.clearAllMocks();
     mockDb.select.mockReturnValue(selectChain);
     selectChain.from.mockReturnValue(selectChain);
+    selectChain.where.mockReturnValue(selectChain);
     selectChain.orderBy.mockResolvedValue([]);
     mockDb.insert.mockReturnValue(insertChain);
     insertChain.values.mockReturnValue(insertChain);
@@ -67,7 +68,7 @@ describe("createColumn", () => {
   it("создаёт колонку с позицией 0 если нет других", async () => {
     const col = { id: "1", title: "Новая", position: 0 };
     insertChain.returning.mockResolvedValue([col]);
-    const result = await createColumn("Новая");
+    const result = await createColumn("Новая", "env-1");
     expect(result).toEqual(col);
   });
 
@@ -78,7 +79,7 @@ describe("createColumn", () => {
     ]);
     const col = { id: "3", title: "Третья", position: 2 };
     insertChain.returning.mockResolvedValue([col]);
-    const result = await createColumn("Третья");
+    const result = await createColumn("Третья", "env-1");
     expect(result).toEqual(col);
   });
 });
