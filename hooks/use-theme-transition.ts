@@ -42,24 +42,28 @@ export function useThemeTransition() {
         setTheme(next);
       });
 
-      transition.ready.then(() => {
-        document.documentElement.animate(
-          {
-            clipPath: [
-              `circle(${maxRadius}px at ${x}px ${y}px)`,
-              `circle(0px at ${x}px ${y}px)`,
-            ],
-          },
-          {
-            duration: 500,
-            easing: "ease-in-out",
-            pseudoElement: "::view-transition-old(root)",
-          },
-        );
-      });
+      transition.ready
+        .then(() => {
+          document.documentElement.animate(
+            {
+              clipPath: [
+                `circle(${maxRadius}px at ${x}px ${y}px)`,
+                `circle(0px at ${x}px ${y}px)`,
+              ],
+            },
+            {
+              duration: 500,
+              easing: "ease-in-out",
+              pseudoElement: "::view-transition-old(root)",
+            },
+          );
+        })
+        .catch(() => {
+          // Анимация не удалась — тема уже применена через setTheme
+        });
     },
     [isDark, setTheme],
   );
 
-  return { theme, isDark, toggleTheme };
+  return { isDark, toggleTheme };
 }

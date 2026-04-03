@@ -104,7 +104,7 @@ export function UserMenu({ activeEnvironment, environments }: UserMenuProps) {
             <Switch
               size="sm"
               checked={isDark}
-              onCheckedChange={() => toggleTheme(triggerRef)}
+              tabIndex={-1}
               onClick={(e) => e.stopPropagation()}
             />
           </DropdownMenuItem>
