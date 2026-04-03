@@ -67,7 +67,7 @@ export function UserMenu({ activeEnvironment, environments }: UserMenuProps) {
             <AvatarFallback>C</AvatarFallback>
           </Avatar>
         </DropdownMenuTrigger>
-        <DropdownMenuContent align="end" sideOffset={8}>
+        <DropdownMenuContent align="end" sideOffset={8} className="min-w-48">
           <DropdownMenuGroup>
             <DropdownMenuLabel>Среды</DropdownMenuLabel>
             {environments.map((env) => (

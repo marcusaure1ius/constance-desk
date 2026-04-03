@@ -47,14 +47,15 @@ export function useThemeTransition() {
           document.documentElement.animate(
             {
               clipPath: [
-                `circle(${maxRadius}px at ${x}px ${y}px)`,
                 `circle(0px at ${x}px ${y}px)`,
+                `circle(${maxRadius}px at ${x}px ${y}px)`,
               ],
             },
             {
-              duration: 500,
+              duration: 700,
               easing: "ease-in-out",
-              pseudoElement: "::view-transition-old(root)",
+              pseudoElement: "::view-transition-new(root)",
+              fill: "forwards",
             },
           );
         })
