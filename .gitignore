@@ -27,6 +27,7 @@
 PLAN.MD
 docs/
 .playwright-mcp/
+.superpowers/
 
 # debug
 npm-debug.log*

@@ -68,7 +68,7 @@ export function UserMenu({ activeEnvironment, environments }: UserMenuProps) {
             {environments.map((env) => (
               <DropdownMenuItem
                 key={env.id}
-                onSelect={() => handleSwitch(env.id)}
+                onClick={() => handleSwitch(env.id)}
                 disabled={isPending}
               >
                 <span
@@ -82,15 +82,15 @@ export function UserMenu({ activeEnvironment, environments }: UserMenuProps) {
               </DropdownMenuItem>
             ))}
             <DropdownMenuItem
-              onSelect={() => setCreateOpen(true)}
+              onClick={() => setTimeout(() => setCreateOpen(true), 100)}
               disabled={isPending}
             >
               <Plus className="size-4 text-muted-foreground" />
-              <span className="text-muted-foreground">Создать среду...</span>
+              <span className="text-muted-foreground">Создать</span>
             </DropdownMenuItem>
           </DropdownMenuGroup>
           <DropdownMenuSeparator />
-          <DropdownMenuItem onSelect={handleLogout} disabled={isPending}>
+          <DropdownMenuItem onClick={handleLogout} disabled={isPending}>
             <LogOut />
             Выйти
           </DropdownMenuItem>
