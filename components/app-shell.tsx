@@ -10,6 +10,7 @@ import { Input } from "@/components/ui/input";
 import { ReportSidebar } from "@/components/report/report-sidebar";
 import { TodayPlanModal } from "@/components/modals/today-plan-modal";
 import { UserMenu } from "@/components/user-menu";
+import { EnvironmentTheme } from "@/components/environment-theme";
 
 type Environment = {
   id: string;
@@ -60,6 +61,7 @@ export function AppShell({ children, activeEnvironment, environments }: AppShell
 
   return (
     <div className="flex min-h-screen flex-col">
+      <EnvironmentTheme color={activeEnvironment?.color ?? null} />
       <header className="border-b bg-background">
         <div className="container mx-auto flex h-14 items-center gap-4 px-4">
           <Link href="/" className="text-lg font-bold shrink-0">
