@@ -55,7 +55,7 @@ export function TaskCard({ task, categories, onClick }: TaskCardProps) {
             </span>
           ) : null}
           {category && (
-            <Badge variant="secondary" className="text-xs">
+            <Badge variant="secondary" className="text-xs max-w-full justify-start truncate">
               {category.name}
             </Badge>
           )}
