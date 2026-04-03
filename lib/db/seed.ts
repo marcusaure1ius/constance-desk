@@ -1,6 +1,6 @@
 import { neon } from "@neondatabase/serverless";
 import { drizzle } from "drizzle-orm/neon-http";
-import { columns, settings } from "./schema";
+import { environments, columns, settings } from "./schema";
 import { eq } from "drizzle-orm";
 
 async function seed() {
@@ -14,15 +14,25 @@ async function seed() {
     console.log("Settings row created");
   }
 
-  // Создать дефолтные колонки если нет ни одной
-  const existingColumns = await db.select().from(columns);
-  if (existingColumns.length === 0) {
-    await db.insert(columns).values([
-      { title: "Бэклог", position: 0 },
-      { title: "В работе", position: 1 },
-      { title: "Готово", position: 2 },
-    ]);
-    console.log("Default columns created: Бэклог, В работе, Готово");
+  // Создать дефолтную среду если нет ни одной
+  const existingEnvs = await db.select().from(environments);
+  if (existingEnvs.length === 0) {
+    const [env] = await db
+      .insert(environments)
+      .values({ name: "Основная", color: "#3b82f6", position: 0 })
+      .returning();
+    console.log("Default environment created: Основная");
+
+    // Создать дефолтные колонки для этой среды
+    const existingColumns = await db.select().from(columns);
+    if (existingColumns.length === 0) {
+      await db.insert(columns).values([
+        { title: "Бэклог", position: 0, environmentId: env.id },
+        { title: "В работе", position: 1, environmentId: env.id },
+        { title: "Готово", position: 2, environmentId: env.id },
+      ]);
+      console.log("Default columns created: Бэклог, В работе, Готово");
+    }
   }
 
   console.log("Seed complete");
