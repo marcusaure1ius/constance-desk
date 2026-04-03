@@ -2,14 +2,18 @@ import { db } from "@/lib/db";
 import { categories } from "@/lib/db/schema";
 import { eq, asc } from "drizzle-orm";
 
-export async function getCategories() {
-  return db.select().from(categories).orderBy(asc(categories.name));
+export async function getCategories(environmentId: string) {
+  return db
+    .select()
+    .from(categories)
+    .where(eq(categories.environmentId, environmentId))
+    .orderBy(asc(categories.name));
 }
 
-export async function createCategory(name: string, color?: string) {
+export async function createCategory(name: string, color: string | undefined, environmentId: string) {
   const [cat] = await db
     .insert(categories)
-    .values({ name, color })
+    .values({ name, color, environmentId })
     .returning();
   return cat;
 }

@@ -1,6 +1,6 @@
 import { db } from "@/lib/db";
-import { tasks, categories } from "@/lib/db/schema";
-import { and, gte, lt, eq, asc } from "drizzle-orm";
+import { tasks, categories, columns } from "@/lib/db/schema";
+import { and, gte, lt, eq, asc, inArray } from "drizzle-orm";
 import { getWeekRange } from "@/lib/utils";
 
 export type ReportTask = {
@@ -19,10 +19,16 @@ export type WeeklyReport = {
   startedCount: number;
 };
 
-export async function getWeeklyReport(date: Date): Promise<WeeklyReport> {
+export async function getWeeklyReport(date: Date, environmentId: string): Promise<WeeklyReport> {
   const { start, end } = getWeekRange(date);
 
-  const completed = await db
+  const envColumns = await db
+    .select({ id: columns.id })
+    .from(columns)
+    .where(eq(columns.environmentId, environmentId));
+  const columnIds = envColumns.map((c) => c.id);
+
+  const completed = columnIds.length === 0 ? [] : await db
     .select({
       id: tasks.id,
       title: tasks.title,
@@ -32,16 +38,21 @@ export async function getWeeklyReport(date: Date): Promise<WeeklyReport> {
     })
     .from(tasks)
     .leftJoin(categories, eq(tasks.categoryId, categories.id))
-    .where(and(gte(tasks.completedAt, start), lt(tasks.completedAt, end)))
+    .where(and(
+      gte(tasks.completedAt, start),
+      lt(tasks.completedAt, end),
+      inArray(tasks.columnId, columnIds),
+    ))
     .orderBy(asc(tasks.completedAt));
 
-  const startedRows = await db
+  const startedRows = columnIds.length === 0 ? [] : await db
     .select({ id: tasks.id })
     .from(tasks)
     .where(
       and(
         gte(tasks.startDate, start.toISOString().split("T")[0]),
-        lt(tasks.startDate, end.toISOString().split("T")[0])
+        lt(tasks.startDate, end.toISOString().split("T")[0]),
+        inArray(tasks.columnId, columnIds),
       )
     );
 

@@ -2,19 +2,23 @@ import { db } from "@/lib/db";
 import { columns, tasks } from "@/lib/db/schema";
 import { eq, asc, count } from "drizzle-orm";
 
-export async function getColumns() {
-  return db.select().from(columns).orderBy(asc(columns.position));
+export async function getColumns(environmentId: string) {
+  return db
+    .select()
+    .from(columns)
+    .where(eq(columns.environmentId, environmentId))
+    .orderBy(asc(columns.position));
 }
 
-export async function createColumn(title: string) {
-  const existing = await getColumns();
+export async function createColumn(title: string, environmentId: string) {
+  const existing = await getColumns(environmentId);
   const maxPosition = existing.length > 0
     ? Math.max(...existing.map((c) => c.position))
     : -1;
 
   const [col] = await db
     .insert(columns)
-    .values({ title, position: maxPosition + 1 })
+    .values({ title, position: maxPosition + 1, environmentId })
     .returning();
   return col;
 }

@@ -1,6 +1,6 @@
 import { db } from "@/lib/db";
 import { tasks, columns } from "@/lib/db/schema";
-import { eq, and, asc, desc, max } from "drizzle-orm";
+import { eq, and, asc, desc, max, inArray } from "drizzle-orm";
 
 export type CreateTaskInput = {
   title: string;
@@ -12,8 +12,20 @@ export type CreateTaskInput = {
   plannedDate?: string;
 };
 
-export async function getTasks() {
-  return db.select().from(tasks).orderBy(asc(tasks.position));
+export async function getTasks(environmentId: string) {
+  const envColumns = await db
+    .select({ id: columns.id })
+    .from(columns)
+    .where(eq(columns.environmentId, environmentId));
+
+  if (envColumns.length === 0) return [];
+  const columnIds = envColumns.map((c) => c.id);
+
+  return db
+    .select()
+    .from(tasks)
+    .where(inArray(tasks.columnId, columnIds))
+    .orderBy(asc(tasks.position));
 }
 
 export async function getTasksByColumn(columnId: string) {
@@ -136,11 +148,19 @@ export async function moveTask(
   }
 }
 
-export async function getTasksForToday() {
+export async function getTasksForToday(environmentId: string) {
   const today = new Date().toISOString().split("T")[0];
+  const envColumns = await db
+    .select({ id: columns.id })
+    .from(columns)
+    .where(eq(columns.environmentId, environmentId));
+
+  if (envColumns.length === 0) return [];
+  const columnIds = envColumns.map((c) => c.id);
+
   return db
     .select()
     .from(tasks)
-    .where(eq(tasks.plannedDate, today))
+    .where(and(eq(tasks.plannedDate, today), inArray(tasks.columnId, columnIds)))
     .orderBy(asc(tasks.position));
 }
