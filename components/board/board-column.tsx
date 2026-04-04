@@ -48,10 +48,7 @@ export const BoardColumn = memo(function BoardColumn({
           <div
             ref={provided.innerRef}
             {...provided.droppableProps}
-            className={cn(
-              "flex min-h-[100px] flex-1 flex-col rounded-md p-1 transition-colors",
-              snapshot.isDraggingOver && "bg-muted"
-            )}
+            className="flex min-h-[100px] flex-1 flex-col"
           >
             {tasks.map((task, index) => (
               <Draggable key={task.id} draggableId={task.id} index={index}>
