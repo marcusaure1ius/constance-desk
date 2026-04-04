@@ -3,8 +3,17 @@
 import { useState } from "react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
+import { cn } from "@/lib/utils";
 import { TaskPreviewItem } from "./task-preview-item";
 import type { ParsedTask } from "@/lib/services/groq";
+
+function pluralTasks(n: number): string {
+  const mod10 = n % 10;
+  const mod100 = n % 100;
+  if (mod10 === 1 && mod100 !== 11) return `${n} задача`;
+  if (mod10 >= 2 && mod10 <= 4 && (mod100 < 10 || mod100 >= 20)) return `${n} задачи`;
+  return `${n} задач`;
+}
 
 interface TaskPreviewProps {
   tasks: ParsedTask[];
@@ -38,8 +47,8 @@ export function TaskPreview({ tasks, sourceText, onConfirm, onCancel, isPending 
   return (
     <div className="flex flex-col gap-2">
       {/* Исходный текст */}
-      <div className="flex items-center justify-between rounded-xl border bg-card px-3.5 py-2.5">
-        <span className="truncate text-xs text-muted-foreground max-w-[80%]">
+      <div className="flex items-start justify-between gap-2 rounded-xl border bg-card px-3.5 py-2.5">
+        <span className={cn("text-xs text-muted-foreground", showSource ? "whitespace-pre-wrap" : "truncate max-w-[80%]")}>
           {showSource ? sourceText : sourceText.slice(0, 60) + (sourceText.length > 60 ? "..." : "")}
         </span>
         <button
@@ -82,7 +91,7 @@ export function TaskPreview({ tasks, sourceText, onConfirm, onCancel, isPending 
       <div className="flex items-center justify-between pt-1">
         <span className="text-xs text-muted-foreground">
           {selectedCount === tasks.length
-            ? `${selectedCount} задач выбрано`
+            ? `${pluralTasks(selectedCount)} выбрано`
             : `${selectedCount} из ${tasks.length} выбрано`}
         </span>
         <div className="flex gap-2">
@@ -90,7 +99,7 @@ export function TaskPreview({ tasks, sourceText, onConfirm, onCancel, isPending 
             Отмена
           </Button>
           <Button size="sm" onClick={handleConfirm} disabled={isPending || selectedCount === 0}>
-            {isPending ? "Добавление..." : `Добавить ${selectedCount} ${selectedCount === 1 ? "задачу" : "задач"}`}
+            {isPending ? "Добавление..." : `Добавить ${pluralTasks(selectedCount)}`}
           </Button>
         </div>
       </div>

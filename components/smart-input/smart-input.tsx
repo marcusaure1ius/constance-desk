@@ -75,7 +75,11 @@ export function SmartInput({ defaultColumnId }: SmartInputProps) {
         }));
 
         await createTasksBatchAction(inputs);
-        toast.success(`Добавлено ${tasks.length} ${tasks.length === 1 ? "задача" : "задач"}`);
+        const n = tasks.length;
+        const mod10 = n % 10;
+        const mod100 = n % 100;
+        const word = mod10 === 1 && mod100 !== 11 ? "задача" : mod10 >= 2 && mod10 <= 4 && (mod100 < 10 || mod100 >= 20) ? "задачи" : "задач";
+        toast.success(`Добавлено ${n} ${word}`);
         setText("");
         setParsedTasks([]);
         setState("idle");
