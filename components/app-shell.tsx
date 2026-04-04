@@ -28,6 +28,8 @@ interface AppShellProps {
 export function AppShell({ children, activeEnvironment, environments, nickname }: AppShellProps) {
   const [reportOpen, setReportOpen] = React.useState(false);
   const [todayPlanOpen, setTodayPlanOpen] = React.useState(false);
+  const longPressTimer = React.useRef<ReturnType<typeof setTimeout> | null>(null);
+  const isLongPress = React.useRef(false);
   const router = useRouter();
   const searchParams = useSearchParams();
   const pathname = usePathname();
@@ -47,6 +49,32 @@ export function AppShell({ children, activeEnvironment, environments, nickname }
       if (debounceRef.current) clearTimeout(debounceRef.current);
     };
   }, []);
+
+  function handleFabTouchStart() {
+    isLongPress.current = false;
+    longPressTimer.current = setTimeout(() => {
+      isLongPress.current = true;
+      router.push("/?smart-input=true");
+    }, 500);
+  }
+
+  function handleFabTouchEnd(e: React.TouchEvent) {
+    if (longPressTimer.current) {
+      clearTimeout(longPressTimer.current);
+      longPressTimer.current = null;
+    }
+    if (!isLongPress.current) {
+      e.preventDefault();
+      router.push("/?create=true");
+    }
+  }
+
+  function handleFabTouchCancel() {
+    if (longPressTimer.current) {
+      clearTimeout(longPressTimer.current);
+      longPressTimer.current = null;
+    }
+  }
 
   function handleSearchChange(value: string) {
     setSearchValue(value);
@@ -139,12 +167,15 @@ export function AppShell({ children, activeEnvironment, environments, nickname }
           >
             <CalendarDays className="h-5 w-5" />
           </button>
-          <Link
-            href="/?create=true"
+          <button
+            onTouchStart={handleFabTouchStart}
+            onTouchEnd={handleFabTouchEnd}
+            onTouchCancel={handleFabTouchCancel}
+            onClick={() => router.push("/?create=true")}
             className="flex items-center justify-center size-10 rounded-full bg-primary text-primary-foreground shadow-md"
           >
             <Plus className="h-5 w-5" />
-          </Link>
+          </button>
           <button
             onClick={() => setReportOpen(true)}
             className="flex flex-col items-center justify-center p-2 rounded-lg transition-colors text-muted-foreground"
