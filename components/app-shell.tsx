@@ -10,7 +10,6 @@ import { ReportSidebar } from "@/components/report/report-sidebar";
 import { TodayPlanModal } from "@/components/modals/today-plan-modal";
 import { UserMenu } from "@/components/user-menu";
 import { EnvironmentTheme } from "@/components/environment-theme";
-import { cn } from "@/lib/utils";
 
 type Environment = {
   id: string;

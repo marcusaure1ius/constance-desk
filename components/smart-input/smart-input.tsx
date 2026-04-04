@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useTransition, useRef } from "react";
+import { useState, useTransition, useRef, useCallback } from "react";
 import { Mic, ArrowUp, Square, Loader2 } from "lucide-react";
 import { toast } from "sonner";
 import { cn } from "@/lib/utils";
@@ -9,6 +9,11 @@ import { TaskPreview } from "./task-preview";
 import { createTasksBatchAction } from "@/lib/actions/tasks";
 import { parseTasksAction } from "@/lib/actions/smart-input";
 import type { ParsedTask } from "@/lib/services/groq";
+
+const WAVEFORM_BARS = Array.from({ length: 14 }, () => ({
+  height: 8 + Math.random() * 20,
+  opacity: 0.5 + Math.random() * 0.5,
+}));
 
 type SmartInputState = "idle" | "parsing" | "preview";
 
@@ -25,15 +30,7 @@ export function SmartInput({ defaultColumnId, onDone }: SmartInputProps) {
   const [isPending, startTransition] = useTransition();
   const textareaRef = useRef<HTMLTextAreaElement>(null);
 
-  const recorder = useVoiceRecorder(
-    (transcription) => {
-      setText(transcription);
-      handleParse(transcription);
-    },
-    (error) => toast.error(error)
-  );
-
-  async function handleParse(inputText?: string) {
+  const handleParse = useCallback(async (inputText?: string) => {
     const textToParse = inputText ?? text;
     if (!textToParse.trim()) return;
 
@@ -55,7 +52,15 @@ export function SmartInput({ defaultColumnId, onDone }: SmartInputProps) {
       toast.error("Ошибка при разборе задач");
       setState("idle");
     }
-  }
+  }, [text]);
+
+  const recorder = useVoiceRecorder(
+    (transcription) => {
+      setText(transcription);
+      handleParse(transcription);
+    },
+    (error) => toast.error(error)
+  );
 
   function handleSubmit() {
     if (recorder.state === "recording") {
@@ -138,11 +143,11 @@ export function SmartInput({ defaultColumnId, onDone }: SmartInputProps) {
             <div className="size-3 animate-pulse rounded-full bg-red-500" />
             <span className="text-sm text-foreground">Запись... {recorder.formattedDuration}</span>
             <div className="flex flex-1 items-center gap-0.5 px-4">
-              {Array.from({ length: 14 }).map((_, i) => (
+              {WAVEFORM_BARS.map((bar, i) => (
                 <div
                   key={i}
                   className="w-[3px] rounded-full bg-red-500"
-                  style={{ height: `${8 + Math.random() * 20}px`, opacity: 0.5 + Math.random() * 0.5 }}
+                  style={{ height: `${bar.height}px`, opacity: bar.opacity }}
                 />
               ))}
             </div>
