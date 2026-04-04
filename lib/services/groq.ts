@@ -1,5 +1,5 @@
 const GROQ_API_URL = "https://api.groq.com/openai/v1";
-const GROQ_CHAT_MODEL = "gpt-oss-20b";
+const GROQ_CHAT_MODEL = "openai/gpt-oss-20b";
 const GROQ_WHISPER_MODEL = "whisper-large-v3";
 
 export type ParsedTask = {
