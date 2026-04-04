@@ -124,7 +124,7 @@ export function KanbanBoard({
 
   return (
     <>
-      <div className="hidden sm:flex items-center justify-between p-4 pb-0 container mx-auto">
+      <div className="hidden md:flex items-center justify-between p-4 pb-0">
         <Button onClick={() => setCreateModalOpen(true)}>
           <Plus className="mr-2 h-4 w-4" />
           Добавить задачу
@@ -138,7 +138,7 @@ export function KanbanBoard({
 
       <DragDropContext onDragEnd={searchQuery ? () => {} : handleDragEnd}>
         {/* Desktop: horizontal columns */}
-        <div className="hidden md:flex gap-4 overflow-x-auto p-4 h-full container mx-auto">
+        <div className="hidden md:flex gap-4 overflow-x-auto p-4 h-full">
           {columns.map((col) => (
             <BoardColumn
               key={col.id}

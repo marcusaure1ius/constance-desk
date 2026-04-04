@@ -67,8 +67,8 @@ export function AppShell({ children, activeEnvironment, environments, nickname }
           <Link href="/" className="text-lg font-bold shrink-0">
             Constance
           </Link>
-          <div className="relative flex-1 mx-2 md:flex-none md:absolute md:left-1/2 md:top-1/2 md:-translate-x-1/2 md:-translate-y-1/2 md:w-full md:max-w-md md:px-4">
-            <Search className="absolute left-3 md:left-7 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
+          <div className="relative flex-1 mx-2 md:max-w-md">
+            <Search className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
             <Input
               placeholder="Поиск..."
               value={searchValue}
@@ -77,7 +77,7 @@ export function AppShell({ children, activeEnvironment, environments, nickname }
             />
           </div>
           <div className="flex items-center gap-3 ml-auto">
-            <nav className="hidden sm:flex items-center gap-0.5 rounded-full bg-muted p-1">
+            <nav className="hidden md:flex items-center gap-0.5 rounded-full bg-muted p-1">
               <Link
                 href="/"
                 className={`px-3 py-1 text-sm font-medium rounded-full transition-colors ${
@@ -115,9 +115,9 @@ export function AppShell({ children, activeEnvironment, environments, nickname }
           </div>
         </div>
       </header>
-      <main className="flex-1 pb-16 sm:pb-0">{children}</main>
+      <main className="flex-1 pb-16 md:pb-0">{children}</main>
 
-      <nav className="fixed bottom-0 left-0 right-0 z-50 border-t bg-background sm:hidden">
+      <nav className="fixed bottom-0 left-0 right-0 z-50 border-t bg-background md:hidden">
         <div className="flex h-14 items-center justify-around px-2">
           <Link
             href="/"
