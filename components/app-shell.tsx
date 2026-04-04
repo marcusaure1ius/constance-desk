@@ -2,6 +2,7 @@
 
 import * as React from "react";
 import Link from "next/link";
+import { LogoIcon } from "@/components/logo-icon";
 import { useRouter, useSearchParams, usePathname } from "next/navigation";
 import { Search, LayoutDashboard, CalendarDays, Plus, BarChart3, Settings } from "lucide-react";
 import { Input } from "@/components/ui/input";
@@ -64,8 +65,11 @@ export function AppShell({ children, activeEnvironment, environments, nickname }
       <EnvironmentTheme color={activeEnvironment?.color ?? null} />
       <header className="border-b bg-background">
         <div className="container mx-auto relative flex h-14 items-center gap-4 px-4">
-          <Link href="/" className="text-lg font-bold shrink-0">
-            Constance
+          <Link href="/" className="flex items-center gap-2 shrink-0">
+            <LogoIcon size={22} />
+            <span className="text-sm font-semibold uppercase tracking-[2.5px]">
+              Constance
+            </span>
           </Link>
           <div className="relative flex-1 mx-2 md:max-w-md">
             <Search className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
