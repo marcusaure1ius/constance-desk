@@ -181,7 +181,7 @@ export function KanbanBoard({
 
       <DragDropContext onDragEnd={searchQuery ? () => {} : handleDragEnd}>
         {/* Desktop: horizontal columns */}
-        <div className="hidden md:flex gap-4 overflow-x-auto container mx-auto px-4 py-4 h-full">
+        <div className="hidden md:flex gap-4 overflow-x-auto container mx-auto px-4 py-4 pb-20 h-full">
           {columns.map((col) => (
             <BoardColumn
               key={col.id}
@@ -194,8 +194,8 @@ export function KanbanBoard({
         </div>
       </DragDropContext>
 
-      {/* Desktop: SmartInput below columns */}
-      <div className="hidden md:block pt-2">
+      {/* Desktop: SmartInput fixed at bottom */}
+      <div className="hidden md:block fixed bottom-0 left-0 right-0 z-40 bg-background/80 backdrop-blur-sm border-t pb-4 pt-2">
         <SmartInput defaultColumnId={columns[0]?.id ?? ""} />
       </div>
 
