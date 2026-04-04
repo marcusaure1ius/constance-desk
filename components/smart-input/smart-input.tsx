@@ -14,9 +14,10 @@ type SmartInputState = "idle" | "parsing" | "preview";
 
 interface SmartInputProps {
   defaultColumnId: string;
+  onDone?: () => void;
 }
 
-export function SmartInput({ defaultColumnId }: SmartInputProps) {
+export function SmartInput({ defaultColumnId, onDone }: SmartInputProps) {
   const [text, setText] = useState("");
   const [state, setState] = useState<SmartInputState>("idle");
   const [parsedTasks, setParsedTasks] = useState<ParsedTask[]>([]);
@@ -83,6 +84,7 @@ export function SmartInput({ defaultColumnId }: SmartInputProps) {
         setText("");
         setParsedTasks([]);
         setState("idle");
+        onDone?.();
       } catch {
         toast.error("Не удалось создать задачи");
       }

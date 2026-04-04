@@ -18,7 +18,7 @@ export function SmartInputSheet({ open, onOpenChange, defaultColumnId }: SmartIn
     <Sheet open={open} onOpenChange={onOpenChange}>
       <SheetContent side="bottom" className="rounded-t-2xl px-0 pt-4 pb-6 gap-0" showCloseButton={false}>
         <SheetTitle className="sr-only">AI Smart Input</SheetTitle>
-        <SmartInput defaultColumnId={defaultColumnId} />
+        <SmartInput defaultColumnId={defaultColumnId} onDone={() => onOpenChange(false)} />
       </SheetContent>
     </Sheet>
   );
