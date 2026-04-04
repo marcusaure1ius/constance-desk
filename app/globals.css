@@ -142,3 +142,9 @@
 ::view-transition-new(root) {
   z-index: 9999;
 }
+
+@keyframes fab-ring {
+  to {
+    stroke-dashoffset: 0;
+  }
+}

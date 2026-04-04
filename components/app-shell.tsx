@@ -10,6 +10,7 @@ import { ReportSidebar } from "@/components/report/report-sidebar";
 import { TodayPlanModal } from "@/components/modals/today-plan-modal";
 import { UserMenu } from "@/components/user-menu";
 import { EnvironmentTheme } from "@/components/environment-theme";
+import { cn } from "@/lib/utils";
 
 type Environment = {
   id: string;
@@ -50,15 +51,20 @@ export function AppShell({ children, activeEnvironment, environments, nickname }
     };
   }, []);
 
+  const [fabPressed, setFabPressed] = React.useState(false);
+
   function handleFabTouchStart() {
     isLongPress.current = false;
+    setFabPressed(true);
     longPressTimer.current = setTimeout(() => {
       isLongPress.current = true;
+      setFabPressed(false);
       router.push("/?smart-input=true");
     }, 500);
   }
 
   function handleFabTouchEnd(e: React.TouchEvent) {
+    setFabPressed(false);
     if (longPressTimer.current) {
       clearTimeout(longPressTimer.current);
       longPressTimer.current = null;
@@ -70,6 +76,7 @@ export function AppShell({ children, activeEnvironment, environments, nickname }
   }
 
   function handleFabTouchCancel() {
+    setFabPressed(false);
     if (longPressTimer.current) {
       clearTimeout(longPressTimer.current);
       longPressTimer.current = null;
@@ -172,8 +179,22 @@ export function AppShell({ children, activeEnvironment, environments, nickname }
             onTouchEnd={handleFabTouchEnd}
             onTouchCancel={handleFabTouchCancel}
             onClick={() => router.push("/?create=true")}
-            className="flex items-center justify-center size-10 rounded-full bg-primary text-primary-foreground shadow-md"
+            className="relative flex items-center justify-center size-10 rounded-full bg-primary text-primary-foreground shadow-md"
           >
+            {fabPressed && (
+              <svg className="absolute inset-[-6px] size-[calc(100%+12px)]" viewBox="0 0 52 52">
+                <circle
+                  cx="26" cy="26" r="24"
+                  fill="none"
+                  stroke="currentColor"
+                  strokeWidth="4"
+                  strokeLinecap="round"
+                  strokeDasharray="150.8"
+                  strokeDashoffset="150.8"
+                  className="animate-[fab-ring_500ms_linear_forwards] text-primary"
+                />
+              </svg>
+            )}
             <Plus className="h-5 w-5" />
           </button>
           <button
