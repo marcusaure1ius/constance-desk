@@ -3,7 +3,7 @@
 import * as React from "react";
 import Link from "next/link";
 import { useRouter, useSearchParams, usePathname } from "next/navigation";
-import { Search } from "lucide-react";
+import { Search, LayoutDashboard, CalendarDays, Plus, BarChart3, Settings } from "lucide-react";
 import { Input } from "@/components/ui/input";
 import { ReportSidebar } from "@/components/report/report-sidebar";
 import { TodayPlanModal } from "@/components/modals/today-plan-modal";
@@ -67,16 +67,14 @@ export function AppShell({ children, activeEnvironment, environments, nickname }
           <Link href="/" className="text-lg font-bold shrink-0">
             Constance
           </Link>
-          <div className="absolute left-1/2 top-1/2 -translate-x-1/2 -translate-y-1/2 hidden md:block w-full max-w-md px-4">
-            <div className="relative">
-              <Search className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
-              <Input
-                placeholder="Поиск..."
-                value={searchValue}
-                onChange={(e) => handleSearchChange(e.target.value)}
-                className="w-full rounded-full border-none bg-muted pl-9 pr-4 focus-visible:ring-0 focus-visible:border-none"
-              />
-            </div>
+          <div className="relative flex-1 mx-2 md:flex-none md:absolute md:left-1/2 md:top-1/2 md:-translate-x-1/2 md:-translate-y-1/2 md:w-full md:max-w-md md:px-4">
+            <Search className="absolute left-3 md:left-7 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
+            <Input
+              placeholder="Поиск..."
+              value={searchValue}
+              onChange={(e) => handleSearchChange(e.target.value)}
+              className="w-full rounded-full border-none bg-muted pl-9 pr-4 focus-visible:ring-0 focus-visible:border-none"
+            />
           </div>
           <div className="flex items-center gap-3 ml-auto">
             <nav className="hidden sm:flex items-center gap-0.5 rounded-full bg-muted p-1">
@@ -117,7 +115,46 @@ export function AppShell({ children, activeEnvironment, environments, nickname }
           </div>
         </div>
       </header>
-      <main className="flex-1">{children}</main>
+      <main className="flex-1 pb-16 sm:pb-0">{children}</main>
+
+      <nav className="fixed bottom-0 left-0 right-0 z-50 border-t bg-background sm:hidden">
+        <div className="flex h-14 items-center justify-around px-2">
+          <Link
+            href="/"
+            className={`flex flex-col items-center justify-center p-2 rounded-lg transition-colors ${
+              pathname === "/" ? "text-foreground" : "text-muted-foreground"
+            }`}
+          >
+            <LayoutDashboard className="h-5 w-5" />
+          </Link>
+          <button
+            onClick={() => setTodayPlanOpen(true)}
+            className="flex flex-col items-center justify-center p-2 rounded-lg transition-colors text-muted-foreground"
+          >
+            <CalendarDays className="h-5 w-5" />
+          </button>
+          <Link
+            href="/?create=true"
+            className="flex items-center justify-center size-10 rounded-full bg-primary text-primary-foreground shadow-md"
+          >
+            <Plus className="h-5 w-5" />
+          </Link>
+          <button
+            onClick={() => setReportOpen(true)}
+            className="flex flex-col items-center justify-center p-2 rounded-lg transition-colors text-muted-foreground"
+          >
+            <BarChart3 className="h-5 w-5" />
+          </button>
+          <Link
+            href="/settings"
+            className={`flex flex-col items-center justify-center p-2 rounded-lg transition-colors ${
+              pathname === "/settings" ? "text-foreground" : "text-muted-foreground"
+            }`}
+          >
+            <Settings className="h-5 w-5" />
+          </Link>
+        </div>
+      </nav>
 
       <ReportSidebar open={reportOpen} onOpenChange={setReportOpen} environmentId={activeEnvironment?.id ?? ""} />
       <TodayPlanModal open={todayPlanOpen} onOpenChange={setTodayPlanOpen} environmentId={activeEnvironment?.id ?? ""} />

@@ -1,7 +1,7 @@
 "use client";
 
 import { useState, useEffect, useTransition } from "react";
-import { useSearchParams } from "next/navigation";
+import { useSearchParams, useRouter } from "next/navigation";
 import { DragDropContext, type DropResult } from "@hello-pangea/dnd";
 import { Plus } from "lucide-react";
 import { BoardColumn } from "./board-column";
@@ -49,7 +49,15 @@ export function KanbanBoard({
   const [editingTaskId, setEditingTaskId] = useState<string | null>(null);
   const editingTask = editingTaskId ? tasks.find((t) => t.id === editingTaskId) : null;
   const searchParams = useSearchParams();
+  const router = useRouter();
   const searchQuery = searchParams.get("q")?.toLowerCase() ?? "";
+
+  useEffect(() => {
+    if (searchParams.get("create") === "true") {
+      setCreateModalOpen(true);
+      router.replace("/", { scroll: false });
+    }
+  }, [searchParams, router]);
 
   const filteredCount = searchQuery
     ? tasks.filter((t) => t.title.toLowerCase().includes(searchQuery)).length
