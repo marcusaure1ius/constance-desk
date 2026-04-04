@@ -83,7 +83,7 @@ jobs:
       - run: npm test
 
   build:
-    needs: setup
+    needs: [lint, typecheck, test]
     runs-on: ubuntu-latest
     env:
       DATABASE_URL: postgresql://fake:fake@localhost:5432/fake
