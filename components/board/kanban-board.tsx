@@ -159,13 +159,16 @@ export function KanbanBoard({
               key={col.id}
               onClick={() => setActiveTab(col.id)}
               className={cn(
-                "flex-1 px-3 py-1 text-sm font-medium rounded-full whitespace-nowrap transition-colors",
+                "flex-1 flex items-center justify-between gap-1.5 px-3 py-1 text-sm font-medium rounded-full whitespace-nowrap transition-colors",
                 activeTab === col.id
                   ? "bg-background text-foreground shadow-sm"
                   : "text-muted-foreground"
               )}
             >
-              {col.title} ({getTasksForColumn(col.id).length})
+              {col.title}
+              <span className="inline-flex items-center justify-center size-5 rounded-full bg-muted-foreground/15 text-xs">
+                {getTasksForColumn(col.id).length}
+              </span>
             </button>
           ))}
         </div>

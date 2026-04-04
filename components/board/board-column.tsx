@@ -38,7 +38,9 @@ export function BoardColumn({
     <div className="flex w-72 flex-shrink-0 flex-col rounded-lg bg-muted/50 p-2">
       <div className="mb-2 flex items-center justify-between px-2">
         <h3 className="text-sm font-semibold">{column.title}</h3>
-        <span className="text-xs text-muted-foreground">{tasks.length}</span>
+        <span className="inline-flex items-center justify-center size-5 rounded-full bg-muted-foreground/15 text-xs">
+          {tasks.length}
+        </span>
       </div>
       <Droppable droppableId={column.id}>
         {(provided, snapshot) => (
