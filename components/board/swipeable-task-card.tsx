@@ -1,6 +1,6 @@
 "use client";
 
-import { useRef, useState, useCallback, type TouchEvent } from "react";
+import { useRef, useState, useCallback, useEffect, type TouchEvent } from "react";
 import { ArrowRightLeft } from "lucide-react";
 import { TaskCard } from "./task-card";
 
@@ -41,9 +41,22 @@ export function SwipeableTaskCard({
   const [offsetX, setOffsetX] = useState(0);
   const [isOpen, setIsOpen] = useState(false);
   const [isDragging, setIsDragging] = useState(false);
+  const containerRef = useRef<HTMLDivElement>(null);
   const startXRef = useRef(0);
   const startYRef = useRef(0);
   const isVerticalRef = useRef(false);
+
+  useEffect(() => {
+    if (!isOpen) return;
+    function handleTouchOutside(e: globalThis.TouchEvent) {
+      if (containerRef.current && !containerRef.current.contains(e.target as Node)) {
+        setOffsetX(0);
+        setIsOpen(false);
+      }
+    }
+    document.addEventListener("touchstart", handleTouchOutside);
+    return () => document.removeEventListener("touchstart", handleTouchOutside);
+  }, [isOpen]);
 
   const handleTouchStart = useCallback((e: TouchEvent) => {
     startXRef.current = e.touches[0].clientX;
@@ -107,7 +120,7 @@ export function SwipeableTaskCard({
   }, [isOpen, onClick]);
 
   return (
-    <div className="relative overflow-hidden rounded-lg">
+    <div ref={containerRef} className="relative overflow-hidden rounded-lg">
       {/* Кнопка перемещения */}
       <button
         onClick={handleMovePress}
