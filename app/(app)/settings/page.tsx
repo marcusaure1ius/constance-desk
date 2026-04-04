@@ -8,6 +8,7 @@ import { EnvironmentsManager } from "@/components/settings/environments-manager"
 import { PinChangeForm } from "@/components/settings/pin-change-form";
 import { getNickname } from "@/lib/services/auth";
 import { NicknameForm } from "@/components/settings/nickname-form";
+import { DangerZone } from "@/components/settings/danger-zone";
 
 export const dynamic = "force-dynamic";
 
@@ -32,6 +33,7 @@ export default async function SettingsPage() {
       <ColumnsManager columns={cols} environmentId={activeEnv.id} />
       <CategoriesManager categories={cats} environmentId={activeEnv.id} />
       <PinChangeForm />
+      <DangerZone />
     </div>
   );
 }

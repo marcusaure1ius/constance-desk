@@ -8,6 +8,9 @@ import {
   createSession,
   destroySession,
 } from "@/lib/services/auth";
+import { db } from "@/lib/db";
+import { tasks, columns, categories, environments, settings } from "@/lib/db/schema";
+import { eq } from "drizzle-orm";
 
 export async function loginAction(pin: string): Promise<{ error?: string }> {
   const valid = await verifyPin(pin);
@@ -49,4 +52,22 @@ export async function updateNicknameAction(
 
 export async function logoutAction(): Promise<void> {
   await destroySession();
+}
+
+export async function deleteAllDataAction(
+  pin: string
+): Promise<{ error?: string }> {
+  const valid = await verifyPin(pin);
+  if (!valid) return { error: "Неверный PIN" };
+
+  // Удаляем всё: tasks → environments (cascade удалит columns и categories) → settings
+  await db.delete(tasks);
+  await db.delete(environments);
+  await db
+    .update(settings)
+    .set({ pinHash: null, nickname: null, updatedAt: new Date() })
+    .where(eq(settings.id, 1));
+
+  await destroySession();
+  return {};
 }
