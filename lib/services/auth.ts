@@ -44,6 +44,21 @@ export async function verifyApiKey(apiKey: string): Promise<boolean> {
   return verifyPin(apiKey);
 }
 
+export async function getNickname(): Promise<string | null> {
+  const [row] = await db
+    .select({ nickname: settings.nickname })
+    .from(settings)
+    .where(eq(settings.id, 1));
+  return row?.nickname ?? null;
+}
+
+export async function setNickname(nickname: string): Promise<void> {
+  await db
+    .update(settings)
+    .set({ nickname, updatedAt: new Date() })
+    .where(eq(settings.id, 1));
+}
+
 export async function createSession(): Promise<void> {
   const token = await new SignJWT({ authenticated: true })
     .setProtectedHeader({ alg: "HS256" })
