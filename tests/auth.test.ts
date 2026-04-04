@@ -1,19 +1,19 @@
 import { describe, it, expect, vi, beforeEach } from "vitest";
 
-const { mockDb, selectChain, updateChain } = vi.hoisted(() => {
+const { mockDb, selectChain, insertChain } = vi.hoisted(() => {
   const selectChain = {
     from: vi.fn().mockReturnThis(),
     where: vi.fn(),
   };
-  const updateChain = {
-    set: vi.fn().mockReturnThis(),
-    where: vi.fn(),
+  const insertChain = {
+    values: vi.fn().mockReturnThis(),
+    onConflictDoUpdate: vi.fn().mockResolvedValue(undefined),
   };
   const mockDb = {
     select: vi.fn(() => selectChain),
-    update: vi.fn(() => updateChain),
+    insert: vi.fn(() => insertChain),
   };
-  return { mockDb, selectChain, updateChain };
+  return { mockDb, selectChain, insertChain };
 });
 
 vi.mock("@/lib/db", () => ({ db: mockDb }));
@@ -104,13 +104,13 @@ describe("getNickname", () => {
 describe("setNickname", () => {
   beforeEach(() => {
     vi.clearAllMocks();
-    mockDb.update.mockReturnValue(updateChain);
-    updateChain.set.mockReturnValue(updateChain);
+    mockDb.insert.mockReturnValue(insertChain);
+    insertChain.values.mockReturnValue(insertChain);
   });
 
   it("обновляет ник", async () => {
-    updateChain.where.mockResolvedValue(undefined);
+    insertChain.onConflictDoUpdate.mockResolvedValue(undefined);
     await expect(setNickname("Боб")).resolves.not.toThrow();
-    expect(mockDb.update).toHaveBeenCalled();
+    expect(mockDb.insert).toHaveBeenCalled();
   });
 });

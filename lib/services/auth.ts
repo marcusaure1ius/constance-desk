@@ -26,9 +26,12 @@ export async function isPinSet(): Promise<boolean> {
 export async function setPin(pin: string): Promise<void> {
   const hash = await bcrypt.hash(pin, 10);
   await db
-    .update(settings)
-    .set({ pinHash: hash, updatedAt: new Date() })
-    .where(eq(settings.id, 1));
+    .insert(settings)
+    .values({ id: 1, pinHash: hash })
+    .onConflictDoUpdate({
+      target: settings.id,
+      set: { pinHash: hash, updatedAt: new Date() },
+    });
 }
 
 export async function verifyPin(pin: string): Promise<boolean> {
@@ -54,9 +57,12 @@ export async function getNickname(): Promise<string | null> {
 
 export async function setNickname(nickname: string): Promise<void> {
   await db
-    .update(settings)
-    .set({ nickname, updatedAt: new Date() })
-    .where(eq(settings.id, 1));
+    .insert(settings)
+    .values({ id: 1, nickname })
+    .onConflictDoUpdate({
+      target: settings.id,
+      set: { nickname, updatedAt: new Date() },
+    });
 }
 
 export async function createSession(): Promise<void> {
