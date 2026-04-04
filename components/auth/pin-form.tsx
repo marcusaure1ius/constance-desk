@@ -7,6 +7,7 @@ import {
   InputOTPSlot,
 } from "@/components/ui/input-otp";
 import { Button } from "@/components/ui/button";
+import { Input } from "@/components/ui/input";
 import { loginAction, setupPinAction } from "@/lib/actions/auth";
 import { useRouter } from "next/navigation";
 
@@ -17,6 +18,7 @@ interface PinFormProps {
 export function PinForm({ mode }: PinFormProps) {
   const [pin, setPin] = useState("");
   const [confirmPin, setConfirmPin] = useState("");
+  const [nickname, setNickname] = useState("");
   const [error, setError] = useState("");
   const [step, setStep] = useState<"enter" | "confirm">("enter");
   const [isPending, startTransition] = useTransition();
@@ -39,11 +41,11 @@ export function PinForm({ mode }: PinFormProps) {
       }
     }
 
-    const action = mode === "setup" ? setupPinAction : loginAction;
-    const value = mode === "setup" ? pin : pin;
-
     startTransition(async () => {
-      const result = await action(value);
+      const result =
+        mode === "setup"
+          ? await setupPinAction(pin, nickname.trim())
+          : await loginAction(pin);
       if (result.error) {
         setError(result.error);
         setPin("");
@@ -68,6 +70,21 @@ export function PinForm({ mode }: PinFormProps) {
             : "Придумайте PIN"
           : "Введите PIN"}
       </h1>
+      {mode === "setup" && step === "enter" && (
+        <div className="w-full space-y-1">
+          <label htmlFor="nickname" className="text-sm text-muted-foreground">
+            Ваш ник
+          </label>
+          <Input
+            id="nickname"
+            value={nickname}
+            onChange={(e) => setNickname(e.target.value)}
+            placeholder="Например, Алексей"
+            maxLength={50}
+            autoFocus
+          />
+        </div>
+      )}
       <InputOTP
         maxLength={6}
         value={currentValue}
@@ -81,7 +98,14 @@ export function PinForm({ mode }: PinFormProps) {
         </InputOTPGroup>
       </InputOTP>
       {error && <p className="text-sm text-destructive">{error}</p>}
-      <Button onClick={handleSubmit} disabled={currentValue.length < 6 || isPending}>
+      <Button
+        onClick={handleSubmit}
+        disabled={
+          currentValue.length < 6 ||
+          isPending ||
+          (mode === "setup" && step === "enter" && !nickname.trim())
+        }
+      >
         {isPending
           ? "Проверка..."
           : mode === "setup" && step === "enter"
