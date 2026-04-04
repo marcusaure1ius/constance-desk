@@ -10,6 +10,7 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { loginAction, setupPinAction } from "@/lib/actions/auth";
 import { useRouter } from "next/navigation";
+import { ArrowLeft } from "lucide-react";
 
 interface PinFormProps {
   mode: "login" | "setup";
@@ -62,12 +63,12 @@ export function PinForm({ mode }: PinFormProps) {
   const setCurrentValue = step === "confirm" ? setConfirmPin : setPin;
 
   return (
-    <div className="flex flex-col items-center gap-6">
-      <h1 className="text-2xl font-bold">
+    <div className="flex w-80 flex-col items-center gap-6">
+      <h1 className="text-2xl font-bold whitespace-nowrap">
         {mode === "setup"
           ? step === "confirm"
             ? "Подтвердите PIN"
-            : "Придумайте PIN"
+            : "Привет, давай знакомиться!"
           : "Введите PIN"}
       </h1>
       {mode === "setup" && step === "enter" && (
@@ -85,33 +86,58 @@ export function PinForm({ mode }: PinFormProps) {
           />
         </div>
       )}
-      <InputOTP
-        maxLength={6}
-        value={currentValue}
-        onChange={setCurrentValue}
-        onComplete={handleSubmit}
-      >
-        <InputOTPGroup>
-          {Array.from({ length: 6 }).map((_, i) => (
-            <InputOTPSlot key={i} index={i} />
-          ))}
-        </InputOTPGroup>
-      </InputOTP>
+      <div className="w-full space-y-1">
+        {mode === "setup" && step === "enter" && (
+          <label className="text-sm text-muted-foreground">
+            Придумайте пин
+          </label>
+        )}
+        <InputOTP
+          maxLength={6}
+          value={currentValue}
+          onChange={setCurrentValue}
+          onComplete={handleSubmit}
+          containerClassName="w-full"
+        >
+          <InputOTPGroup className="w-full">
+            {Array.from({ length: 6 }).map((_, i) => (
+              <InputOTPSlot key={i} index={i} className="h-10 flex-1" />
+            ))}
+          </InputOTPGroup>
+        </InputOTP>
+      </div>
       {error && <p className="text-sm text-destructive">{error}</p>}
-      <Button
-        onClick={handleSubmit}
-        disabled={
-          currentValue.length < 6 ||
-          isPending ||
-          (mode === "setup" && step === "enter" && !nickname.trim())
-        }
-      >
-        {isPending
-          ? "Проверка..."
-          : mode === "setup" && step === "enter"
-            ? "Далее"
-            : "Войти"}
-      </Button>
+      <div className="flex w-full items-center gap-2">
+        {mode === "setup" && step === "confirm" && (
+          <Button
+            variant="outline"
+            size="icon"
+            onClick={() => {
+              setStep("enter");
+              setPin("");
+              setConfirmPin("");
+              setError("");
+            }}
+          >
+            <ArrowLeft className="size-4" />
+          </Button>
+        )}
+        <Button
+          className="flex-1"
+          onClick={handleSubmit}
+          disabled={
+            currentValue.length < 6 ||
+            isPending ||
+            (mode === "setup" && step === "enter" && !nickname.trim())
+          }
+        >
+          {isPending
+            ? "Проверка..."
+            : mode === "setup" && step === "enter"
+              ? "Далее"
+              : "Войти"}
+        </Button>
+      </div>
     </div>
   );
 }

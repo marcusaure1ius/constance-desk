@@ -8,6 +8,7 @@ import {
   createSession,
   destroySession,
 } from "@/lib/services/auth";
+import { createEnvironment, getEnvironments } from "@/lib/services/environments";
 import { db } from "@/lib/db";
 import { tasks, columns, categories, environments, settings } from "@/lib/db/schema";
 import { eq } from "drizzle-orm";
@@ -27,6 +28,13 @@ export async function setupPinAction(
   if (alreadySet) return { error: "PIN уже установлен" };
   await setPin(pin);
   await setNickname(nickname);
+
+  // Создать дефолтную среду с колонками если нет ни одной
+  const existingEnvs = await getEnvironments();
+  if (existingEnvs.length === 0) {
+    await createEnvironment("Основная", "#3b82f6");
+  }
+
   await createSession();
   return {};
 }
