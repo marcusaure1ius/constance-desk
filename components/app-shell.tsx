@@ -2,10 +2,8 @@
 
 import * as React from "react";
 import Link from "next/link";
-import { useRouter, useSearchParams } from "next/navigation";
-import { Button, buttonVariants } from "@/components/ui/button";
-import { cn } from "@/lib/utils";
-import { CalendarDays, BarChart3, Settings, LayoutDashboard, Search } from "lucide-react";
+import { useRouter, useSearchParams, usePathname } from "next/navigation";
+import { Search } from "lucide-react";
 import { Input } from "@/components/ui/input";
 import { ReportSidebar } from "@/components/report/report-sidebar";
 import { TodayPlanModal } from "@/components/modals/today-plan-modal";
@@ -31,6 +29,7 @@ export function AppShell({ children, activeEnvironment, environments, nickname }
   const [todayPlanOpen, setTodayPlanOpen] = React.useState(false);
   const router = useRouter();
   const searchParams = useSearchParams();
+  const pathname = usePathname();
   const searchParamsRef = React.useRef(searchParams);
   searchParamsRef.current = searchParams;
   const [searchValue, setSearchValue] = React.useState(searchParams.get("q") ?? "");
@@ -64,42 +63,56 @@ export function AppShell({ children, activeEnvironment, environments, nickname }
     <div className="flex min-h-screen flex-col">
       <EnvironmentTheme color={activeEnvironment?.color ?? null} />
       <header className="border-b bg-background">
-        <div className="container mx-auto flex h-14 items-center gap-4 px-4">
+        <div className="container mx-auto relative flex h-14 items-center gap-4 px-4">
           <Link href="/" className="text-lg font-bold shrink-0">
             Constance
           </Link>
-          <div className="relative hidden md:block">
-            <Search className="absolute left-2.5 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
-            <Input
-              placeholder="Поиск..."
-              value={searchValue}
-              onChange={(e) => handleSearchChange(e.target.value)}
-              className="w-64 pl-9 pr-3"
-            />
+          <div className="absolute left-1/2 top-1/2 -translate-x-1/2 -translate-y-1/2 hidden md:block w-full max-w-md px-4">
+            <div className="relative">
+              <Search className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
+              <Input
+                placeholder="Поиск..."
+                value={searchValue}
+                onChange={(e) => handleSearchChange(e.target.value)}
+                className="w-full rounded-full border-none bg-muted pl-9 pr-4 focus-visible:ring-0 focus-visible:border-none"
+              />
+            </div>
           </div>
-          <div className="flex items-center gap-2 ml-auto">
-            <Link
-              href="/"
-              className={cn(buttonVariants({ variant: "ghost", size: "sm" }))}
-            >
-              <LayoutDashboard className="mr-2 h-4 w-4" />
-              <span className="hidden sm:inline">Доска</span>
-            </Link>
-            <Button variant="ghost" size="sm" onClick={() => setTodayPlanOpen(true)}>
-              <CalendarDays className="mr-2 h-4 w-4" />
-              <span className="hidden sm:inline">План на сегодня</span>
-            </Button>
-            <Button variant="ghost" size="sm" onClick={() => setReportOpen(true)}>
-              <BarChart3 className="mr-2 h-4 w-4" />
-              <span className="hidden sm:inline">Отчёт</span>
-            </Button>
-            <Link
-              href="/settings"
-              className={cn(buttonVariants({ variant: "ghost", size: "sm" }))}
-            >
-              <Settings className="mr-2 h-4 w-4" />
-              <span className="hidden sm:inline">Настройки</span>
-            </Link>
+          <div className="flex items-center gap-3 ml-auto">
+            <nav className="hidden sm:flex items-center gap-0.5 rounded-full bg-muted p-1">
+              <Link
+                href="/"
+                className={`px-3 py-1 text-sm font-medium rounded-full transition-colors ${
+                  pathname === "/"
+                    ? "bg-background text-foreground shadow-sm"
+                    : "text-muted-foreground hover:text-foreground"
+                }`}
+              >
+                Доска
+              </Link>
+              <button
+                onClick={() => setTodayPlanOpen(true)}
+                className="px-3 py-1 text-sm font-medium rounded-full transition-colors text-muted-foreground hover:text-foreground"
+              >
+                План на сегодня
+              </button>
+              <button
+                onClick={() => setReportOpen(true)}
+                className="px-3 py-1 text-sm font-medium rounded-full transition-colors text-muted-foreground hover:text-foreground"
+              >
+                Отчёт
+              </button>
+              <Link
+                href="/settings"
+                className={`px-3 py-1 text-sm font-medium rounded-full transition-colors ${
+                  pathname === "/settings"
+                    ? "bg-background text-foreground shadow-sm"
+                    : "text-muted-foreground hover:text-foreground"
+                }`}
+              >
+                Настройки
+              </Link>
+            </nav>
             <UserMenu activeEnvironment={activeEnvironment} environments={environments} nickname={nickname} />
           </div>
         </div>
