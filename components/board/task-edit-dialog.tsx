@@ -94,7 +94,7 @@ export function TaskEditDialog({
           categoryId: categoryId || null,
           priority,
           plannedDate: plannedDate
-            ? plannedDate.toISOString().split("T")[0]
+            ? format(plannedDate, "yyyy-MM-dd")
             : null,
         });
         toast.success("Задача обновлена");

@@ -46,7 +46,7 @@ interface CreateTaskModalProps {
 }
 
 function getToday() {
-  return new Date().toISOString().split("T")[0];
+  return format(new Date(), "yyyy-MM-dd");
 }
 
 export function CreateTaskModal({
@@ -92,10 +92,10 @@ export function CreateTaskModal({
           categoryId: categoryId || undefined,
           priority,
           startDate: startDate
-            ? startDate.toISOString().split("T")[0]
+            ? format(startDate, "yyyy-MM-dd")
             : getToday(),
           plannedDate: plannedDate
-            ? plannedDate.toISOString().split("T")[0]
+            ? format(plannedDate, "yyyy-MM-dd")
             : undefined,
         });
 
