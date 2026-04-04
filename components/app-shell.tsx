@@ -10,6 +10,7 @@ import { ReportSidebar } from "@/components/report/report-sidebar";
 import { TodayPlanModal } from "@/components/modals/today-plan-modal";
 import { UserMenu } from "@/components/user-menu";
 import { EnvironmentTheme } from "@/components/environment-theme";
+import { useScrollDirection } from "@/hooks/use-scroll-direction";
 
 type Environment = {
   id: string;
@@ -26,6 +27,19 @@ interface AppShellProps {
 }
 
 export function AppShell({ children, activeEnvironment, environments, nickname }: AppShellProps) {
+  const navbarVisible = useScrollDirection();
+  const headerRef = React.useRef<HTMLElement>(null);
+  const [headerHeight, setHeaderHeight] = React.useState(0);
+
+  React.useEffect(() => {
+    if (!headerRef.current) return;
+    const observer = new ResizeObserver(([entry]) => {
+      setHeaderHeight(entry.contentRect.height + 16); // 16px = margin top + bottom (8+8)
+    });
+    observer.observe(headerRef.current);
+    return () => observer.disconnect();
+  }, []);
+
   const [reportOpen, setReportOpen] = React.useState(false);
   const [todayPlanOpen, setTodayPlanOpen] = React.useState(false);
   const longPressTimer = React.useRef<ReturnType<typeof setTimeout> | null>(null);
@@ -99,8 +113,14 @@ export function AppShell({ children, activeEnvironment, environments, nickname }
   return (
     <div className="flex min-h-screen flex-col">
       <EnvironmentTheme color={activeEnvironment?.color ?? null} />
-      <header className="border-b bg-background">
-        <div className="container mx-auto relative flex h-14 items-center gap-4 px-4">
+      <header
+        ref={headerRef}
+        className={`fixed top-0 left-0 right-0 z-50 transition-transform duration-300 ease-in-out ${
+          navbarVisible ? "translate-y-0" : "-translate-y-[calc(100%+16px)]"
+        }`}
+      >
+        <div className="mx-2 mt-2 mb-2 rounded-2xl bg-background/72 backdrop-blur-xl border border-white/30 dark:border-white/10 shadow-[0_4px_30px_rgba(0,0,0,0.06)]">
+          <div className="container mx-auto relative flex h-14 items-center gap-4 px-4">
           <Link href="/" className="flex items-center gap-2 shrink-0">
             <LogoIcon size={22} />
             <span className="hidden sm:inline text-sm font-semibold uppercase tracking-[2.5px]">
@@ -153,9 +173,11 @@ export function AppShell({ children, activeEnvironment, environments, nickname }
             </nav>
             <UserMenu activeEnvironment={activeEnvironment} environments={environments} nickname={nickname} />
           </div>
+          </div>
+          <div id="navbar-tabs-slot" className="md:hidden" />
         </div>
       </header>
-      <main className="flex-1 pb-16 md:pb-0">{children}</main>
+      <main className="flex-1 pb-16 md:pb-0" style={{ paddingTop: headerHeight }}>{children}</main>
 
       <nav className="fixed bottom-0 left-0 right-0 z-50 border-t bg-background md:hidden">
         <div className="flex h-14 items-center justify-around px-2">
