@@ -13,6 +13,7 @@ export const priorityEnum = pgEnum("priority", ["urgent", "high", "normal"]);
 export const settings = pgTable("settings", {
   id: integer("id").primaryKey().default(1),
   pinHash: text("pin_hash"),
+  nickname: text("nickname"),
   createdAt: timestamp("created_at").defaultNow().notNull(),
   updatedAt: timestamp("updated_at").defaultNow().notNull(),
 });
