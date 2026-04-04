@@ -1,6 +1,7 @@
 "use client";
 
 import { useState, useRef, useCallback } from "react";
+import { transcribeAction } from "@/lib/actions/smart-input";
 
 type RecordingState = "idle" | "recording" | "transcribing";
 
@@ -40,10 +41,8 @@ export function useVoiceRecorder(
         try {
           const formData = new FormData();
           formData.append("file", file);
-          const res = await fetch("/api/ai/transcribe", { method: "POST", body: formData });
-          if (!res.ok) throw new Error();
-          const data = await res.json();
-          onTranscription(data.text);
+          const text = await transcribeAction(formData);
+          onTranscription(text);
         } catch {
           onError("Не удалось распознать речь");
         } finally {

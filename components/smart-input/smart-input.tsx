@@ -7,6 +7,7 @@ import { cn } from "@/lib/utils";
 import { useVoiceRecorder } from "./voice-recorder";
 import { TaskPreview } from "./task-preview";
 import { createTasksBatchAction } from "@/lib/actions/tasks";
+import { parseTasksAction } from "@/lib/actions/smart-input";
 import type { ParsedTask } from "@/lib/services/groq";
 
 type SmartInputState = "idle" | "parsing" | "preview";
@@ -39,22 +40,15 @@ export function SmartInput({ defaultColumnId }: SmartInputProps) {
     setState("parsing");
 
     try {
-      const res = await fetch("/api/ai/parse-tasks", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ text: textToParse }),
-      });
+      const tasks = await parseTasksAction(textToParse);
 
-      if (!res.ok) throw new Error();
-
-      const data = await res.json();
-      if (data.tasks.length === 0) {
+      if (tasks.length === 0) {
         toast.error("Не удалось разобрать задачи из текста");
         setState("idle");
         return;
       }
 
-      setParsedTasks(data.tasks);
+      setParsedTasks(tasks);
       setState("preview");
     } catch {
       toast.error("Ошибка при разборе задач");
