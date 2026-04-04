@@ -152,8 +152,8 @@ export function SmartInput({ defaultColumnId }: SmartInputProps) {
           <div className="py-2">
             <div className="mb-2 text-sm text-muted-foreground/60">{sourceText}</div>
             <div className="flex items-center gap-2">
-              <Loader2 className="size-4 animate-spin text-indigo-400" />
-              <span className="text-sm text-indigo-400">Разбираю на задачи...</span>
+              <Loader2 className="size-4 animate-spin text-primary" />
+              <span className="text-sm text-primary">Разбираю на задачи...</span>
             </div>
           </div>
         )}

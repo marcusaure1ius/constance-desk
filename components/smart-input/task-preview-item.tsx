@@ -31,7 +31,7 @@ export function TaskPreviewItem({ task, checked, onToggle, onEdit }: TaskPreview
         <div
           className={cn(
             "flex size-[18px] items-center justify-center rounded",
-            checked ? "bg-indigo-500" : "border-2 border-muted-foreground/40"
+            checked ? "bg-primary" : "border-2 border-muted-foreground/40"
           )}
         >
           {checked && (

@@ -54,7 +54,7 @@ export function TaskPreview({ tasks, sourceText, onConfirm, onCancel, isPending 
         <button
           type="button"
           onClick={() => setShowSource((v) => !v)}
-          className="shrink-0 text-[11px] text-indigo-400"
+          className="shrink-0 text-[11px] text-primary"
         >
           {showSource ? "скрыть" : "показать"}
         </button>
