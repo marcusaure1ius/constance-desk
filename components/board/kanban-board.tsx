@@ -13,6 +13,8 @@ import { Button } from "@/components/ui/button";
 import { CreateTaskModal } from "@/components/modals/create-task-modal";
 import { MoveTaskModal } from "@/components/modals/move-task-modal";
 import { TaskEditDialog } from "./task-edit-dialog";
+import { SmartInput } from "@/components/smart-input/smart-input";
+import { SmartInputSheet } from "@/components/smart-input/smart-input-sheet";
 
 type Column = { id: string; title: string; position: number };
 type Task = {
@@ -46,6 +48,7 @@ export function KanbanBoard({
   const [, startTransition] = useTransition();
   const [activeTab, setActiveTab] = useState(columns[0]?.id);
   const [createModalOpen, setCreateModalOpen] = useState(false);
+  const [smartInputOpen, setSmartInputOpen] = useState(false);
   const [editingTaskId, setEditingTaskId] = useState<string | null>(null);
   const [movingTaskId, setMovingTaskId] = useState<string | null>(null);
   const editingTask = editingTaskId ? tasks.find((t) => t.id === editingTaskId) : null;
@@ -57,6 +60,13 @@ export function KanbanBoard({
   useEffect(() => {
     if (searchParams.get("create") === "true") {
       setCreateModalOpen(true);
+      router.replace("/", { scroll: false });
+    }
+  }, [searchParams, router]);
+
+  useEffect(() => {
+    if (searchParams.get("smart-input") === "true") {
+      setSmartInputOpen(true);
       router.replace("/", { scroll: false });
     }
   }, [searchParams, router]);
@@ -184,6 +194,11 @@ export function KanbanBoard({
         </div>
       </DragDropContext>
 
+      {/* Desktop: SmartInput below columns */}
+      <div className="hidden md:block pt-2">
+        <SmartInput defaultColumnId={columns[0]?.id ?? ""} />
+      </div>
+
       {/* Mobile: tabs */}
       <div className="md:hidden flex flex-col">
         <div className="flex items-center gap-0.5 rounded-full bg-muted p-1 mx-4 mt-3 overflow-x-auto">
@@ -249,6 +264,12 @@ export function KanbanBoard({
           onSelect={(columnId) => handleMoveTask(movingTask.id, columnId)}
         />
       )}
+
+      <SmartInputSheet
+        open={smartInputOpen}
+        onOpenChange={setSmartInputOpen}
+        defaultColumnId={columns[0]?.id ?? ""}
+      />
     </>
   );
 }
