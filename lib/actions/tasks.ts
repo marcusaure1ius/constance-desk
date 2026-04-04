@@ -6,6 +6,7 @@ import {
   updateTask as updateTaskService,
   deleteTask as deleteTaskService,
   moveTask as moveTaskService,
+  createTasksBatch,
   type CreateTaskInput,
 } from "@/lib/services/tasks";
 
@@ -42,6 +43,12 @@ export async function moveTaskAction(
 ) {
   await moveTaskService(taskId, targetColumnId, targetPosition);
   revalidatePath("/");
+}
+
+export async function createTasksBatchAction(inputs: CreateTaskInput[]) {
+  const created = await createTasksBatch(inputs);
+  revalidatePath("/");
+  return created;
 }
 
 import { getWeeklyReport, formatReportAsText } from "@/lib/services/reports";

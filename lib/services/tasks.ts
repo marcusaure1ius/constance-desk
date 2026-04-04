@@ -148,6 +148,15 @@ export async function moveTask(
   }
 }
 
+export async function createTasksBatch(inputs: CreateTaskInput[]): Promise<typeof tasks.$inferSelect[]> {
+  const results = [];
+  for (const input of inputs) {
+    const task = await createTask(input);
+    results.push(task);
+  }
+  return results;
+}
+
 export async function getTasksForToday(environmentId: string) {
   const today = new Date().toISOString().split("T")[0];
   const envColumns = await db
