@@ -50,12 +50,9 @@ function MobileColumnTabs({
   setActiveTab: (id: string) => void;
   tasksByColumn: Map<string, Task[]>;
 }) {
-  const [slot, setSlot] = useState<HTMLElement | null>(null);
+  if (typeof document === "undefined") return null;
 
-  useEffect(() => {
-    setSlot(document.getElementById("navbar-tabs-slot"));
-  }, []);
-
+  const slot = document.getElementById("navbar-tabs-slot");
   if (!slot) return null;
 
   return createPortal(
