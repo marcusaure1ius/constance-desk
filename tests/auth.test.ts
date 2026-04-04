@@ -27,7 +27,7 @@ vi.mock("next/headers", () => ({
   ),
 }));
 
-import { isPinSet, verifyPin, getNickname, setNickname } from "@/lib/services/auth";
+import { isPinSet, verifyPin, setPin, verifyApiKey, getNickname, setNickname, createSession, destroySession } from "@/lib/services/auth";
 
 describe("isPinSet", () => {
   beforeEach(() => {
@@ -101,6 +101,34 @@ describe("getNickname", () => {
   });
 });
 
+describe("setPin", () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+    mockDb.insert.mockReturnValue(insertChain);
+    insertChain.values.mockReturnValue(insertChain);
+  });
+
+  it("хеширует и сохраняет PIN", async () => {
+    insertChain.onConflictDoUpdate.mockResolvedValue(undefined);
+    await expect(setPin("1234")).resolves.not.toThrow();
+    expect(mockDb.insert).toHaveBeenCalled();
+  });
+});
+
+describe("verifyApiKey", () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+    mockDb.select.mockReturnValue(selectChain);
+    selectChain.from.mockReturnValue(selectChain);
+  });
+
+  it("делегирует проверку в verifyPin", async () => {
+    selectChain.where.mockResolvedValue([{ pinHash: null }]);
+    const result = await verifyApiKey("1234");
+    expect(result).toBe(false);
+  });
+});
+
 describe("setNickname", () => {
   beforeEach(() => {
     vi.clearAllMocks();
@@ -112,5 +140,17 @@ describe("setNickname", () => {
     insertChain.onConflictDoUpdate.mockResolvedValue(undefined);
     await expect(setNickname("Боб")).resolves.not.toThrow();
     expect(mockDb.insert).toHaveBeenCalled();
+  });
+});
+
+describe("createSession", () => {
+  it("создаёт JWT и устанавливает cookie", async () => {
+    await expect(createSession()).resolves.not.toThrow();
+  });
+});
+
+describe("destroySession", () => {
+  it("удаляет cookie сессии", async () => {
+    await expect(destroySession()).resolves.not.toThrow();
   });
 });

@@ -34,6 +34,7 @@ import {
   getTasks,
   getTasksByColumn,
   createTask,
+  createTasksBatch,
   updateTask,
   deleteTask,
   moveTask,
@@ -183,6 +184,38 @@ describe("moveTask", () => {
     selectChain.orderBy.mockResolvedValueOnce([]);
 
     await expect(moveTask("t1", "col-2", 0)).resolves.not.toThrow();
+  });
+});
+
+describe("createTasksBatch", () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+    mockDb.select.mockReturnValue(selectChain);
+    selectChain.from.mockReturnValue(selectChain);
+    mockDb.insert.mockReturnValue(insertChain);
+    insertChain.values.mockReturnValue(insertChain);
+  });
+
+  it("создаёт несколько задач последовательно", async () => {
+    const task1 = { id: "1", title: "Первая", position: 0, columnId: "col-1" };
+    const task2 = { id: "2", title: "Вторая", position: 1, columnId: "col-1" };
+    selectChain.where.mockResolvedValueOnce([{ max: null }]);
+    insertChain.returning.mockResolvedValueOnce([task1]);
+    selectChain.where.mockResolvedValueOnce([{ max: 0 }]);
+    insertChain.returning.mockResolvedValueOnce([task2]);
+
+    const result = await createTasksBatch([
+      { title: "Первая", columnId: "col-1" },
+      { title: "Вторая", columnId: "col-1" },
+    ]);
+    expect(result).toHaveLength(2);
+    expect(result[0]).toEqual(task1);
+    expect(result[1]).toEqual(task2);
+  });
+
+  it("возвращает пустой массив для пустого ввода", async () => {
+    const result = await createTasksBatch([]);
+    expect(result).toEqual([]);
   });
 });
 

@@ -7,7 +7,7 @@ import { parseTasks } from "@/lib/services/groq";
  * Запуск: npm test -- tests/groq.integration.test.ts
  */
 
-describe("parseTasks — реальные запросы к Groq", () => {
+describe.skipIf(!process.env.GROQ_API_KEY)("parseTasks — реальные запросы к Groq", () => {
   it("разбирает несколько задач из потока текста", async () => {
     const result = await parseTasks(
       "Починить баг с авторизацией, это срочно. Ещё нужно обновить документацию по API и добавить валидацию на форму регистрации"
