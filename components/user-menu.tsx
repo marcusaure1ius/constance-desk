@@ -29,9 +29,10 @@ type Environment = {
 interface UserMenuProps {
   activeEnvironment: Environment | null;
   environments: Environment[];
+  nickname: string | null;
 }
 
-export function UserMenu({ activeEnvironment, environments }: UserMenuProps) {
+export function UserMenu({ activeEnvironment, environments, nickname }: UserMenuProps) {
   const [isPending, startTransition] = useTransition();
   const [createOpen, setCreateOpen] = useState(false);
   const router = useRouter();
@@ -64,7 +65,9 @@ export function UserMenu({ activeEnvironment, environments }: UserMenuProps) {
             className="border-[3px]"
             style={{ borderColor: ringColor }}
           >
-            <AvatarFallback>C</AvatarFallback>
+            <AvatarFallback>
+              {nickname ? nickname[0].toUpperCase() : "C"}
+            </AvatarFallback>
           </Avatar>
         </DropdownMenuTrigger>
         <DropdownMenuContent align="end" sideOffset={8} className="min-w-48">

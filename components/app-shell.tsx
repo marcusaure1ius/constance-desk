@@ -23,9 +23,10 @@ interface AppShellProps {
   children: React.ReactNode;
   activeEnvironment: Environment | null;
   environments: Environment[];
+  nickname: string | null;
 }
 
-export function AppShell({ children, activeEnvironment, environments }: AppShellProps) {
+export function AppShell({ children, activeEnvironment, environments, nickname }: AppShellProps) {
   const [reportOpen, setReportOpen] = React.useState(false);
   const [todayPlanOpen, setTodayPlanOpen] = React.useState(false);
   const router = useRouter();
@@ -99,7 +100,7 @@ export function AppShell({ children, activeEnvironment, environments }: AppShell
               <Settings className="mr-2 h-4 w-4" />
               <span className="hidden sm:inline">Настройки</span>
             </Link>
-            <UserMenu activeEnvironment={activeEnvironment} environments={environments} />
+            <UserMenu activeEnvironment={activeEnvironment} environments={environments} nickname={nickname} />
           </div>
         </div>
       </header>
