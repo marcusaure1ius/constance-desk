@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useEffect, useTransition } from "react";
+import { useState, useEffect, useTransition, useMemo, useCallback } from "react";
 import { useSearchParams, useRouter } from "next/navigation";
 import { DragDropContext, type DropResult } from "@hello-pangea/dnd";
 import { Plus } from "lucide-react";
@@ -59,18 +59,23 @@ export function KanbanBoard({
     }
   }, [searchParams, router]);
 
+  const tasksByColumn = useMemo(() => {
+    const map = new Map<string, Task[]>();
+    for (const col of columns) {
+      const filtered = tasks
+        .filter((t) => t.columnId === col.id)
+        .filter((t) => !searchQuery || t.title.toLowerCase().includes(searchQuery))
+        .sort((a, b) => a.position - b.position);
+      map.set(col.id, filtered);
+    }
+    return map;
+  }, [tasks, columns, searchQuery]);
+
   const filteredCount = searchQuery
-    ? tasks.filter((t) => t.title.toLowerCase().includes(searchQuery)).length
+    ? Array.from(tasksByColumn.values()).reduce((sum, arr) => sum + arr.length, 0)
     : 0;
 
-  function getTasksForColumn(columnId: string) {
-    return tasks
-      .filter((t) => t.columnId === columnId)
-      .filter((t) => !searchQuery || t.title.toLowerCase().includes(searchQuery))
-      .sort((a, b) => a.position - b.position);
-  }
-
-  function handleDragEnd(result: DropResult) {
+  const handleDragEnd = useCallback(function handleDragEnd(result: DropResult) {
     const { source, destination, draggableId } = result;
     if (!destination) return;
     if (
@@ -120,7 +125,7 @@ export function KanbanBoard({
         toast.error("Не удалось переместить задачу");
       }
     });
-  }
+  }, [tasks, startTransition]);
 
   return (
     <>
@@ -143,7 +148,7 @@ export function KanbanBoard({
             <BoardColumn
               key={col.id}
               column={col}
-              tasks={getTasksForColumn(col.id)}
+              tasks={(tasksByColumn.get(col.id) ?? [])}
               categories={categories}
               onTaskClick={setEditingTaskId}
             />
@@ -167,14 +172,14 @@ export function KanbanBoard({
             >
               {col.title}
               <span className="inline-flex items-center justify-center size-5 rounded-full bg-muted-foreground/15 text-xs">
-                {getTasksForColumn(col.id).length}
+                {(tasksByColumn.get(col.id) ?? []).length}
               </span>
             </button>
           ))}
         </div>
         <div className="p-4 space-y-2">
           {activeTab &&
-            getTasksForColumn(activeTab).map((task) => (
+            (tasksByColumn.get(activeTab) ?? []).map((task) => (
               <TaskCard
                 key={task.id}
                 task={task}

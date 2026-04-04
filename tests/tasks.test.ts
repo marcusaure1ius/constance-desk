@@ -36,6 +36,8 @@ import {
   createTask,
   updateTask,
   deleteTask,
+  moveTask,
+  getTasksForToday,
 } from "@/lib/services/tasks";
 
 describe("getTasks", () => {
@@ -145,5 +147,66 @@ describe("deleteTask", () => {
   it("удаляет задачу", async () => {
     deleteChain.where.mockResolvedValue(undefined);
     await expect(deleteTask("1")).resolves.not.toThrow();
+  });
+});
+
+describe("moveTask", () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+    mockDb.select.mockReturnValue(selectChain);
+    selectChain.from.mockReturnValue(selectChain);
+    mockDb.update.mockReturnValue(updateChain);
+    updateChain.set.mockReturnValue(updateChain);
+  });
+
+  it("перемещает задачу в другую колонку", async () => {
+    // currentTask
+    selectChain.where.mockResolvedValueOnce([{ columnId: "col-1" }]);
+    // allColumns ordered by desc position
+    selectChain.orderBy.mockResolvedValueOnce([
+      { id: "col-3", position: 2 },
+      { id: "col-2", position: 1 },
+      { id: "col-1", position: 0 },
+    ]);
+    // update task
+    updateChain.where.mockResolvedValueOnce(undefined);
+    // tasks in target column
+    selectChain.where.mockReturnValueOnce(selectChain);
+    selectChain.orderBy.mockResolvedValueOnce([
+      { id: "t1", position: 0 },
+      { id: "t2", position: 1 },
+    ]);
+    // renumber target
+    updateChain.where.mockResolvedValue(undefined);
+    // tasks in source column
+    selectChain.where.mockReturnValueOnce(selectChain);
+    selectChain.orderBy.mockResolvedValueOnce([]);
+
+    await expect(moveTask("t1", "col-2", 0)).resolves.not.toThrow();
+  });
+});
+
+describe("getTasksForToday", () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+    mockDb.select.mockReturnValue(selectChain);
+    selectChain.from.mockReturnValue(selectChain);
+  });
+
+  it("возвращает задачи на сегодня", async () => {
+    // envColumns
+    selectChain.where.mockResolvedValueOnce([{ id: "col-1" }]);
+    // tasks for today
+    selectChain.where.mockReturnValueOnce(selectChain);
+    const todayTasks = [{ id: "1", title: "Задача на сегодня" }];
+    selectChain.orderBy.mockResolvedValue(todayTasks);
+    const result = await getTasksForToday("env-1");
+    expect(result).toEqual(todayTasks);
+  });
+
+  it("возвращает пустой массив если нет колонок", async () => {
+    selectChain.where.mockResolvedValueOnce([]);
+    const result = await getTasksForToday("env-1");
+    expect(result).toEqual([]);
   });
 });

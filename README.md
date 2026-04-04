@@ -1,36 +1,39 @@
-This is a [Next.js](https://nextjs.org) project bootstrapped with [`create-next-app`](https://nextjs.org/docs/app/api-reference/cli/create-next-app).
+# Constance
 
-## Getting Started
+Персональная канбан-доска для управления задачами.
 
-First, run the development server:
+## Стек
+
+- **Next.js 16** + React 19 + TypeScript
+- **UI:** shadcn/ui (base-ui), Tailwind CSS 4, lucide-react
+- **БД:** Drizzle ORM + Neon PostgreSQL
+- **DnD:** @hello-pangea/dnd
+- **Тесты:** Vitest
+
+## Запуск
 
 ```bash
-npm run dev
-# or
-yarn dev
-# or
-pnpm dev
-# or
-bun dev
+npm install
+cp .env.example .env.local   # настроить DATABASE_URL и SESSION_SECRET
+npm run db:push               # применить схему к БД
+npm run db:seed               # заполнить начальные данные
+npm run dev                   # запустить dev-сервер
 ```
 
-Open [http://localhost:3000](http://localhost:3000) with your browser to see the result.
+## Команды
 
-You can start editing the page by modifying `app/page.tsx`. The page auto-updates as you edit the file.
+| Команда | Описание |
+|---|---|
+| `npm run dev` | Dev-сервер |
+| `npm run build` | Продакшн-билд |
+| `npm test` | Запуск тестов |
+| `npm run db:push` | Применить схему к БД |
+| `npm run db:seed` | Заполнить начальные данные |
+| `npm run db:studio` | Drizzle Studio |
 
-This project uses [`next/font`](https://nextjs.org/docs/app/building-your-application/optimizing/fonts) to automatically optimize and load [Geist](https://vercel.com/font), a new font family for Vercel.
+## Деплой
 
-## Learn More
+Проект настроен для деплоя на [Vercel](https://vercel.com). Необходимые переменные окружения:
 
-To learn more about Next.js, take a look at the following resources:
-
-- [Next.js Documentation](https://nextjs.org/docs) - learn about Next.js features and API.
-- [Learn Next.js](https://nextjs.org/learn) - an interactive Next.js tutorial.
-
-You can check out [the Next.js GitHub repository](https://github.com/vercel/next.js) - your feedback and contributions are welcome!
-
-## Deploy on Vercel
-
-The easiest way to deploy your Next.js app is to use the [Vercel Platform](https://vercel.com/new?utm_medium=default-template&filter=next.js&utm_source=create-next-app&utm_campaign=create-next-app-readme) from the creators of Next.js.
-
-Check out our [Next.js deployment documentation](https://nextjs.org/docs/app/building-your-application/deploying) for more details.
+- `DATABASE_URL` — строка подключения к Neon PostgreSQL
+- `SESSION_SECRET` — секрет для JWT-сессий

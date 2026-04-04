@@ -27,7 +27,7 @@ vi.mock("next/headers", () => ({
   ),
 }));
 
-import { isPinSet, verifyPin } from "@/lib/services/auth";
+import { isPinSet, verifyPin, getNickname, setNickname } from "@/lib/services/auth";
 
 describe("isPinSet", () => {
   beforeEach(() => {
@@ -72,5 +72,45 @@ describe("verifyPin", () => {
     selectChain.where.mockResolvedValue([]);
     const result = await verifyPin("1234");
     expect(result).toBe(false);
+  });
+});
+
+describe("getNickname", () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+    mockDb.select.mockReturnValue(selectChain);
+    selectChain.from.mockReturnValue(selectChain);
+  });
+
+  it("возвращает ник если он установлен", async () => {
+    selectChain.where.mockResolvedValue([{ nickname: "Алиса" }]);
+    const result = await getNickname();
+    expect(result).toBe("Алиса");
+  });
+
+  it("возвращает null если ника нет", async () => {
+    selectChain.where.mockResolvedValue([{ nickname: null }]);
+    const result = await getNickname();
+    expect(result).toBeNull();
+  });
+
+  it("возвращает null если записи нет", async () => {
+    selectChain.where.mockResolvedValue([]);
+    const result = await getNickname();
+    expect(result).toBeNull();
+  });
+});
+
+describe("setNickname", () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+    mockDb.update.mockReturnValue(updateChain);
+    updateChain.set.mockReturnValue(updateChain);
+  });
+
+  it("обновляет ник", async () => {
+    updateChain.where.mockResolvedValue(undefined);
+    await expect(setNickname("Боб")).resolves.not.toThrow();
+    expect(mockDb.update).toHaveBeenCalled();
   });
 });

@@ -1,5 +1,6 @@
 "use client";
 
+import { memo } from "react";
 import { Droppable, Draggable } from "@hello-pangea/dnd";
 import { TaskCard } from "./task-card";
 import { cn } from "@/lib/utils";
@@ -28,7 +29,7 @@ interface BoardColumnProps {
   onTaskClick?: (taskId: string) => void;
 }
 
-export function BoardColumn({
+export const BoardColumn = memo(function BoardColumn({
   column,
   tasks,
   categories,
@@ -75,4 +76,4 @@ export function BoardColumn({
       </Droppable>
     </div>
   );
-}
+});

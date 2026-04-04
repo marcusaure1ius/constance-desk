@@ -1,10 +1,21 @@
-import { describe, it, expect, vi } from "vitest";
+import { describe, it, expect, vi, beforeEach } from "vitest";
 
-vi.mock("@/lib/db", () => ({
-  db: {},
-}));
+const { mockDb, selectChain } = vi.hoisted(() => {
+  const selectChain = {
+    from: vi.fn().mockReturnThis(),
+    where: vi.fn().mockReturnThis(),
+    orderBy: vi.fn(),
+    leftJoin: vi.fn().mockReturnThis(),
+  };
+  const mockDb = {
+    select: vi.fn(() => selectChain),
+  };
+  return { mockDb, selectChain };
+});
 
-import { formatReportAsText, type WeeklyReport } from "@/lib/services/reports";
+vi.mock("@/lib/db", () => ({ db: mockDb }));
+
+import { formatReportAsText, getWeeklyReport, type WeeklyReport } from "@/lib/services/reports";
 
 describe("formatReportAsText", () => {
   const baseReport: WeeklyReport = {
@@ -73,5 +84,39 @@ describe("formatReportAsText", () => {
     };
     const text = formatReportAsText(report);
     expect(text).toMatch(/✓ Задача —/);
+  });
+});
+
+describe("getWeeklyReport", () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+    mockDb.select.mockReturnValue(selectChain);
+    selectChain.from.mockReturnValue(selectChain);
+  });
+
+  it("возвращает пустой отчёт если нет колонок", async () => {
+    selectChain.where.mockResolvedValueOnce([]);
+    const result = await getWeeklyReport(new Date(2026, 2, 4), "env-1");
+    expect(result.completedCount).toBe(0);
+    expect(result.startedCount).toBe(0);
+    expect(result.completedTasks).toEqual([]);
+  });
+
+  it("возвращает отчёт с задачами", async () => {
+    // envColumns
+    selectChain.where.mockResolvedValueOnce([{ id: "col-1" }]);
+    // completed tasks query
+    selectChain.leftJoin.mockReturnValue(selectChain);
+    selectChain.where.mockReturnValueOnce(selectChain);
+    selectChain.orderBy.mockResolvedValueOnce([
+      { id: "1", title: "Готово", description: null, completedAt: new Date(2026, 2, 3), categoryName: "Работа" },
+    ]);
+    // started tasks query
+    selectChain.where.mockResolvedValueOnce([{ id: "1" }, { id: "2" }]);
+
+    const result = await getWeeklyReport(new Date(2026, 2, 4), "env-1");
+    expect(result.completedCount).toBe(1);
+    expect(result.startedCount).toBe(2);
+    expect(result.completedTasks[0].title).toBe("Готово");
   });
 });

@@ -33,7 +33,9 @@ vi.mock("@/lib/db", () => ({ db: mockDb }));
 import {
   getColumns,
   createColumn,
+  updateColumn,
   deleteColumn,
+  reorderColumns,
 } from "@/lib/services/columns";
 
 describe("getColumns", () => {
@@ -81,6 +83,36 @@ describe("createColumn", () => {
     insertChain.returning.mockResolvedValue([col]);
     const result = await createColumn("Третья", "env-1");
     expect(result).toEqual(col);
+  });
+});
+
+describe("updateColumn", () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+    mockDb.update.mockReturnValue(updateChain);
+    updateChain.set.mockReturnValue(updateChain);
+    updateChain.where.mockReturnValue(updateChain);
+  });
+
+  it("обновляет название колонки", async () => {
+    const col = { id: "1", title: "Обновлённая" };
+    updateChain.returning.mockResolvedValue([col]);
+    const result = await updateColumn("1", "Обновлённая");
+    expect(result).toEqual(col);
+  });
+});
+
+describe("reorderColumns", () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+    mockDb.update.mockReturnValue(updateChain);
+    updateChain.set.mockReturnValue(updateChain);
+    updateChain.where.mockResolvedValue(undefined);
+  });
+
+  it("переупорядочивает колонки", async () => {
+    await expect(reorderColumns(["c2", "c1", "c3"])).resolves.not.toThrow();
+    expect(mockDb.update).toHaveBeenCalledTimes(3);
   });
 });
 

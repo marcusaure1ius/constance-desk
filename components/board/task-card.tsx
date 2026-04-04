@@ -1,5 +1,6 @@
 "use client";
 
+import { memo } from "react";
 import { Badge } from "@/components/ui/badge";
 import { formatDate, cn } from "@/lib/utils";
 
@@ -31,7 +32,7 @@ const priorityDot = {
   normal: "bg-gray-400",
 };
 
-export function TaskCard({ task, categories, onClick }: TaskCardProps) {
+export const TaskCard = memo(function TaskCard({ task, categories, onClick }: TaskCardProps) {
   const category = categories.find((c) => c.id === task.categoryId);
   const hasDateOrCategory = task.completedAt || task.plannedDate || category;
 
@@ -63,4 +64,4 @@ export function TaskCard({ task, categories, onClick }: TaskCardProps) {
       )}
     </div>
   );
-}
+});

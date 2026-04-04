@@ -75,18 +75,6 @@ export async function createSession(): Promise<void> {
   });
 }
 
-export async function verifySession(): Promise<boolean> {
-  const cookieStore = await cookies();
-  const token = cookieStore.get(SESSION_COOKIE)?.value;
-  if (!token) return false;
-  try {
-    await jwtVerify(token, SESSION_SECRET);
-    return true;
-  } catch {
-    return false;
-  }
-}
-
 export async function destroySession(): Promise<void> {
   const cookieStore = await cookies();
   cookieStore.delete(SESSION_COOKIE);
