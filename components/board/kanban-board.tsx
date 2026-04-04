@@ -195,7 +195,7 @@ export function KanbanBoard({
       </DragDropContext>
 
       {/* Desktop: SmartInput fixed at bottom */}
-      <div className="hidden md:block fixed bottom-0 left-0 right-0 z-40 bg-background/80 backdrop-blur-sm border-t pb-4 pt-2">
+      <div className="hidden md:block fixed bottom-0 left-0 right-0 z-40 bg-background/80 backdrop-blur-sm pb-4 pt-2">
         <SmartInput defaultColumnId={columns[0]?.id ?? ""} />
       </div>
 
