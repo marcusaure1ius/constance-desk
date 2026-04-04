@@ -34,7 +34,8 @@ const priorityDot = {
 
 export const TaskCard = memo(function TaskCard({ task, categories, onClick }: TaskCardProps) {
   const category = categories.find((c) => c.id === task.categoryId);
-  const hasDateOrCategory = task.completedAt || task.plannedDate || category;
+  const showPriority = task.priority !== "normal" && !task.completedAt && !task.plannedDate;
+  const hasExtra = task.completedAt || task.plannedDate || category || showPriority;
 
   return (
     <div
@@ -42,7 +43,7 @@ export const TaskCard = memo(function TaskCard({ task, categories, onClick }: Ta
       className="cursor-pointer rounded-lg border bg-card p-3 shadow-sm transition-shadow hover:shadow-md"
     >
       <p className="font-medium text-sm">{task.title}</p>
-      {hasDateOrCategory && (
+      {hasExtra && (
         <div className="mt-2 flex flex-wrap items-center gap-1.5">
           {task.completedAt ? (
             <span className="inline-flex items-center gap-1.5 rounded-full border px-2 py-0.5 text-xs text-muted-foreground">
@@ -53,6 +54,11 @@ export const TaskCard = memo(function TaskCard({ task, categories, onClick }: Ta
             <span className="inline-flex items-center gap-1.5 rounded-full border px-2 py-0.5 text-xs text-muted-foreground">
               <span className={cn("size-2 shrink-0 rounded-full", priorityDot[task.priority])} />
               до {formatDate(task.plannedDate)}
+            </span>
+          ) : showPriority ? (
+            <span className="inline-flex items-center gap-1.5 rounded-full border px-2 py-0.5 text-xs text-muted-foreground">
+              <span className={cn("size-2 shrink-0 rounded-full", priorityDot[task.priority])} />
+              {task.priority === "urgent" ? "Срочный" : "Высокий"}
             </span>
           ) : null}
           {category && (

@@ -127,7 +127,7 @@ export function SmartInput({ defaultColumnId }: SmartInputProps) {
         className={cn(
           "rounded-2xl border bg-card p-3 transition-all",
           isRecording && "border-red-500 ring-[3px] ring-red-500/10",
-          (hasText || isParsing) && !isRecording && "border-indigo-500 ring-[3px] ring-indigo-500/10",
+          (hasText || isParsing) && !isRecording && "border-primary ring-[3px] ring-primary/10",
         )}
       >
         {/* Recording state */}
@@ -214,7 +214,7 @@ export function SmartInput({ defaultColumnId }: SmartInputProps) {
                 disabled={!hasText}
                 className={cn(
                   "flex size-8 items-center justify-center rounded-full transition-colors",
-                  hasText ? "bg-indigo-500 text-white" : "bg-muted-foreground/30 text-white"
+                  hasText ? "bg-primary text-primary-foreground" : "bg-muted-foreground/30 text-white"
                 )}
               >
                 <ArrowUp className="size-4" />

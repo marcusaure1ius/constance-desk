@@ -49,7 +49,7 @@ export const BoardColumn = memo(function BoardColumn({
             ref={provided.innerRef}
             {...provided.droppableProps}
             className={cn(
-              "flex min-h-[100px] flex-1 flex-col gap-2 rounded-md p-1 transition-colors",
+              "flex min-h-[100px] flex-1 flex-col rounded-md p-1 transition-colors",
               snapshot.isDraggingOver && "bg-muted"
             )}
           >
@@ -60,6 +60,7 @@ export const BoardColumn = memo(function BoardColumn({
                     ref={provided.innerRef}
                     {...provided.draggableProps}
                     {...provided.dragHandleProps}
+                    className="mb-2 last:mb-0"
                   >
                     <TaskCard
                       task={task}
