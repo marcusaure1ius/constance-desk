@@ -124,7 +124,7 @@ export function KanbanBoard({
 
   return (
     <>
-      <div className="flex items-center justify-between p-4 pb-0 container mx-auto">
+      <div className="hidden sm:flex items-center justify-between p-4 pb-0 container mx-auto">
         <Button onClick={() => setCreateModalOpen(true)}>
           <Plus className="mr-2 h-4 w-4" />
           Добавить задачу
@@ -153,16 +153,16 @@ export function KanbanBoard({
 
       {/* Mobile: tabs */}
       <div className="md:hidden flex flex-col">
-        <div className="flex border-b overflow-x-auto">
+        <div className="flex items-center gap-0.5 rounded-full bg-muted p-1 mx-4 mt-3 overflow-x-auto">
           {columns.map((col) => (
             <button
               key={col.id}
               onClick={() => setActiveTab(col.id)}
               className={cn(
-                "px-4 py-2 text-sm font-medium whitespace-nowrap border-b-2 transition-colors",
+                "flex-1 px-3 py-1 text-sm font-medium rounded-full whitespace-nowrap transition-colors",
                 activeTab === col.id
-                  ? "border-primary text-primary"
-                  : "border-transparent text-muted-foreground"
+                  ? "bg-background text-foreground shadow-sm"
+                  : "text-muted-foreground"
               )}
             >
               {col.title} ({getTasksForColumn(col.id).length})
