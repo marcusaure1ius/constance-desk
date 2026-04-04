@@ -67,7 +67,7 @@ export function AppShell({ children, activeEnvironment, environments, nickname }
         <div className="container mx-auto relative flex h-14 items-center gap-4 px-4">
           <Link href="/" className="flex items-center gap-2 shrink-0">
             <LogoIcon size={22} />
-            <span className="text-sm font-semibold uppercase tracking-[2.5px]">
+            <span className="hidden sm:inline text-sm font-semibold uppercase tracking-[2.5px]">
               Constance
             </span>
           </Link>
