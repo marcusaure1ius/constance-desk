@@ -5,12 +5,13 @@ import { useSearchParams, useRouter } from "next/navigation";
 import { DragDropContext, type DropResult } from "@hello-pangea/dnd";
 import { Plus } from "lucide-react";
 import { BoardColumn } from "./board-column";
-import { TaskCard } from "./task-card";
+import { SwipeableTaskCard } from "./swipeable-task-card";
 import { moveTaskAction } from "@/lib/actions/tasks";
 import { toast } from "sonner";
 import { cn } from "@/lib/utils";
 import { Button } from "@/components/ui/button";
 import { CreateTaskModal } from "@/components/modals/create-task-modal";
+import { MoveTaskModal } from "@/components/modals/move-task-modal";
 import { TaskEditDialog } from "./task-edit-dialog";
 
 type Column = { id: string; title: string; position: number };
@@ -46,7 +47,9 @@ export function KanbanBoard({
   const [activeTab, setActiveTab] = useState(columns[0]?.id);
   const [createModalOpen, setCreateModalOpen] = useState(false);
   const [editingTaskId, setEditingTaskId] = useState<string | null>(null);
+  const [movingTaskId, setMovingTaskId] = useState<string | null>(null);
   const editingTask = editingTaskId ? tasks.find((t) => t.id === editingTaskId) : null;
+  const movingTask = movingTaskId ? tasks.find((t) => t.id === movingTaskId) : null;
   const searchParams = useSearchParams();
   const router = useRouter();
   const searchQuery = searchParams.get("q")?.toLowerCase() ?? "";
@@ -126,6 +129,32 @@ export function KanbanBoard({
     });
   }, [tasks, startTransition]);
 
+  const handleMoveTask = useCallback((taskId: string, targetColumnId: string) => {
+    const task = tasks.find((t) => t.id === taskId);
+    if (!task) return;
+
+    const destTasks = tasks.filter((t) => t.columnId === targetColumnId);
+    const newPosition = destTasks.length;
+
+    // Optimistic update
+    setTasks((prev) =>
+      prev.map((t) =>
+        t.id === taskId
+          ? { ...t, columnId: targetColumnId, position: newPosition }
+          : t
+      )
+    );
+
+    startTransition(async () => {
+      try {
+        await moveTaskAction(taskId, targetColumnId, newPosition);
+      } catch {
+        setTasks(tasks);
+        toast.error("Не удалось переместить задачу");
+      }
+    });
+  }, [tasks, startTransition]);
+
   return (
     <>
       <div className="hidden md:flex items-center justify-between p-4 pb-0">
@@ -179,11 +208,12 @@ export function KanbanBoard({
         <div className="p-4 space-y-2">
           {activeTab &&
             (tasksByColumn.get(activeTab) ?? []).map((task) => (
-              <TaskCard
+              <SwipeableTaskCard
                 key={task.id}
                 task={task}
                 categories={categories}
                 onClick={() => setEditingTaskId(task.id)}
+                onMovePress={() => setMovingTaskId(task.id)}
               />
             ))}
         </div>
@@ -205,6 +235,18 @@ export function KanbanBoard({
           onOpenChange={(open) => {
             if (!open) setEditingTaskId(null);
           }}
+        />
+      )}
+
+      {movingTask && (
+        <MoveTaskModal
+          open={true}
+          onOpenChange={(open) => {
+            if (!open) setMovingTaskId(null);
+          }}
+          columns={columns}
+          currentColumnId={movingTask.columnId}
+          onSelect={(columnId) => handleMoveTask(movingTask.id, columnId)}
         />
       )}
     </>
