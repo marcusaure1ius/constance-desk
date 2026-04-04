@@ -1,6 +1,7 @@
 "use client";
 
 import { useState, useEffect, useTransition, useMemo, useCallback } from "react";
+import { createPortal } from "react-dom";
 import { useSearchParams, useRouter } from "next/navigation";
 import { DragDropContext, type DropResult } from "@hello-pangea/dnd";
 import { Plus } from "lucide-react";
@@ -36,6 +37,49 @@ interface KanbanBoardProps {
   tasks: Task[];
   categories: Category[];
   environmentId: string;
+}
+
+function MobileColumnTabs({
+  columns,
+  activeTab,
+  setActiveTab,
+  tasksByColumn,
+}: {
+  columns: Column[];
+  activeTab: string | undefined;
+  setActiveTab: (id: string) => void;
+  tasksByColumn: Map<string, Task[]>;
+}) {
+  const [slot, setSlot] = useState<HTMLElement | null>(null);
+
+  useEffect(() => {
+    setSlot(document.getElementById("navbar-tabs-slot"));
+  }, []);
+
+  if (!slot) return null;
+
+  return createPortal(
+    <div className="flex items-center gap-0.5 rounded-full bg-muted/50 p-1 mx-3 mb-2 overflow-x-auto">
+      {columns.map((col) => (
+        <button
+          key={col.id}
+          onClick={() => setActiveTab(col.id)}
+          className={cn(
+            "flex-1 flex items-center justify-between gap-1.5 px-3 py-1 text-sm font-medium rounded-full whitespace-nowrap transition-colors",
+            activeTab === col.id
+              ? "bg-background text-foreground shadow-sm"
+              : "text-muted-foreground"
+          )}
+        >
+          {col.title}
+          <span className="inline-flex items-center justify-center size-5 rounded-full bg-muted-foreground/15 text-xs">
+            {(tasksByColumn.get(col.id) ?? []).length}
+          </span>
+        </button>
+      ))}
+    </div>,
+    slot
+  );
 }
 
 export function KanbanBoard({
@@ -199,39 +243,26 @@ export function KanbanBoard({
         <SmartInput defaultColumnId={columns[0]?.id ?? ""} />
       </div>
 
-      {/* Mobile: tabs */}
-      <div className="md:hidden flex flex-col">
-        <div className="flex items-center gap-0.5 rounded-full bg-muted p-1 mx-4 mt-3 overflow-x-auto">
-          {columns.map((col) => (
-            <button
-              key={col.id}
-              onClick={() => setActiveTab(col.id)}
-              className={cn(
-                "flex-1 flex items-center justify-between gap-1.5 px-3 py-1 text-sm font-medium rounded-full whitespace-nowrap transition-colors",
-                activeTab === col.id
-                  ? "bg-background text-foreground shadow-sm"
-                  : "text-muted-foreground"
-              )}
-            >
-              {col.title}
-              <span className="inline-flex items-center justify-center size-5 rounded-full bg-muted-foreground/15 text-xs">
-                {(tasksByColumn.get(col.id) ?? []).length}
-              </span>
-            </button>
+      {/* Mobile: tabs portal into navbar */}
+      <MobileColumnTabs
+        columns={columns}
+        activeTab={activeTab}
+        setActiveTab={setActiveTab}
+        tasksByColumn={tasksByColumn}
+      />
+
+      {/* Mobile: task list */}
+      <div className="md:hidden p-4 space-y-2">
+        {activeTab &&
+          (tasksByColumn.get(activeTab) ?? []).map((task) => (
+            <SwipeableTaskCard
+              key={task.id}
+              task={task}
+              categories={categories}
+              onClick={() => setEditingTaskId(task.id)}
+              onMovePress={() => setMovingTaskId(task.id)}
+            />
           ))}
-        </div>
-        <div className="p-4 space-y-2">
-          {activeTab &&
-            (tasksByColumn.get(activeTab) ?? []).map((task) => (
-              <SwipeableTaskCard
-                key={task.id}
-                task={task}
-                categories={categories}
-                onClick={() => setEditingTaskId(task.id)}
-                onMovePress={() => setMovingTaskId(task.id)}
-              />
-            ))}
-        </div>
       </div>
 
       <CreateTaskModal
