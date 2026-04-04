@@ -39,7 +39,6 @@ export function KanbanBoard({
   columns,
   tasks: initialTasks,
   categories,
-  environmentId,
 }: KanbanBoardProps) {
   const [tasks, setTasks] = useState(initialTasks);
   useEffect(() => { setTasks(initialTasks); }, [initialTasks]);

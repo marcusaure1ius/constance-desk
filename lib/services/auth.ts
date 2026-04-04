@@ -3,7 +3,7 @@ import { settings } from "@/lib/db/schema";
 import { eq } from "drizzle-orm";
 import bcrypt from "bcryptjs";
 import { cookies } from "next/headers";
-import { SignJWT, jwtVerify } from "jose";
+import { SignJWT } from "jose";
 
 const secret = process.env.SESSION_SECRET;
 if (!secret && process.env.NODE_ENV === "production") {

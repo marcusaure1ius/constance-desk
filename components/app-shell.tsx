@@ -32,7 +32,9 @@ export function AppShell({ children, activeEnvironment, environments, nickname }
   const searchParams = useSearchParams();
   const pathname = usePathname();
   const searchParamsRef = React.useRef(searchParams);
-  searchParamsRef.current = searchParams;
+  React.useEffect(() => {
+    searchParamsRef.current = searchParams;
+  }, [searchParams]);
   const [searchValue, setSearchValue] = React.useState(searchParams.get("q") ?? "");
   const debounceRef = React.useRef<ReturnType<typeof setTimeout>>(null);
 

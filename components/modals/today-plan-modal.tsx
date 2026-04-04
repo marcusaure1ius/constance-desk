@@ -31,27 +31,36 @@ interface TodayPlanModalProps {
 
 export function TodayPlanModal({ open, onOpenChange, environmentId }: TodayPlanModalProps) {
   const [data, setData] = useState<TodayPlanData | null>(null);
-  const [loading, setLoading] = useState(false);
+
+  const [fetchKey, setFetchKey] = useState(0);
 
   useEffect(() => {
     if (!open) return;
 
-    setLoading(true);
-    setData(null);
+    let cancelled = false;
 
     getTodayPlanAction(environmentId)
       .then((result) => {
-        setData(result);
-      })
-      .finally(() => {
-        setLoading(false);
+        if (!cancelled) setData(result);
       });
-  }, [open, environmentId]);
+
+    return () => { cancelled = true; };
+  }, [open, environmentId, fetchKey]);
+
+  const handleOpenChange = (next: boolean) => {
+    if (next) {
+      setData(null);
+      setFetchKey((k) => k + 1);
+    }
+    onOpenChange(next);
+  };
+
+  const loading = open && data === null;
 
   const todayLabel = format(new Date(), "dd.MM.yyyy", { locale: ru });
 
   return (
-    <Dialog open={open} onOpenChange={onOpenChange}>
+    <Dialog open={open} onOpenChange={handleOpenChange}>
       <DialogContent className="sm:max-w-lg max-h-[80vh] overflow-y-auto">
         <DialogHeader>
           <DialogTitle>План на сегодня ({todayLabel})</DialogTitle>

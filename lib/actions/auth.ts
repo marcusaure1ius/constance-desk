@@ -10,7 +10,7 @@ import {
 } from "@/lib/services/auth";
 import { createEnvironment, getEnvironments } from "@/lib/services/environments";
 import { db } from "@/lib/db";
-import { tasks, columns, categories, environments, settings } from "@/lib/db/schema";
+import { tasks, environments, settings } from "@/lib/db/schema";
 import { eq } from "drizzle-orm";
 
 export async function loginAction(pin: string): Promise<{ error?: string }> {
