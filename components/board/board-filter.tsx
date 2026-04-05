@@ -1,6 +1,6 @@
 "use client";
 
-import { Sun, SlidersHorizontal } from "lucide-react";
+import { Sun, SlidersHorizontal, CalendarDays, CircleAlert } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import {
   DropdownMenu,
@@ -30,15 +30,17 @@ export function BoardFilter() {
             <DropdownMenuSeparator />
             <DropdownMenuCheckboxItem
               checked={config.today}
-              onCheckedChange={(checked) => updateConfig({ today: checked })}
+              onClick={() => updateConfig({ today: !config.today })}
             >
-              📅 Дата — сегодня
+              <CalendarDays className="size-4" />
+              Дата — сегодня
             </DropdownMenuCheckboxItem>
             <DropdownMenuCheckboxItem
               checked={config.highPriority}
-              onCheckedChange={(checked) => updateConfig({ highPriority: checked })}
+              onClick={() => updateConfig({ highPriority: !config.highPriority })}
             >
-              🔴 Высокий приоритет
+              <CircleAlert className="size-4" />
+              Высокий приоритет
             </DropdownMenuCheckboxItem>
           </DropdownMenuGroup>
           <DropdownMenuSeparator />

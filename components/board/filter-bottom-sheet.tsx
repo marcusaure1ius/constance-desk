@@ -1,5 +1,6 @@
 "use client";
 
+import { CalendarDays, CircleAlert } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Checkbox } from "@/components/ui/checkbox";
 import {
@@ -42,10 +43,13 @@ export function FilterBottomSheet({ open, onOpenChange }: FilterBottomSheetProps
           <label className="flex items-center gap-3 p-3 rounded-lg bg-muted/50 cursor-pointer">
             <Checkbox
               checked={config.today}
-              onCheckedChange={(checked) => updateConfig({ today: !!checked })}
+              onClick={() => updateConfig({ today: !config.today })}
             />
             <div>
-              <div className="text-sm font-medium">📅 Дата — сегодня</div>
+              <div className="text-sm font-medium flex items-center gap-1.5">
+                <CalendarDays className="size-4" />
+                Дата — сегодня
+              </div>
               <div className="text-xs text-muted-foreground">
                 Задачи с плановой датой на сегодня
               </div>
@@ -54,10 +58,13 @@ export function FilterBottomSheet({ open, onOpenChange }: FilterBottomSheetProps
           <label className="flex items-center gap-3 p-3 rounded-lg bg-muted/50 cursor-pointer">
             <Checkbox
               checked={config.highPriority}
-              onCheckedChange={(checked) => updateConfig({ highPriority: !!checked })}
+              onClick={() => updateConfig({ highPriority: !config.highPriority })}
             />
             <div>
-              <div className="text-sm font-medium">🔴 Высокий приоритет</div>
+              <div className="text-sm font-medium flex items-center gap-1.5">
+                <CircleAlert className="size-4" />
+                Высокий приоритет
+              </div>
               <div className="text-xs text-muted-foreground">
                 Urgent и High
               </div>
