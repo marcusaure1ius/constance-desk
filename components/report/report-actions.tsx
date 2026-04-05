@@ -5,7 +5,7 @@ import { Copy, FileDown, Sparkles } from "lucide-react";
 import { format, startOfWeek } from "date-fns";
 import { ru } from "date-fns/locale";
 import { Button } from "@/components/ui/button";
-import { generatePptxAction } from "@/lib/actions/tasks";
+import { generatePptxAction, generateAiPdfAction } from "@/lib/actions/tasks";
 import type { ExtendedWeeklyReport } from "@/lib/services/reports";
 
 interface ReportActionsProps {
@@ -44,6 +44,7 @@ ${section("Выполненные задачи", report.completedTasks)}
 export function ReportActions({ report, environmentId }: ReportActionsProps) {
   const [copying, setCopying] = React.useState(false);
   const [generatingPptx, setGeneratingPptx] = React.useState(false);
+  const [generatingPdf, setGeneratingPdf] = React.useState(false);
 
   async function handleCopy() {
     setCopying(true);
@@ -88,6 +89,34 @@ export function ReportActions({ report, environmentId }: ReportActionsProps) {
     }
   }
 
+  async function handleDownloadAiPdf() {
+    setGeneratingPdf(true);
+    try {
+      const weekStart = startOfWeek(new Date(report.weekStart), { weekStartsOn: 1 });
+      const base64 = await generateAiPdfAction(weekStart.toISOString(), environmentId);
+
+      const byteCharacters = atob(base64);
+      const byteNumbers = new Array(byteCharacters.length);
+      for (let i = 0; i < byteCharacters.length; i++) {
+        byteNumbers[i] = byteCharacters.charCodeAt(i);
+      }
+      const byteArray = new Uint8Array(byteNumbers);
+      const blob = new Blob([byteArray], { type: "application/pdf" });
+
+      const dateLabel = format(new Date(report.weekStart), "dd.MM.yyyy", { locale: ru });
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement("a");
+      a.href = url;
+      a.download = `Constance_AI_${dateLabel}.pdf`;
+      document.body.appendChild(a);
+      a.click();
+      document.body.removeChild(a);
+      URL.revokeObjectURL(url);
+    } finally {
+      setGeneratingPdf(false);
+    }
+  }
+
   return (
     <div className="flex gap-2">
       <Button variant="outline" size="sm" onClick={handleCopy} disabled={copying}>
@@ -102,9 +131,11 @@ export function ReportActions({ report, environmentId }: ReportActionsProps) {
           {generatingPptx ? "Генерация…" : "PPTX"}
         </span>
       </Button>
-      <Button variant="outline" size="sm" disabled>
+      <Button variant="outline" size="sm" onClick={handleDownloadAiPdf} disabled={generatingPdf}>
         <Sparkles className="h-4 w-4" />
-        <span className="hidden sm:inline ml-1.5">AI PDF</span>
+        <span className="hidden sm:inline ml-1.5">
+          {generatingPdf ? "Генерация..." : "AI PDF"}
+        </span>
       </Button>
     </div>
   );

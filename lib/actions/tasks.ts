@@ -53,6 +53,9 @@ export async function createTasksBatchAction(inputs: CreateTaskInput[]) {
 
 import { getWeeklyReport, formatReportAsText, getExtendedWeeklyReport, getWeeklyTrend } from "@/lib/services/reports";
 import { generateReportPptx } from "@/lib/services/report-pptx";
+import { getAiAnalysis } from "@/lib/services/report-pdf";
+import { renderToBuffer } from "@react-pdf/renderer";
+import { ReportPdfDocument } from "@/lib/services/report-pdf-template";
 
 export async function getReportAction(dateStr: string, environmentId: string) {
   const date = new Date(dateStr);
@@ -80,4 +83,17 @@ export async function generatePptxAction(dateStr: string, environmentId: string)
   const report = await getExtendedWeeklyReport(date, environmentId);
   const buffer = await generateReportPptx(report);
   return buffer.toString("base64");
+}
+
+export async function generateAiPdfAction(dateStr: string, environmentId: string): Promise<string> {
+  const date = new Date(dateStr);
+  const [report, trend] = await Promise.all([
+    getExtendedWeeklyReport(date, environmentId),
+    getWeeklyTrend(date, environmentId, 4),
+  ]);
+  const analysis = await getAiAnalysis(report, trend);
+  const buffer = await renderToBuffer(
+    ReportPdfDocument({ report, analysis }),
+  );
+  return Buffer.from(buffer).toString("base64");
 }
