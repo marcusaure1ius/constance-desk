@@ -3,9 +3,7 @@
 import { useState, useTransition } from "react";
 import { Sun, Circle, CheckCircle2 } from "lucide-react";
 import { Button } from "@/components/ui/button";
-import { SwipeableTaskCard } from "@/components/board/swipeable-task-card";
 import { TaskEditDialog } from "@/components/board/task-edit-dialog";
-import { MoveTaskModal } from "@/components/modals/move-task-modal";
 import { addToPlanAction } from "@/lib/actions/today";
 import type { TodayBriefing as TodayBriefingType } from "@/lib/services/today";
 
@@ -48,7 +46,6 @@ export function TodayBriefing({
   categories,
 }: TodayBriefingProps) {
   const [editingTaskId, setEditingTaskId] = useState<string | null>(null);
-  const [movingTaskId, setMovingTaskId] = useState<string | null>(null);
   const [isPending, startTransition] = useTransition();
   const [pendingTaskId, setPendingTaskId] = useState<string | null>(null);
 
@@ -60,9 +57,6 @@ export function TodayBriefing({
   ];
   const editingTask = editingTaskId
     ? allTasks.find((t) => t.id === editingTaskId) ?? null
-    : null;
-  const movingTask = movingTaskId
-    ? allTasks.find((t) => t.id === movingTaskId) ?? null
     : null;
 
   const { done, total } = briefing.progress;
@@ -143,10 +137,8 @@ export function TodayBriefing({
               <TaskRow
                 key={task.id}
                 task={task}
-                categories={categories}
                 subtitle={`${task.columnTitle} · ${priorityLabel(task.priority)}`}
                 onClick={() => setEditingTaskId(task.id)}
-                onMovePress={() => setMovingTaskId(task.id)}
                 onComplete={() => handleComplete(task.id)}
                 completing={isPending && pendingTaskId === task.id}
               />
@@ -167,10 +159,8 @@ export function TodayBriefing({
               <TaskRow
                 key={task.id}
                 task={task}
-                categories={categories}
                 subtitle={`Бэклог · ${priorityLabel(task.priority)}`}
                 onClick={() => setEditingTaskId(task.id)}
-                onMovePress={() => setMovingTaskId(task.id)}
                 onComplete={() => handleComplete(task.id)}
                 completing={isPending && pendingTaskId === task.id}
               />
@@ -191,11 +181,9 @@ export function TodayBriefing({
               <TaskRow
                 key={task.id}
                 task={task}
-                categories={categories}
                 subtitle="Готово ✓"
                 strikethrough
                 onClick={() => setEditingTaskId(task.id)}
-                onMovePress={() => setMovingTaskId(task.id)}
               />
             ))}
           </TaskGroup>
@@ -278,29 +266,6 @@ export function TodayBriefing({
         />
       )}
 
-      {movingTask && (
-        <MoveTaskModal
-          open={true}
-          onOpenChange={(open) => {
-            if (!open) setMovingTaskId(null);
-          }}
-          columns={columns}
-          currentColumnId={movingTask.columnId}
-          onSelect={async (columnId) => {
-            const { moveTaskAction } = await import("@/lib/actions/tasks");
-            const allBriefingTasks = [
-              ...briefing.inProgress,
-              ...briefing.planned,
-              ...briefing.completed,
-            ];
-            const destTasks = allBriefingTasks.filter(
-              (t) => t.columnId === columnId
-            );
-            await moveTaskAction(movingTask.id, columnId, destTasks.length);
-            setMovingTaskId(null);
-          }}
-        />
-      )}
     </div>
   );
 }
@@ -347,28 +312,23 @@ function TaskGroup({
 
 function TaskRow({
   task,
-  categories,
   subtitle,
   strikethrough,
   onClick,
-  onMovePress,
   onComplete,
   completing,
 }: {
   task: TodayBriefingType["planned"][number] & { columnTitle?: string };
-  categories: Category[];
   subtitle: string;
   strikethrough?: boolean;
   onClick: () => void;
-  onMovePress: () => void;
   onComplete?: () => void;
   completing?: boolean;
 }) {
   return (
     <div className="border-b last:border-b-0">
-      {/* Desktop */}
       <div
-        className="hidden md:flex items-center gap-3 px-4 py-3.5 cursor-pointer hover:bg-muted/50 transition-colors"
+        className="flex items-center gap-3 px-4 py-3.5 cursor-pointer hover:bg-muted/50 transition-colors"
         onClick={onClick}
       >
         <div
@@ -391,39 +351,7 @@ function TaskRow({
         )}
         {onComplete && (
           <button
-            className="flex-shrink-0 text-muted-foreground/40 hover:text-green-500 transition-colors"
-            onClick={(e) => {
-              e.stopPropagation();
-              onComplete();
-            }}
-            disabled={completing}
-          >
-            {completing ? (
-              <CheckCircle2 className="size-5 text-green-500 animate-pulse" />
-            ) : (
-              <Circle className="size-5" />
-            )}
-          </button>
-        )}
-      </div>
-      {/* Mobile: swipeable */}
-      <div className="md:hidden flex items-center">
-        <div className="flex-1 min-w-0">
-          <SwipeableTaskCard
-            task={task}
-            categories={categories}
-            onClick={onClick}
-            onMovePress={onMovePress}
-          />
-        </div>
-        {strikethrough && (
-          <div className="flex-shrink-0 pr-3">
-            <CheckCircle2 className="size-5 text-green-500" />
-          </div>
-        )}
-        {onComplete && (
-          <button
-            className="flex-shrink-0 pr-3 text-muted-foreground/40 active:text-green-500 transition-colors"
+            className="flex-shrink-0 text-muted-foreground/40 hover:text-green-500 active:text-green-500 transition-colors"
             onClick={(e) => {
               e.stopPropagation();
               onComplete();
