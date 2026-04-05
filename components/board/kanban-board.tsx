@@ -218,7 +218,7 @@ export function KanbanBoard({
     <>
       <div className="hidden md:flex items-center justify-between container mx-auto px-4 pt-4">
         <div className="flex items-center gap-2">
-          <Button size="sm" onClick={() => { setCreateColumnId(undefined); setCreateModalOpen(true); }}>
+          <Button className="h-9" onClick={() => { setCreateColumnId(undefined); setCreateModalOpen(true); }}>
             <Plus className="mr-2 h-4 w-4" />
             Добавить задачу
           </Button>
@@ -265,16 +265,30 @@ export function KanbanBoard({
 
       {/* Mobile: task list */}
       <div className="md:hidden p-4 space-y-2">
-        {activeTab &&
-          (tasksByColumn.get(activeTab) ?? []).map((task) => (
-            <SwipeableTaskCard
-              key={task.id}
-              task={task}
-              categories={categories}
-              onClick={() => setEditingTaskId(task.id)}
-              onMovePress={() => setMovingTaskId(task.id)}
-            />
-          ))}
+        {activeTab && (
+          <>
+            <button
+              onClick={() => {
+                setCreateColumnId(activeTab);
+                setCreateModalOpen(true);
+              }}
+              className="w-full flex items-center justify-center rounded-lg border-2 border-dashed border-muted-foreground/20 py-3 active:border-muted-foreground/40 active:bg-muted/50 transition-colors"
+            >
+              <div className="flex items-center justify-center size-6 rounded-full border-2 border-muted-foreground/30 text-muted-foreground/40">
+                <Plus className="size-3.5" />
+              </div>
+            </button>
+            {(tasksByColumn.get(activeTab) ?? []).map((task) => (
+              <SwipeableTaskCard
+                key={task.id}
+                task={task}
+                categories={categories}
+                onClick={() => setEditingTaskId(task.id)}
+                onMovePress={() => setMovingTaskId(task.id)}
+              />
+            ))}
+          </>
+        )}
       </div>
 
       <CreateTaskModal

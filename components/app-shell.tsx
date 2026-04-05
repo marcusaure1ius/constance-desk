@@ -122,8 +122,9 @@ export function AppShell({ children, activeEnvironment, environments, nickname }
           navbarVisible ? "translate-y-0" : "-translate-y-[calc(100%+16px)]"
         }`}
       >
-        <div className="container mx-auto px-2 mt-2 mb-2">
-          <div className="rounded-2xl bg-background/72 backdrop-blur-xl border border-white/30 dark:border-white/10 shadow-[0_4px_30px_rgba(0,0,0,0.06)] relative flex h-14 items-center gap-4 px-4">
+        <div className="mx-2 mt-2 mb-2 md:container md:mx-auto md:px-2">
+          <div className="rounded-2xl bg-background/72 backdrop-blur-xl border border-white/30 dark:border-white/10 shadow-[0_4px_30px_rgba(0,0,0,0.06)]">
+          <div className="relative flex h-14 items-center gap-4 px-4">
           <Link href="/" className="flex items-center gap-2 shrink-0">
             <LogoIcon size={22} />
             <span className="hidden sm:inline text-sm font-semibold uppercase tracking-[2.5px]">
@@ -185,7 +186,8 @@ export function AppShell({ children, activeEnvironment, environments, nickname }
             <UserMenu activeEnvironment={activeEnvironment} environments={environments} nickname={nickname} />
           </div>
           </div>
-          <div id="navbar-tabs-slot" className="md:hidden" />
+          <div id="navbar-tabs-slot" className="md:hidden px-3 pb-2" />
+          </div>
         </div>
       </header>
       <main className="flex-1 pb-16 md:pb-0" style={{ paddingTop: headerHeight }}>{children}</main>

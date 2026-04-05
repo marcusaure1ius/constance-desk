@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useTransition } from "react";
+import { useState, useEffect, useTransition } from "react";
 import { format } from "date-fns";
 import { ru } from "date-fns/locale";
 import { CalendarIcon } from "lucide-react";
@@ -68,6 +68,10 @@ export function CreateTaskModal({
   const [startDate, setStartDate] = useState<Date | undefined>(new Date());
   const [plannedDate, setPlannedDate] = useState<Date | undefined>(undefined);
   const [createAnother, setCreateAnother] = useState(false);
+
+  useEffect(() => {
+    if (defaultColumnId) setColumnId(defaultColumnId);
+  }, [defaultColumnId]);
 
   function resetForm() {
     setTitle("");
