@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useEffect, useTransition, useMemo, useCallback } from "react";
+import { useState, useEffect, useTransition, useMemo, useCallback, useSyncExternalStore } from "react";
 import { createPortal } from "react-dom";
 import { useSearchParams, useRouter } from "next/navigation";
 import { DragDropContext, type DropResult } from "@hello-pangea/dnd";
@@ -52,11 +52,11 @@ function MobileColumnTabs({
   setActiveTab: (id: string) => void;
   tasksByColumn: Map<string, Task[]>;
 }) {
-  const [slot, setSlot] = useState<HTMLElement | null>(null);
-
-  useEffect(() => {
-    setSlot(document.getElementById("navbar-tabs-slot"));
-  }, []);
+  const slot = useSyncExternalStore(
+    () => () => {},
+    () => document.getElementById("navbar-tabs-slot"),
+    () => null
+  );
 
   if (!slot) return null;
 

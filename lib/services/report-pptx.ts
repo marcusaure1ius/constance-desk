@@ -97,7 +97,7 @@ export async function generateReportPptx(
   const dateRange = formatDateRange(report.weekStart, report.weekEnd);
 
   // --- Заголовок ---
-  slide.addText(`AI PO / ${dateRange}`, {
+  slide.addText(`Constance / ${dateRange}`, {
     x: 0.5,
     y: 0.3,
     w: 8,

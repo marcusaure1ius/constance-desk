@@ -1,39 +1,82 @@
 # Constance
 
-Персональная канбан-доска для управления задачами.
+Канбан-доска для управления задачами с AI-парсингом, планированием дня и экспортом отчётов.
+
+## Возможности
+
+- **Канбан-доска** — колонки с drag-and-drop, создание/редактирование задач, приоритеты, категории, плановые даты
+- **SmartInput** — AI-парсинг: опиши задачи текстом или голосом, система разберёт их по полям автоматически
+- **План на день** — страница `/today` с подборкой задач на сегодня
+- **Отчёты** — экспорт в PDF и PPTX с графиками выполнения
+- **Мультисредовость** — несколько рабочих сред (проектов) с переключением
+- **Фильтрация** — фильтр задач по приоритету и плановой дате на доске
+- **PIN-авторизация** — простая аутентификация через PIN-код и JWT
+- **Адаптивность** — полноценная мобильная версия с свайпами и bottom sheet
+- **Тёмная тема** — переключение светлой/тёмной темы
 
 ## Стек
 
-- **Next.js 16** + React 19 + TypeScript
-- **UI:** shadcn/ui (base-ui), Tailwind CSS 4, lucide-react
-- **БД:** Drizzle ORM + Neon PostgreSQL
+- **Frontend:** Next.js 16, React 19, TypeScript, Tailwind CSS 4
+- **UI:** shadcn/ui (base-ui), lucide-react
+- **База данных:** Neon PostgreSQL, Drizzle ORM
+- **AI:** Groq API — парсинг задач и генерация описаний отчётов
 - **DnD:** @hello-pangea/dnd
+- **Отчёты:** @react-pdf/renderer, pptxgenjs, recharts
 - **Тесты:** Vitest
 
-## Запуск
+## Быстрый старт
 
 ```bash
+# Клонировать репозиторий
+git clone https://github.com/your-username/constance.git
+cd constance
+
+# Установить зависимости
 npm install
-cp .env.example .env.local   # настроить DATABASE_URL и SESSION_SECRET
-npm run db:push               # применить схему к БД
-npm run db:seed               # заполнить начальные данные
-npm run dev                   # запустить dev-сервер
+
+# Создать файл переменных окружения
+cp .env.example .env.local
+
+# Применить схему к базе данных
+npm run db:push
+
+# (Опционально) Заполнить БД тестовыми данными
+npm run db:seed
+
+# Запустить dev-сервер
+npm run dev
 ```
+
+Приложение будет доступно на `http://localhost:3000`.
+
+## Переменные окружения
+
+Создайте файл `.env.local` в корне проекта:
+
+| Переменная | Описание |
+|------------|----------|
+| `DATABASE_URL` | URL подключения к Neon PostgreSQL |
+| `SESSION_SECRET` | Секрет для подписи JWT-токенов |
+| `GROQ_API_KEY` | API-ключ Groq (для SmartInput и отчётов) |
 
 ## Команды
 
 | Команда | Описание |
-|---|---|
-| `npm run dev` | Dev-сервер |
-| `npm run build` | Продакшн-билд |
+|---------|----------|
+| `npm run dev` | Запуск dev-сервера |
+| `npm run build` | Сборка для продакшена |
+| `npm start` | Запуск продакшен-сервера |
+| `npm run lint` | Проверка ESLint |
 | `npm test` | Запуск тестов |
 | `npm run db:push` | Применить схему к БД |
-| `npm run db:seed` | Заполнить начальные данные |
-| `npm run db:studio` | Drizzle Studio |
+| `npm run db:generate` | Сгенерировать миграции Drizzle |
+| `npm run db:studio` | Открыть Drizzle Studio |
+| `npm run db:seed` | Заполнить БД тестовыми данными |
 
 ## Деплой
 
-Проект настроен для деплоя на [Vercel](https://vercel.com). Необходимые переменные окружения:
+Проект настроен для деплоя на [Vercel](https://vercel.com). Добавьте переменные окружения (`DATABASE_URL`, `SESSION_SECRET`, `GROQ_API_KEY`) в настройках проекта на Vercel.
 
-- `DATABASE_URL` — строка подключения к Neon PostgreSQL
-- `SESSION_SECRET` — секрет для JWT-сессий
+## Лицензия
+
+[MIT](LICENSE)

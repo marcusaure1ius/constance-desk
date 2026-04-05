@@ -79,7 +79,7 @@ export function ReportActions({ report, environmentId }: ReportActionsProps) {
       const url = URL.createObjectURL(blob);
       const a = document.createElement("a");
       a.href = url;
-      a.download = `AI_PO_${dateLabel}.pptx`;
+      a.download = `Constance_${dateLabel}.pptx`;
       document.body.appendChild(a);
       a.click();
       document.body.removeChild(a);
@@ -107,7 +107,7 @@ export function ReportActions({ report, environmentId }: ReportActionsProps) {
       const url = URL.createObjectURL(blob);
       const a = document.createElement("a");
       a.href = url;
-      a.download = `Constance_AI_${dateLabel}.pdf`;
+      a.download = `Constance_${dateLabel}.pdf`;
       document.body.appendChild(a);
       a.click();
       document.body.removeChild(a);

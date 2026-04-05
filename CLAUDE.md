@@ -9,13 +9,16 @@
 - Тесты: vitest
 - DnD: @hello-pangea/dnd
 - AI: Groq API (модель gpt-oss-20b) — парсинг задач через SmartInput
-- Auth: PIN-код через jose JWT, без middleware — проверка в layout/API
+- Auth: PIN-код через jose JWT, `proxy.ts` (Next.js 16) + проверка в API
+- Отчёты: @react-pdf/renderer (PDF), pptxgenjs (PPTX), recharts (графики)
 
 ## Структура маршрутов
 - `app/(app)/(board)/page.tsx` — доска (route group для изоляции loading.tsx)
+- `app/(app)/today/page.tsx` — план на день
+- `app/(app)/report/page.tsx` — отчёт
 - `app/(app)/settings/page.tsx` — настройки
 - `app/(auth)/login/page.tsx` — авторизация
-- `app/api/{ai,auth,report,tasks}/` — API routes (защита через `lib/api-auth.ts` с X-API-Key)
+- `app/api/` — API routes: ai/{parse-tasks,transcribe}, auth, report, tasks/{,batch,[id]} (защита через `lib/api-auth.ts`)
 
 ## Архитектура
 - **Server Actions** (`lib/actions/`) → **Services** (`lib/services/`) → **DB** (`lib/db/`)

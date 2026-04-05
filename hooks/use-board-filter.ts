@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useEffect, useCallback } from "react";
+import { useCallback, useSyncExternalStore } from "react";
 
 export type BoardFilterConfig = {
   today: boolean;
@@ -17,35 +17,46 @@ const defaultConfig: BoardFilterConfig = {
   active: false,
 };
 
-function readConfig(): BoardFilterConfig {
+let cachedRaw: string | null = null;
+let cachedConfig: BoardFilterConfig = defaultConfig;
+
+function getSnapshot(): BoardFilterConfig {
   if (typeof window === "undefined") return defaultConfig;
   try {
-    const stored = localStorage.getItem(STORAGE_KEY);
-    return stored ? { ...defaultConfig, ...JSON.parse(stored) } : defaultConfig;
+    const raw = localStorage.getItem(STORAGE_KEY);
+    if (raw === cachedRaw) return cachedConfig;
+    cachedRaw = raw;
+    cachedConfig = raw ? { ...defaultConfig, ...JSON.parse(raw) } : defaultConfig;
+    return cachedConfig;
   } catch {
     return defaultConfig;
   }
 }
 
-export function useBoardFilter() {
-  const [config, setConfig] = useState<BoardFilterConfig>(defaultConfig);
+function getServerSnapshot(): BoardFilterConfig {
+  return defaultConfig;
+}
 
-  // Sync with localStorage after hydration
-  useEffect(() => {
-    setConfig(readConfig());
-    const handler = () => setConfig(readConfig());
-    window.addEventListener(CHANGE_EVENT, handler);
-    return () => window.removeEventListener(CHANGE_EVENT, handler);
-  }, []);
+function subscribe(cb: () => void) {
+  window.addEventListener(CHANGE_EVENT, cb);
+  window.addEventListener("storage", cb);
+  return () => {
+    window.removeEventListener(CHANGE_EVENT, cb);
+    window.removeEventListener("storage", cb);
+  };
+}
+
+export function useBoardFilter() {
+  const config = useSyncExternalStore(subscribe, getSnapshot, getServerSnapshot);
 
   const updateConfig = useCallback(
     (updates: Partial<BoardFilterConfig>) => {
-      setConfig((prev) => {
-        const next = { ...prev, ...updates };
-        localStorage.setItem(STORAGE_KEY, JSON.stringify(next));
-        window.dispatchEvent(new Event(CHANGE_EVENT));
-        return next;
-      });
+      const next = { ...getSnapshot(), ...updates };
+      const raw = JSON.stringify(next);
+      localStorage.setItem(STORAGE_KEY, raw);
+      cachedRaw = raw;
+      cachedConfig = next;
+      window.dispatchEvent(new Event(CHANGE_EVENT));
     },
     []
   );
