@@ -211,7 +211,10 @@ export function TodayBriefing({
                       priorityBgColors[task.priority] ?? "bg-gray-400"
                     }`}
                   />
-                  <div className="flex-1 min-w-0">
+                  <div
+                    className="flex-1 min-w-0 cursor-pointer"
+                    onClick={() => setEditingTaskId(task.id)}
+                  >
                     <p className="text-sm text-muted-foreground font-medium truncate">
                       {task.title}
                     </p>
