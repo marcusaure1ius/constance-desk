@@ -371,22 +371,6 @@ function TaskRow({
         className="hidden md:flex items-center gap-3 px-4 py-3.5 cursor-pointer hover:bg-muted/50 transition-colors"
         onClick={onClick}
       >
-        {onComplete && (
-          <button
-            className="flex-shrink-0 text-muted-foreground/40 hover:text-green-500 transition-colors"
-            onClick={(e) => {
-              e.stopPropagation();
-              onComplete();
-            }}
-            disabled={completing}
-          >
-            {completing ? (
-              <CheckCircle2 className="size-5 text-green-500 animate-pulse" />
-            ) : (
-              <Circle className="size-5" />
-            )}
-          </button>
-        )}
         {strikethrough && (
           <CheckCircle2 className="size-5 text-green-500 flex-shrink-0" />
         )}
@@ -405,6 +389,22 @@ function TaskRow({
           </p>
           <p className="text-xs text-muted-foreground mt-0.5">{subtitle}</p>
         </div>
+        {onComplete && (
+          <button
+            className="flex-shrink-0 text-muted-foreground/40 hover:text-green-500 transition-colors"
+            onClick={(e) => {
+              e.stopPropagation();
+              onComplete();
+            }}
+            disabled={completing}
+          >
+            {completing ? (
+              <CheckCircle2 className="size-5 text-green-500 animate-pulse" />
+            ) : (
+              <Circle className="size-5" />
+            )}
+          </button>
+        )}
       </div>
       {/* Mobile: swipeable */}
       <div className="md:hidden">
