@@ -51,7 +51,7 @@ export async function createTasksBatchAction(inputs: CreateTaskInput[]) {
   return created;
 }
 
-import { getWeeklyReport, formatReportAsText } from "@/lib/services/reports";
+import { getWeeklyReport, formatReportAsText, getExtendedWeeklyReport, getWeeklyTrend } from "@/lib/services/reports";
 
 export async function getReportAction(dateStr: string, environmentId: string) {
   const date = new Date(dateStr);
@@ -62,4 +62,14 @@ export async function getReportTextAction(dateStr: string, environmentId: string
   const date = new Date(dateStr);
   const report = await getWeeklyReport(date, environmentId);
   return formatReportAsText(report);
+}
+
+export async function getExtendedReportAction(dateStr: string, environmentId: string) {
+  const date = new Date(dateStr);
+  return getExtendedWeeklyReport(date, environmentId);
+}
+
+export async function getWeeklyTrendAction(dateStr: string, environmentId: string, weeks: number = 4) {
+  const date = new Date(dateStr);
+  return getWeeklyTrend(date, environmentId, weeks);
 }
