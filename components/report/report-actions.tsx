@@ -112,6 +112,9 @@ export function ReportActions({ report, environmentId }: ReportActionsProps) {
       a.click();
       document.body.removeChild(a);
       URL.revokeObjectURL(url);
+    } catch (err) {
+      console.error("AI PDF generation failed:", err);
+      alert(`Ошибка генерации PDF: ${err instanceof Error ? err.message : "неизвестная ошибка"}`);
     } finally {
       setGeneratingPdf(false);
     }
