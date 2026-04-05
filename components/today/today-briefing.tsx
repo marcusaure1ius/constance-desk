@@ -1,7 +1,7 @@
 "use client";
 
 import { useState, useTransition } from "react";
-import { Sun } from "lucide-react";
+import { Sun, Circle, CheckCircle2 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { SwipeableTaskCard } from "@/components/board/swipeable-task-card";
 import { TaskEditDialog } from "@/components/board/task-edit-dialog";
@@ -68,6 +68,20 @@ export function TodayBriefing({
   const { done, total } = briefing.progress;
   const percentage = total > 0 ? Math.round((done / total) * 100) : 0;
 
+  const lastColumn = columns.length > 0
+    ? columns.reduce((a, b) => (a.position > b.position ? a : b))
+    : null;
+
+  function handleComplete(taskId: string) {
+    if (!lastColumn) return;
+    setPendingTaskId(taskId);
+    startTransition(async () => {
+      const { moveTaskAction } = await import("@/lib/actions/tasks");
+      await moveTaskAction(taskId, lastColumn.id, 0);
+      setPendingTaskId(null);
+    });
+  }
+
   function handleAddToPlan(taskId: string) {
     setPendingTaskId(taskId);
     startTransition(async () => {
@@ -133,6 +147,8 @@ export function TodayBriefing({
                 subtitle={`${task.columnTitle} · ${priorityLabel(task.priority)}`}
                 onClick={() => setEditingTaskId(task.id)}
                 onMovePress={() => setMovingTaskId(task.id)}
+                onComplete={() => handleComplete(task.id)}
+                completing={isPending && pendingTaskId === task.id}
               />
             ))}
           </TaskGroup>
@@ -155,6 +171,8 @@ export function TodayBriefing({
                 subtitle={`Бэклог · ${priorityLabel(task.priority)}`}
                 onClick={() => setEditingTaskId(task.id)}
                 onMovePress={() => setMovingTaskId(task.id)}
+                onComplete={() => handleComplete(task.id)}
+                completing={isPending && pendingTaskId === task.id}
               />
             ))}
           </TaskGroup>
@@ -334,6 +352,8 @@ function TaskRow({
   strikethrough,
   onClick,
   onMovePress,
+  onComplete,
+  completing,
 }: {
   task: TodayBriefingType["planned"][number] & { columnTitle?: string };
   categories: Category[];
@@ -341,6 +361,8 @@ function TaskRow({
   strikethrough?: boolean;
   onClick: () => void;
   onMovePress: () => void;
+  onComplete?: () => void;
+  completing?: boolean;
 }) {
   return (
     <div className="border-b last:border-b-0">
@@ -349,6 +371,25 @@ function TaskRow({
         className="hidden md:flex items-center gap-3 px-4 py-3.5 cursor-pointer hover:bg-muted/50 transition-colors"
         onClick={onClick}
       >
+        {onComplete && (
+          <button
+            className="flex-shrink-0 text-muted-foreground/40 hover:text-green-500 transition-colors"
+            onClick={(e) => {
+              e.stopPropagation();
+              onComplete();
+            }}
+            disabled={completing}
+          >
+            {completing ? (
+              <CheckCircle2 className="size-5 text-green-500 animate-pulse" />
+            ) : (
+              <Circle className="size-5" />
+            )}
+          </button>
+        )}
+        {strikethrough && (
+          <CheckCircle2 className="size-5 text-green-500 flex-shrink-0" />
+        )}
         <div
           className={`w-[3px] h-8 rounded-full flex-shrink-0 ${
             priorityBgColors[task.priority] ?? "bg-gray-400"
