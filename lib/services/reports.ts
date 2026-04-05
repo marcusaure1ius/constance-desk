@@ -1,6 +1,6 @@
 import { db } from "@/lib/db";
 import { tasks, categories, columns } from "@/lib/db/schema";
-import { and, gte, lt, eq, asc, inArray } from "drizzle-orm";
+import { and, gte, lt, eq, asc, inArray, or, isNull } from "drizzle-orm";
 import { getWeekRange } from "@/lib/utils";
 
 export type ReportTask = {
@@ -65,6 +65,104 @@ export async function getWeeklyReport(date: Date, environmentId: string): Promis
     })),
     completedCount: completed.length,
     startedCount: startedRows.length,
+  };
+}
+
+export type ExtendedReportTask = {
+  id: string;
+  title: string;
+  description: string | null;
+  categoryName: string | null;
+  startDate: string;
+  completedAt: Date | null;
+};
+
+export type ExtendedWeeklyReport = {
+  weekStart: Date;
+  weekEnd: Date;
+  completedTasks: ExtendedReportTask[];
+  carryoverTasks: ExtendedReportTask[];
+  newTasks: ExtendedReportTask[];
+};
+
+export async function getExtendedWeeklyReport(
+  date: Date,
+  environmentId: string,
+): Promise<ExtendedWeeklyReport> {
+  const { start, end } = getWeekRange(date);
+  const startDateStr = start.toISOString().split("T")[0];
+  const endDateStr = end.toISOString().split("T")[0];
+
+  const envColumns = await db
+    .select({ id: columns.id })
+    .from(columns)
+    .where(eq(columns.environmentId, environmentId));
+  const columnIds = envColumns.map((c) => c.id);
+
+  if (columnIds.length === 0) {
+    return {
+      weekStart: start,
+      weekEnd: end,
+      completedTasks: [],
+      carryoverTasks: [],
+      newTasks: [],
+    };
+  }
+
+  const selectFields = {
+    id: tasks.id,
+    title: tasks.title,
+    description: tasks.description,
+    startDate: tasks.startDate,
+    completedAt: tasks.completedAt,
+    categoryName: categories.name,
+  };
+
+  // completedTasks: completedAt в пределах недели
+  const completedTasks = await db
+    .select(selectFields)
+    .from(tasks)
+    .leftJoin(categories, eq(tasks.categoryId, categories.id))
+    .where(and(
+      gte(tasks.completedAt, start),
+      lt(tasks.completedAt, end),
+      inArray(tasks.columnId, columnIds),
+    ))
+    .orderBy(asc(tasks.completedAt));
+
+  // carryoverTasks: startDate до начала недели И (не завершена ИЛИ завершена на этой неделе)
+  const carryoverTasks = await db
+    .select(selectFields)
+    .from(tasks)
+    .leftJoin(categories, eq(tasks.categoryId, categories.id))
+    .where(and(
+      lt(tasks.startDate, startDateStr),
+      inArray(tasks.columnId, columnIds),
+      or(
+        isNull(tasks.completedAt),
+        and(gte(tasks.completedAt, start), lt(tasks.completedAt, end)),
+      ),
+    ))
+    .orderBy(asc(tasks.startDate));
+
+  // newTasks: startDate в пределах недели
+  const newTasks = await db
+    .select(selectFields)
+    .from(tasks)
+    .leftJoin(categories, eq(tasks.categoryId, categories.id))
+    .where(and(
+      gte(tasks.startDate, startDateStr),
+      lt(tasks.startDate, endDateStr),
+      inArray(tasks.columnId, columnIds),
+    ))
+    .orderBy(asc(tasks.startDate));
+
+  return {
+    weekStart: start,
+    weekEnd: end,
+    completedTasks,
+    carryoverTasks,
+    newTasks,
   };
 }
 
