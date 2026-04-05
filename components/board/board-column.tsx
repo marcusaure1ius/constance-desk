@@ -2,6 +2,7 @@
 
 import { memo } from "react";
 import { Droppable, Draggable } from "@hello-pangea/dnd";
+import { Plus } from "lucide-react";
 import { TaskCard } from "./task-card";
 import { cn } from "@/lib/utils";
 
@@ -27,6 +28,7 @@ interface BoardColumnProps {
   tasks: Task[];
   categories: Category[];
   onTaskClick?: (taskId: string) => void;
+  onCreateTask?: (columnId: string) => void;
 }
 
 export const BoardColumn = memo(function BoardColumn({
@@ -34,6 +36,7 @@ export const BoardColumn = memo(function BoardColumn({
   tasks,
   categories,
   onTaskClick,
+  onCreateTask,
 }: BoardColumnProps) {
   return (
     <div className="flex flex-1 min-w-[200px] flex-col rounded-lg bg-muted/50 p-2">
@@ -43,6 +46,16 @@ export const BoardColumn = memo(function BoardColumn({
           {tasks.length}
         </span>
       </div>
+      {onCreateTask && (
+        <button
+          onClick={() => onCreateTask(column.id)}
+          className="mb-2 mx-1 flex items-center justify-center rounded-lg border-2 border-dashed border-muted-foreground/20 py-3 hover:border-muted-foreground/40 hover:bg-muted/50 transition-colors cursor-pointer"
+        >
+          <div className="flex items-center justify-center size-6 rounded-full border-2 border-muted-foreground/30 text-muted-foreground/40">
+            <Plus className="size-3.5" />
+          </div>
+        </button>
+      )}
       <Droppable droppableId={column.id}>
         {(provided, snapshot) => (
           <div

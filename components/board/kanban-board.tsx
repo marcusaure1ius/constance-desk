@@ -94,6 +94,7 @@ export function KanbanBoard({
   const [, startTransition] = useTransition();
   const [activeTab, setActiveTab] = useState(columns[0]?.id);
   const [createModalOpen, setCreateModalOpen] = useState(false);
+  const [createColumnId, setCreateColumnId] = useState<string | undefined>(undefined);
   const [smartInputOpen, setSmartInputOpen] = useState(false);
   const [editingTaskId, setEditingTaskId] = useState<string | null>(null);
   const [movingTaskId, setMovingTaskId] = useState<string | null>(null);
@@ -217,7 +218,7 @@ export function KanbanBoard({
     <>
       <div className="hidden md:flex items-center justify-between container mx-auto px-4 pt-4">
         <div className="flex items-center gap-2">
-          <Button onClick={() => setCreateModalOpen(true)}>
+          <Button size="sm" onClick={() => { setCreateColumnId(undefined); setCreateModalOpen(true); }}>
             <Plus className="mr-2 h-4 w-4" />
             Добавить задачу
           </Button>
@@ -240,6 +241,10 @@ export function KanbanBoard({
               tasks={(tasksByColumn.get(col.id) ?? [])}
               categories={categories}
               onTaskClick={setEditingTaskId}
+              onCreateTask={(columnId) => {
+                setCreateColumnId(columnId);
+                setCreateModalOpen(true);
+              }}
             />
           ))}
         </div>
@@ -274,10 +279,13 @@ export function KanbanBoard({
 
       <CreateTaskModal
         open={createModalOpen}
-        onOpenChange={setCreateModalOpen}
+        onOpenChange={(open) => {
+          setCreateModalOpen(open);
+          if (!open) setCreateColumnId(undefined);
+        }}
         columns={columns}
         categories={categories}
-        defaultColumnId={columns[0]?.id}
+        defaultColumnId={createColumnId ?? columns[0]?.id}
       />
 
       {editingTask && (
