@@ -14,13 +14,22 @@ import type { AiAnalysis } from "@/lib/services/report-pdf";
 
 import path from "path";
 
-Font.register({
-  family: "Roboto",
-  fonts: [
-    { src: path.join(process.cwd(), "public/fonts/Roboto-Regular.ttf"), fontWeight: 400 },
-    { src: path.join(process.cwd(), "public/fonts/Roboto-Bold.ttf"), fontWeight: 700 },
-  ],
-});
+let fontsRegistered = false;
+
+export function registerFonts() {
+  if (fontsRegistered) return;
+  const fontsDir = path.join(process.cwd(), "public/fonts");
+  Font.register({
+    family: "Roboto",
+    fonts: [
+      { src: path.join(fontsDir, "Roboto-Regular.ttf"), fontWeight: 400 },
+      { src: path.join(fontsDir, "Roboto-Regular.ttf"), fontWeight: 400, fontStyle: "italic" },
+      { src: path.join(fontsDir, "Roboto-Bold.ttf"), fontWeight: 700 },
+      { src: path.join(fontsDir, "Roboto-Bold.ttf"), fontWeight: 700, fontStyle: "italic" },
+    ],
+  });
+  fontsRegistered = true;
+}
 
 interface ReportPdfProps {
   report: ExtendedWeeklyReport;

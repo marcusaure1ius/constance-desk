@@ -56,7 +56,7 @@ import { generateReportPptx } from "@/lib/services/report-pptx";
 import { getAiAnalysis } from "@/lib/services/report-pdf";
 import { renderToBuffer } from "@react-pdf/renderer";
 import React from "react";
-import { ReportPdfDocument } from "@/lib/services/report-pdf-template";
+import { ReportPdfDocument, registerFonts } from "@/lib/services/report-pdf-template";
 
 export async function getReportAction(dateStr: string, environmentId: string) {
   const date = new Date(dateStr);
@@ -93,6 +93,7 @@ export async function generateAiPdfAction(dateStr: string, environmentId: string
     getWeeklyTrend(date, environmentId, 4),
   ]);
   const analysis = await getAiAnalysis(report, trend);
+  registerFonts();
   const element = React.createElement(ReportPdfDocument, { report, analysis });
   // renderToBuffer ожидает ReactElement<DocumentProps>, но ReportPdfDocument рендерит <Document> внутри
   // eslint-disable-next-line @typescript-eslint/no-explicit-any

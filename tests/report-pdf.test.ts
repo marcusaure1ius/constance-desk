@@ -201,7 +201,7 @@ describe("getAiAnalysis", () => {
     const body = JSON.parse((call[1] as RequestInit).body as string);
     expect(body.model).toBe("openai/gpt-oss-20b");
     expect(body.temperature).toBe(0.3);
-    expect(body.response_format).toEqual({ type: "json_object" });
+    expect(body.response_format).toBeUndefined();
 
     const headers = (call[1] as RequestInit).headers as Record<string, string>;
     expect(headers.Authorization).toBe("Bearer test-key");

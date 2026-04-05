@@ -99,7 +99,13 @@ function getApiKey(): string {
 }
 
 export function parseAiResponse(raw: string): AiAnalysis {
-  const parsed = JSON.parse(raw);
+  // Убираем markdown-обёртки если модель добавила ```json ... ```
+  let cleaned = raw.trim();
+  const jsonBlockMatch = cleaned.match(/```(?:json)?\s*([\s\S]*?)```/);
+  if (jsonBlockMatch) {
+    cleaned = jsonBlockMatch[1].trim();
+  }
+  const parsed = JSON.parse(cleaned);
   return {
     summary: String(parsed.summary ?? ""),
     completionRate: String(parsed.completionRate ?? ""),
@@ -126,15 +132,16 @@ export async function getAiAnalysis(
       model: GROQ_CHAT_MODEL,
       messages: [
         { role: "system", content: prompt },
-        { role: "user", content: "Сформируй аналитический отчёт по предоставленным данным." },
+        { role: "user", content: "Сформируй аналитический отчёт по предоставленным данным. Верни ТОЛЬКО JSON." },
       ],
-      response_format: { type: "json_object" },
       temperature: 0.3,
     }),
   });
 
   if (!res.ok) {
-    throw new Error(`Groq API error: ${res.status}`);
+    const errorBody = await res.text();
+    console.error("Groq API error body:", errorBody);
+    throw new Error(`Groq API error: ${res.status} — ${errorBody}`);
   }
 
   const data = await res.json();
