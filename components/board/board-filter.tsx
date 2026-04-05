@@ -6,6 +6,7 @@ import {
   DropdownMenu,
   DropdownMenuTrigger,
   DropdownMenuContent,
+  DropdownMenuGroup,
   DropdownMenuLabel,
   DropdownMenuSeparator,
   DropdownMenuCheckboxItem,
@@ -24,20 +25,22 @@ export function BoardFilter() {
           <SlidersHorizontal className="size-4" />
         </DropdownMenuTrigger>
         <DropdownMenuContent align="end" className="w-56">
-          <DropdownMenuLabel>Фильтры</DropdownMenuLabel>
-          <DropdownMenuSeparator />
-          <DropdownMenuCheckboxItem
-            checked={config.today}
-            onCheckedChange={(checked) => updateConfig({ today: checked })}
-          >
-            📅 Дата — сегодня
-          </DropdownMenuCheckboxItem>
-          <DropdownMenuCheckboxItem
-            checked={config.highPriority}
-            onCheckedChange={(checked) => updateConfig({ highPriority: checked })}
-          >
-            🔴 Высокий приоритет
-          </DropdownMenuCheckboxItem>
+          <DropdownMenuGroup>
+            <DropdownMenuLabel>Фильтры</DropdownMenuLabel>
+            <DropdownMenuSeparator />
+            <DropdownMenuCheckboxItem
+              checked={config.today}
+              onCheckedChange={(checked) => updateConfig({ today: checked })}
+            >
+              📅 Дата — сегодня
+            </DropdownMenuCheckboxItem>
+            <DropdownMenuCheckboxItem
+              checked={config.highPriority}
+              onCheckedChange={(checked) => updateConfig({ highPriority: checked })}
+            >
+              🔴 Высокий приоритет
+            </DropdownMenuCheckboxItem>
+          </DropdownMenuGroup>
           <DropdownMenuSeparator />
           <p className="px-2 py-1.5 text-xs text-muted-foreground">
             Показать задачи, подходящие под любой фильтр
