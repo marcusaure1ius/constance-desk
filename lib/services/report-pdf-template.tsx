@@ -5,11 +5,20 @@ import {
   Text,
   View,
   StyleSheet,
+  Font,
 } from "@react-pdf/renderer";
 import { format } from "date-fns";
 import { ru } from "date-fns/locale";
 import type { ExtendedWeeklyReport, ExtendedReportTask } from "@/lib/services/reports";
 import type { AiAnalysis } from "@/lib/services/report-pdf";
+
+Font.register({
+  family: "Roboto",
+  fonts: [
+    { src: "https://cdn.jsdelivr.net/fontsource/fonts/roboto@latest/cyrillic-400-normal.ttf", fontWeight: 400 },
+    { src: "https://cdn.jsdelivr.net/fontsource/fonts/roboto@latest/cyrillic-700-normal.ttf", fontWeight: 700 },
+  ],
+});
 
 interface ReportPdfProps {
   report: ExtendedWeeklyReport;
@@ -41,7 +50,7 @@ const styles = StyleSheet.create({
     paddingTop: 40,
     paddingBottom: 50,
     paddingHorizontal: 40,
-    fontFamily: "Helvetica",
+    fontFamily: "Roboto",
     fontSize: 10,
     color: colors.text,
     backgroundColor: colors.white,
@@ -59,7 +68,7 @@ const styles = StyleSheet.create({
   },
   headerTitle: {
     fontSize: 22,
-    fontFamily: "Helvetica-Bold",
+    fontFamily: "Roboto", fontWeight: 700,
     color: colors.primary,
     letterSpacing: 1,
   },
@@ -89,11 +98,11 @@ const styles = StyleSheet.create({
   sectionIconText: {
     color: colors.white,
     fontSize: 10,
-    fontFamily: "Helvetica-Bold",
+    fontFamily: "Roboto", fontWeight: 700,
   },
   sectionTitle: {
     fontSize: 13,
-    fontFamily: "Helvetica-Bold",
+    fontFamily: "Roboto", fontWeight: 700,
     color: colors.secondary,
   },
   sectionText: {
@@ -118,7 +127,7 @@ const styles = StyleSheet.create({
   },
   metricLabel: {
     fontSize: 9,
-    fontFamily: "Helvetica-Bold",
+    fontFamily: "Roboto", fontWeight: 700,
     color: colors.textLight,
     textTransform: "uppercase",
     letterSpacing: 0.5,
@@ -142,7 +151,7 @@ const styles = StyleSheet.create({
     width: 14,
     fontSize: 10,
     color: colors.accent,
-    fontFamily: "Helvetica-Bold",
+    fontFamily: "Roboto", fontWeight: 700,
   },
   bulletText: {
     flex: 1,
@@ -157,7 +166,7 @@ const styles = StyleSheet.create({
   },
   tableTitle: {
     fontSize: 12,
-    fontFamily: "Helvetica-Bold",
+    fontFamily: "Roboto", fontWeight: 700,
     color: colors.secondary,
     marginBottom: 6,
     paddingBottom: 4,
@@ -174,7 +183,7 @@ const styles = StyleSheet.create({
   },
   tableHeaderText: {
     fontSize: 9,
-    fontFamily: "Helvetica-Bold",
+    fontFamily: "Roboto", fontWeight: 700,
     color: colors.textLight,
     textTransform: "uppercase",
     letterSpacing: 0.3,
@@ -219,7 +228,7 @@ const styles = StyleSheet.create({
     paddingVertical: 2,
     borderRadius: 10,
     fontSize: 8,
-    fontFamily: "Helvetica-Bold",
+    fontFamily: "Roboto", fontWeight: 700,
   },
   badgeDone: {
     backgroundColor: colors.greenBg,
