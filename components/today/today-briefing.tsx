@@ -267,7 +267,12 @@ export function TodayBriefing({
           currentColumnId={movingTask.columnId}
           onSelect={async (columnId) => {
             const { moveTaskAction } = await import("@/lib/actions/tasks");
-            const destTasks = briefing.inProgress.filter(
+            const allBriefingTasks = [
+              ...briefing.inProgress,
+              ...briefing.planned,
+              ...briefing.completed,
+            ];
+            const destTasks = allBriefingTasks.filter(
               (t) => t.columnId === columnId
             );
             await moveTaskAction(movingTask.id, columnId, destTasks.length);
@@ -373,7 +378,7 @@ function TaskRow({
 /* --- Utilities --- */
 
 function priorityLabel(p: string): string {
-  return p === "urgent" ? "Urgent" : p === "high" ? "High" : "Normal";
+  return p === "urgent" ? "Срочный" : p === "high" ? "Высокий" : "Обычный";
 }
 
 function taskWord(n: number): string {
