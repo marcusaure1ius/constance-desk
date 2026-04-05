@@ -6,7 +6,6 @@ import { LogoIcon } from "@/components/logo-icon";
 import { useRouter, useSearchParams, usePathname } from "next/navigation";
 import { Search, LayoutDashboard, CalendarDays, Plus, BarChart3, Settings } from "lucide-react";
 import { Input } from "@/components/ui/input";
-import { ReportSidebar } from "@/components/report/report-sidebar";
 import { TodayPlanModal } from "@/components/modals/today-plan-modal";
 import { UserMenu } from "@/components/user-menu";
 import { EnvironmentTheme } from "@/components/environment-theme";
@@ -40,7 +39,6 @@ export function AppShell({ children, activeEnvironment, environments, nickname }
     return () => observer.disconnect();
   }, []);
 
-  const [reportOpen, setReportOpen] = React.useState(false);
   const [todayPlanOpen, setTodayPlanOpen] = React.useState(false);
   const longPressTimer = React.useRef<ReturnType<typeof setTimeout> | null>(null);
   const isLongPress = React.useRef(false);
@@ -154,12 +152,16 @@ export function AppShell({ children, activeEnvironment, environments, nickname }
               >
                 План на сегодня
               </button>
-              <button
-                onClick={() => setReportOpen(true)}
-                className="px-3 py-1 text-sm font-medium rounded-full transition-colors text-muted-foreground hover:text-foreground"
+              <Link
+                href="/report"
+                className={`px-3 py-1 text-sm font-medium rounded-full transition-colors ${
+                  pathname === "/report"
+                    ? "bg-background text-foreground shadow-sm"
+                    : "text-muted-foreground hover:text-foreground"
+                }`}
               >
                 Отчёт
-              </button>
+              </Link>
               <Link
                 href="/settings"
                 className={`px-3 py-1 text-sm font-medium rounded-full transition-colors ${
@@ -218,12 +220,14 @@ export function AppShell({ children, activeEnvironment, environments, nickname }
             )}
             <Plus className="h-5 w-5" />
           </button>
-          <button
-            onClick={() => setReportOpen(true)}
-            className="flex flex-col items-center justify-center p-2 rounded-lg transition-colors text-muted-foreground"
+          <Link
+            href="/report"
+            className={`flex flex-col items-center justify-center p-2 rounded-lg transition-colors ${
+              pathname === "/report" ? "text-foreground" : "text-muted-foreground"
+            }`}
           >
             <BarChart3 className="h-5 w-5" />
-          </button>
+          </Link>
           <Link
             href="/settings"
             className={`flex flex-col items-center justify-center p-2 rounded-lg transition-colors ${
@@ -235,7 +239,6 @@ export function AppShell({ children, activeEnvironment, environments, nickname }
         </div>
       </nav>
 
-      <ReportSidebar open={reportOpen} onOpenChange={setReportOpen} environmentId={activeEnvironment?.id ?? ""} />
       <TodayPlanModal open={todayPlanOpen} onOpenChange={setTodayPlanOpen} environmentId={activeEnvironment?.id ?? ""} />
     </div>
   );
