@@ -12,11 +12,13 @@ import { ru } from "date-fns/locale";
 import type { ExtendedWeeklyReport, ExtendedReportTask } from "@/lib/services/reports";
 import type { AiAnalysis } from "@/lib/services/report-pdf";
 
+import path from "path";
+
 Font.register({
   family: "Roboto",
   fonts: [
-    { src: "https://cdn.jsdelivr.net/fontsource/fonts/roboto@latest/cyrillic-400-normal.ttf", fontWeight: 400 },
-    { src: "https://cdn.jsdelivr.net/fontsource/fonts/roboto@latest/cyrillic-700-normal.ttf", fontWeight: 700 },
+    { src: path.join(process.cwd(), "public/fonts/Roboto-Regular.ttf"), fontWeight: 400 },
+    { src: path.join(process.cwd(), "public/fonts/Roboto-Bold.ttf"), fontWeight: 700 },
   ],
 });
 
