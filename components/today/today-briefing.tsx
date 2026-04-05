@@ -371,9 +371,6 @@ function TaskRow({
         className="hidden md:flex items-center gap-3 px-4 py-3.5 cursor-pointer hover:bg-muted/50 transition-colors"
         onClick={onClick}
       >
-        {strikethrough && (
-          <CheckCircle2 className="size-5 text-green-500 flex-shrink-0" />
-        )}
         <div
           className={`w-[3px] h-8 rounded-full flex-shrink-0 ${
             priorityBgColors[task.priority] ?? "bg-gray-400"
@@ -389,6 +386,9 @@ function TaskRow({
           </p>
           <p className="text-xs text-muted-foreground mt-0.5">{subtitle}</p>
         </div>
+        {strikethrough && (
+          <CheckCircle2 className="size-5 text-green-500 flex-shrink-0" />
+        )}
         {onComplete && (
           <button
             className="flex-shrink-0 text-muted-foreground/40 hover:text-green-500 transition-colors"
