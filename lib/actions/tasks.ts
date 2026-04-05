@@ -52,6 +52,7 @@ export async function createTasksBatchAction(inputs: CreateTaskInput[]) {
 }
 
 import { getWeeklyReport, formatReportAsText, getExtendedWeeklyReport, getWeeklyTrend } from "@/lib/services/reports";
+import { generateReportPptx } from "@/lib/services/report-pptx";
 
 export async function getReportAction(dateStr: string, environmentId: string) {
   const date = new Date(dateStr);
@@ -72,4 +73,11 @@ export async function getExtendedReportAction(dateStr: string, environmentId: st
 export async function getWeeklyTrendAction(dateStr: string, environmentId: string, weeks: number = 4) {
   const date = new Date(dateStr);
   return getWeeklyTrend(date, environmentId, weeks);
+}
+
+export async function generatePptxAction(dateStr: string, environmentId: string): Promise<string> {
+  const date = new Date(dateStr);
+  const report = await getExtendedWeeklyReport(date, environmentId);
+  const buffer = await generateReportPptx(report);
+  return buffer.toString("base64");
 }

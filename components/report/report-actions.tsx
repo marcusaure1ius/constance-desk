@@ -2,13 +2,15 @@
 
 import * as React from "react";
 import { Copy, FileDown, Sparkles } from "lucide-react";
-import { format } from "date-fns";
+import { format, startOfWeek } from "date-fns";
 import { ru } from "date-fns/locale";
 import { Button } from "@/components/ui/button";
+import { generatePptxAction } from "@/lib/actions/tasks";
 import type { ExtendedWeeklyReport } from "@/lib/services/reports";
 
 interface ReportActionsProps {
   report: ExtendedWeeklyReport;
+  environmentId: string;
 }
 
 function buildHtmlTable(report: ExtendedWeeklyReport): string {
@@ -39,8 +41,9 @@ ${section("Выполненные задачи", report.completedTasks)}
 </div>`;
 }
 
-export function ReportActions({ report }: ReportActionsProps) {
+export function ReportActions({ report, environmentId }: ReportActionsProps) {
   const [copying, setCopying] = React.useState(false);
+  const [generatingPptx, setGeneratingPptx] = React.useState(false);
 
   async function handleCopy() {
     setCopying(true);
@@ -55,6 +58,36 @@ export function ReportActions({ report }: ReportActionsProps) {
     }
   }
 
+  async function handleDownloadPptx() {
+    setGeneratingPptx(true);
+    try {
+      const weekStart = startOfWeek(new Date(report.weekStart), { weekStartsOn: 1 });
+      const base64 = await generatePptxAction(weekStart.toISOString(), environmentId);
+
+      const byteCharacters = atob(base64);
+      const byteNumbers = new Array(byteCharacters.length);
+      for (let i = 0; i < byteCharacters.length; i++) {
+        byteNumbers[i] = byteCharacters.charCodeAt(i);
+      }
+      const byteArray = new Uint8Array(byteNumbers);
+      const blob = new Blob([byteArray], {
+        type: "application/vnd.openxmlformats-officedocument.presentationml.presentation",
+      });
+
+      const dateLabel = format(new Date(report.weekStart), "dd.MM.yyyy", { locale: ru });
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement("a");
+      a.href = url;
+      a.download = `AI_PO_${dateLabel}.pptx`;
+      document.body.appendChild(a);
+      a.click();
+      document.body.removeChild(a);
+      URL.revokeObjectURL(url);
+    } finally {
+      setGeneratingPptx(false);
+    }
+  }
+
   return (
     <div className="flex gap-2">
       <Button variant="outline" size="sm" onClick={handleCopy} disabled={copying}>
@@ -63,9 +96,11 @@ export function ReportActions({ report }: ReportActionsProps) {
           {copying ? "Копирование…" : "Копировать"}
         </span>
       </Button>
-      <Button variant="outline" size="sm" disabled>
+      <Button variant="outline" size="sm" onClick={handleDownloadPptx} disabled={generatingPptx}>
         <FileDown className="h-4 w-4" />
-        <span className="hidden sm:inline ml-1.5">PPTX</span>
+        <span className="hidden sm:inline ml-1.5">
+          {generatingPptx ? "Генерация…" : "PPTX"}
+        </span>
       </Button>
       <Button variant="outline" size="sm" disabled>
         <Sparkles className="h-4 w-4" />

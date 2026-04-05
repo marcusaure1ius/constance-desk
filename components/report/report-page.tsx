@@ -102,7 +102,7 @@ export function ReportPage({ initialReport, initialTrend, environmentId }: Repor
             </Button>
           )}
         </div>
-        <ReportActions report={report} />
+        <ReportActions report={report} environmentId={environmentId} />
       </div>
 
       {/* Content grid */}
