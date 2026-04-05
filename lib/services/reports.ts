@@ -1,6 +1,7 @@
 import { db } from "@/lib/db";
 import { tasks, categories, columns } from "@/lib/db/schema";
-import { and, gte, lt, eq, asc, inArray, or, isNull } from "drizzle-orm";
+import { and, gte, lt, eq, asc, inArray, or, isNull, count } from "drizzle-orm";
+import { subWeeks } from "date-fns";
 import { getWeekRange } from "@/lib/utils";
 
 export type ReportTask = {
@@ -164,6 +165,83 @@ export async function getExtendedWeeklyReport(
     carryoverTasks,
     newTasks,
   };
+}
+
+export type WeekTrendItem = {
+  weekStart: Date;
+  completed: number;
+  inProgress: number;
+  new: number;
+};
+
+export async function getWeeklyTrend(
+  date: Date,
+  environmentId: string,
+  weeks: number = 4,
+): Promise<WeekTrendItem[]> {
+  const envColumns = await db
+    .select({ id: columns.id })
+    .from(columns)
+    .where(eq(columns.environmentId, environmentId));
+  const columnIds = envColumns.map((c) => c.id);
+
+  const items: WeekTrendItem[] = [];
+
+  for (let i = 0; i < weeks; i++) {
+    const weekDate = subWeeks(date, i);
+    const { start, end } = getWeekRange(weekDate);
+
+    if (columnIds.length === 0) {
+      items.push({ weekStart: start, completed: 0, inProgress: 0, new: 0 });
+      continue;
+    }
+
+    const startDateStr = start.toISOString().split("T")[0];
+    const endDateStr = end.toISOString().split("T")[0];
+
+    // Количество завершённых за неделю
+    const [completedRow] = await db
+      .select({ count: count() })
+      .from(tasks)
+      .where(and(
+        gte(tasks.completedAt, start),
+        lt(tasks.completedAt, end),
+        inArray(tasks.columnId, columnIds),
+      ));
+
+    // Количество в работе (начаты до недели, не завершены или завершены на этой неделе)
+    const [inProgressRow] = await db
+      .select({ count: count() })
+      .from(tasks)
+      .where(and(
+        lt(tasks.startDate, startDateStr),
+        inArray(tasks.columnId, columnIds),
+        or(
+          isNull(tasks.completedAt),
+          and(gte(tasks.completedAt, start), lt(tasks.completedAt, end)),
+        ),
+      ));
+
+    // Количество новых задач за неделю
+    const [newRow] = await db
+      .select({ count: count() })
+      .from(tasks)
+      .where(and(
+        gte(tasks.startDate, startDateStr),
+        lt(tasks.startDate, endDateStr),
+        inArray(tasks.columnId, columnIds),
+      ));
+
+    items.push({
+      weekStart: start,
+      completed: completedRow.count,
+      inProgress: inProgressRow.count,
+      new: newRow.count,
+    });
+  }
+
+  // Возвращаем в хронологическом порядке (от старых к новым)
+  return items.reverse();
 }
 
 export function formatReportAsText(report: WeeklyReport): string {
