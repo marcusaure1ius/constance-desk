@@ -28,12 +28,14 @@ export async function updateTaskAction(
 ) {
   const task = await updateTaskService(id, data);
   revalidatePath("/");
+  revalidatePath("/today");
   return task;
 }
 
 export async function deleteTaskAction(id: string) {
   await deleteTaskService(id);
   revalidatePath("/");
+  revalidatePath("/today");
 }
 
 export async function moveTaskAction(
@@ -43,6 +45,7 @@ export async function moveTaskAction(
 ) {
   await moveTaskService(taskId, targetColumnId, targetPosition);
   revalidatePath("/");
+  revalidatePath("/today");
 }
 
 export async function createTasksBatchAction(inputs: CreateTaskInput[]) {

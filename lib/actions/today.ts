@@ -1,20 +1,10 @@
 "use server";
 
-import { getTasksForToday } from "@/lib/services/tasks";
-import { getColumns } from "@/lib/services/columns";
+import { revalidatePath } from "next/cache";
+import { updateTask } from "@/lib/services/tasks";
 
-export async function getTodayPlanAction(environmentId: string) {
-  const [todayTasks, columns] = await Promise.all([
-    getTasksForToday(environmentId),
-    getColumns(environmentId),
-  ]);
-
-  const grouped = columns
-    .map((col) => ({
-      column: col,
-      tasks: todayTasks.filter((t) => t.columnId === col.id),
-    }))
-    .filter((g) => g.tasks.length > 0);
-
-  return { grouped, totalCount: todayTasks.length };
+export async function addToPlanAction(taskId: string) {
+  const today = new Date().toISOString().split("T")[0];
+  await updateTask(taskId, { plannedDate: today });
+  revalidatePath("/today");
 }
