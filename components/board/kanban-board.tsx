@@ -16,6 +16,8 @@ import { MoveTaskModal } from "@/components/modals/move-task-modal";
 import { TaskEditDialog } from "./task-edit-dialog";
 import { SmartInput } from "@/components/smart-input/smart-input";
 import { SmartInputSheet } from "@/components/smart-input/smart-input-sheet";
+import { BoardFilter } from "@/components/board/board-filter";
+import { useBoardFilter } from "@/hooks/use-board-filter";
 
 type Column = { id: string; title: string; position: number };
 type Task = {
@@ -97,6 +99,7 @@ export function KanbanBoard({
   const searchParams = useSearchParams();
   const router = useRouter();
   const searchQuery = searchParams.get("q")?.toLowerCase() ?? "";
+  const { filterTask } = useBoardFilter();
 
   useEffect(() => {
     if (searchParams.get("create") === "true") {
@@ -118,11 +121,12 @@ export function KanbanBoard({
       const filtered = tasks
         .filter((t) => t.columnId === col.id)
         .filter((t) => !searchQuery || t.title.toLowerCase().includes(searchQuery))
+        .filter(filterTask)
         .sort((a, b) => a.position - b.position);
       map.set(col.id, filtered);
     }
     return map;
-  }, [tasks, columns, searchQuery]);
+  }, [tasks, columns, searchQuery, filterTask]);
 
   const filteredCount = searchQuery
     ? Array.from(tasksByColumn.values()).reduce((sum, arr) => sum + arr.length, 0)
@@ -209,10 +213,13 @@ export function KanbanBoard({
   return (
     <>
       <div className="hidden md:flex items-center justify-between container mx-auto px-4 pt-4">
-        <Button onClick={() => setCreateModalOpen(true)}>
-          <Plus className="mr-2 h-4 w-4" />
-          Добавить задачу
-        </Button>
+        <div className="flex items-center gap-2">
+          <Button onClick={() => setCreateModalOpen(true)}>
+            <Plus className="mr-2 h-4 w-4" />
+            Добавить задачу
+          </Button>
+          <BoardFilter />
+        </div>
         {searchQuery && (
           <span className="text-sm text-muted-foreground">
             Найдено: {filteredCount}
