@@ -66,7 +66,7 @@ export function FilterBottomSheet({ open, onOpenChange }: FilterBottomSheetProps
                 Высокий приоритет
               </div>
               <div className="text-xs text-muted-foreground">
-                Urgent и High
+                Срочный и Высокий
               </div>
             </div>
           </label>

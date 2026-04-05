@@ -4,9 +4,10 @@ import * as React from "react";
 import Link from "next/link";
 import { LogoIcon } from "@/components/logo-icon";
 import { useRouter, useSearchParams, usePathname } from "next/navigation";
-import { Search, LayoutDashboard, CalendarDays, Plus, BarChart3, Settings } from "lucide-react";
+import { Search, LayoutDashboard, Sun, Plus, BarChart3, Settings } from "lucide-react";
 import { Input } from "@/components/ui/input";
-import { TodayPlanModal } from "@/components/modals/today-plan-modal";
+import { FilterBottomSheet } from "@/components/board/filter-bottom-sheet";
+import { useBoardFilter } from "@/hooks/use-board-filter";
 import { UserMenu } from "@/components/user-menu";
 import { EnvironmentTheme } from "@/components/environment-theme";
 import { useScrollDirection } from "@/hooks/use-scroll-direction";
@@ -39,7 +40,11 @@ export function AppShell({ children, activeEnvironment, environments, nickname }
     return () => observer.disconnect();
   }, []);
 
-  const [todayPlanOpen, setTodayPlanOpen] = React.useState(false);
+  const [filterSheetOpen, setFilterSheetOpen] = React.useState(false);
+  const { config: filterConfig, updateConfig } = useBoardFilter();
+  const filterActive = filterConfig.active && (filterConfig.today || filterConfig.highPriority);
+  const filterLongPressTimer = React.useRef<ReturnType<typeof setTimeout> | null>(null);
+  const filterIsLongPress = React.useRef(false);
   const longPressTimer = React.useRef<ReturnType<typeof setTimeout> | null>(null);
   const isLongPress = React.useRef(false);
   const router = useRouter();
@@ -146,12 +151,16 @@ export function AppShell({ children, activeEnvironment, environments, nickname }
               >
                 Доска
               </Link>
-              <button
-                onClick={() => setTodayPlanOpen(true)}
-                className="px-3 py-1 text-sm font-medium rounded-full transition-colors text-muted-foreground hover:text-foreground"
+              <Link
+                href="/today"
+                className={`px-3 py-1 text-sm font-medium rounded-full transition-colors ${
+                  pathname === "/today"
+                    ? "bg-background text-foreground shadow-sm"
+                    : "text-muted-foreground hover:text-foreground"
+                }`}
               >
-                План на сегодня
-              </button>
+                Сегодня
+              </Link>
               <Link
                 href="/report"
                 className={`px-3 py-1 text-sm font-medium rounded-full transition-colors ${
@@ -192,10 +201,47 @@ export function AppShell({ children, activeEnvironment, environments, nickname }
             <LayoutDashboard className="h-5 w-5" />
           </Link>
           <button
-            onClick={() => setTodayPlanOpen(true)}
-            className="flex flex-col items-center justify-center p-2 rounded-lg transition-colors text-muted-foreground"
+            className={`relative flex flex-col items-center justify-center p-2 rounded-lg transition-colors ${
+              pathname === "/today" ? "text-foreground" : "text-muted-foreground"
+            }`}
+            onClick={() => {
+              if (filterIsLongPress.current) {
+                filterIsLongPress.current = false;
+                return;
+              }
+              router.push("/today");
+            }}
+            onTouchStart={() => {
+              filterIsLongPress.current = false;
+              filterLongPressTimer.current = setTimeout(() => {
+                filterIsLongPress.current = true;
+                if (filterActive) {
+                  updateConfig({ today: false, highPriority: false, active: false });
+                } else {
+                  setFilterSheetOpen(true);
+                }
+              }, 500);
+            }}
+            onTouchEnd={() => {
+              if (filterLongPressTimer.current) {
+                clearTimeout(filterLongPressTimer.current);
+                filterLongPressTimer.current = null;
+              }
+            }}
+            onTouchCancel={() => {
+              if (filterLongPressTimer.current) {
+                clearTimeout(filterLongPressTimer.current);
+                filterLongPressTimer.current = null;
+              }
+            }}
           >
-            <CalendarDays className="h-5 w-5" />
+            <Sun className="h-5 w-5" />
+            {filterActive && (
+              <div
+                className="absolute top-1.5 right-1.5 size-2 rounded-full border-2 border-background"
+                style={{ backgroundColor: activeEnvironment?.color ?? "var(--color-primary)" }}
+              />
+            )}
           </button>
           <button
             onTouchStart={handleFabTouchStart}
@@ -239,7 +285,7 @@ export function AppShell({ children, activeEnvironment, environments, nickname }
         </div>
       </nav>
 
-      <TodayPlanModal open={todayPlanOpen} onOpenChange={setTodayPlanOpen} environmentId={activeEnvironment?.id ?? ""} />
+      <FilterBottomSheet open={filterSheetOpen} onOpenChange={setFilterSheetOpen} />
     </div>
   );
 }

@@ -407,13 +407,36 @@ function TaskRow({
         )}
       </div>
       {/* Mobile: swipeable */}
-      <div className="md:hidden">
-        <SwipeableTaskCard
-          task={task}
-          categories={categories}
-          onClick={onClick}
-          onMovePress={onMovePress}
-        />
+      <div className="md:hidden flex items-center">
+        <div className="flex-1 min-w-0">
+          <SwipeableTaskCard
+            task={task}
+            categories={categories}
+            onClick={onClick}
+            onMovePress={onMovePress}
+          />
+        </div>
+        {strikethrough && (
+          <div className="flex-shrink-0 pr-3">
+            <CheckCircle2 className="size-5 text-green-500" />
+          </div>
+        )}
+        {onComplete && (
+          <button
+            className="flex-shrink-0 pr-3 text-muted-foreground/40 active:text-green-500 transition-colors"
+            onClick={(e) => {
+              e.stopPropagation();
+              onComplete();
+            }}
+            disabled={completing}
+          >
+            {completing ? (
+              <CheckCircle2 className="size-5 text-green-500 animate-pulse" />
+            ) : (
+              <Circle className="size-5" />
+            )}
+          </button>
+        )}
       </div>
     </div>
   );
