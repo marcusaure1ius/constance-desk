@@ -107,7 +107,8 @@ export function KanbanBoard({
   const searchParams = useSearchParams();
   const router = useRouter();
   const searchQuery = searchParams.get("q")?.toLowerCase() ?? "";
-  const { filterTask } = useBoardFilter();
+  const { filterTask, config, hasFilters } = useBoardFilter();
+  const filtersActive = config.active && hasFilters;
   const { mode, toggleCollapsed, isCollapsed } = useBoardView();
 
   useEffect(() => {
@@ -253,7 +254,7 @@ export function KanbanBoard({
         )}
       </div>
 
-      <DragDropContext onDragEnd={searchQuery ? () => {} : handleDragEnd}>
+      <DragDropContext onDragEnd={searchQuery || filtersActive ? () => {} : handleDragEnd}>
         {/* Desktop: вид колонок или дорожек-эпиков */}
         {mode === "epics" ? (
           <div className="hidden md:block h-full">
