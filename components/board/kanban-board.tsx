@@ -17,7 +17,11 @@ import { TaskEditDialog } from "./task-edit-dialog";
 import { SmartInput } from "@/components/smart-input/smart-input";
 import { SmartInputSheet } from "@/components/smart-input/smart-input-sheet";
 import { BoardFilter } from "@/components/board/board-filter";
+import { BoardViewToggle } from "@/components/board/board-view-toggle";
+import { EpicsBoard } from "@/components/board/epics-board";
 import { useBoardFilter } from "@/hooks/use-board-filter";
+import { useBoardView } from "@/hooks/use-board-view";
+import { parseDroppableId, cellIndexToColumnPosition } from "@/lib/board/epics";
 
 type Column = { id: string; title: string; position: number };
 type Task = {
@@ -104,6 +108,7 @@ export function KanbanBoard({
   const router = useRouter();
   const searchQuery = searchParams.get("q")?.toLowerCase() ?? "";
   const { filterTask } = useBoardFilter();
+  const { mode } = useBoardView();
 
   useEffect(() => {
     if (searchParams.get("create") === "true") {
@@ -145,30 +150,50 @@ export function KanbanBoard({
     )
       return;
 
+    // В режиме эпиков droppableId составной: "columnId__catKey".
+    const isEpics = destination.droppableId.includes("__");
+    const srcColumnId = isEpics
+      ? parseDroppableId(source.droppableId).columnId
+      : source.droppableId;
+    const dest = isEpics
+      ? parseDroppableId(destination.droppableId)
+      : { columnId: destination.droppableId, catKey: "" };
+    const destColumnId = dest.columnId;
+    const destIndex = isEpics
+      ? cellIndexToColumnPosition(
+          tasks,
+          draggableId,
+          dest.columnId,
+          dest.catKey,
+          destination.index
+        )
+      : destination.index;
+
     // Optimistic update
     const previousTasks = tasks;
     setTasks((prev) => {
-      const updated = prev.map(t => ({...t})); // deep copy
+      const updated = prev.map((t) => ({ ...t }));
       const taskIndex = updated.findIndex((t) => t.id === draggableId);
       if (taskIndex === -1) return prev;
 
       const movedTask = updated[taskIndex];
 
-      // Remove from source
       const sourceTasks = updated
-        .filter((t) => t.columnId === source.droppableId && t.id !== draggableId)
+        .filter((t) => t.columnId === srcColumnId && t.id !== draggableId)
         .sort((a, b) => a.position - b.position);
-      sourceTasks.forEach((t, i) => { t.position = i; });
+      sourceTasks.forEach((t, i) => {
+        t.position = i;
+      });
 
-      // Update moved task
-      movedTask.columnId = destination.droppableId;
+      movedTask.columnId = destColumnId;
 
-      // Insert into destination
       const destTasks = updated
-        .filter((t) => t.columnId === destination.droppableId && t.id !== draggableId)
+        .filter((t) => t.columnId === destColumnId && t.id !== draggableId)
         .sort((a, b) => a.position - b.position);
-      destTasks.splice(destination.index, 0, movedTask);
-      destTasks.forEach((t, i) => { t.position = i; });
+      destTasks.splice(destIndex, 0, movedTask);
+      destTasks.forEach((t, i) => {
+        t.position = i;
+      });
 
       return updated;
     });
@@ -176,11 +201,7 @@ export function KanbanBoard({
     // Server update
     startTransition(async () => {
       try {
-        await moveTaskAction(
-          draggableId,
-          destination.droppableId,
-          destination.index
-        );
+        await moveTaskAction(draggableId, destColumnId, destIndex);
       } catch {
         setTasks(previousTasks);
         toast.error("Не удалось переместить задачу");
@@ -223,6 +244,7 @@ export function KanbanBoard({
             Добавить задачу
           </Button>
           <BoardFilter />
+          <BoardViewToggle />
         </div>
         {searchQuery && (
           <span className="text-sm text-muted-foreground">
@@ -232,22 +254,33 @@ export function KanbanBoard({
       </div>
 
       <DragDropContext onDragEnd={searchQuery ? () => {} : handleDragEnd}>
-        {/* Desktop: horizontal columns */}
-        <div className="hidden md:flex gap-4 overflow-x-auto container mx-auto px-4 py-4 pb-36 h-full">
-          {columns.map((col) => (
-            <BoardColumn
-              key={col.id}
-              column={col}
-              tasks={(tasksByColumn.get(col.id) ?? [])}
+        {/* Desktop: вид колонок или дорожек-эпиков */}
+        {mode === "epics" ? (
+          <div className="hidden md:block h-full">
+            <EpicsBoard
+              columns={columns}
+              tasks={Array.from(tasksByColumn.values()).flat()}
               categories={categories}
               onTaskClick={setEditingTaskId}
-              onCreateTask={(columnId) => {
-                setCreateColumnId(columnId);
-                setCreateModalOpen(true);
-              }}
             />
-          ))}
-        </div>
+          </div>
+        ) : (
+          <div className="hidden md:flex gap-4 overflow-x-auto container mx-auto px-4 py-4 pb-36 h-full">
+            {columns.map((col) => (
+              <BoardColumn
+                key={col.id}
+                column={col}
+                tasks={(tasksByColumn.get(col.id) ?? [])}
+                categories={categories}
+                onTaskClick={setEditingTaskId}
+                onCreateTask={(columnId) => {
+                  setCreateColumnId(columnId);
+                  setCreateModalOpen(true);
+                }}
+              />
+            ))}
+          </div>
+        )}
       </DragDropContext>
 
       {/* Desktop: SmartInput fixed at bottom */}
