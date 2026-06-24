@@ -4,7 +4,7 @@ import { useState, useEffect, useTransition, useMemo, useCallback, useSyncExtern
 import { createPortal } from "react-dom";
 import { useSearchParams, useRouter } from "next/navigation";
 import { DragDropContext, type DropResult } from "@hello-pangea/dnd";
-import { Plus } from "lucide-react";
+import { Plus, ChevronDown, ChevronRight } from "lucide-react";
 import { BoardColumn } from "./board-column";
 import { SwipeableTaskCard } from "./swipeable-task-card";
 import { moveTaskAction } from "@/lib/actions/tasks";
@@ -21,7 +21,7 @@ import { BoardViewToggle } from "@/components/board/board-view-toggle";
 import { EpicsBoard } from "@/components/board/epics-board";
 import { useBoardFilter } from "@/hooks/use-board-filter";
 import { useBoardView } from "@/hooks/use-board-view";
-import { parseDroppableId, cellIndexToColumnPosition } from "@/lib/board/epics";
+import { parseDroppableId, cellIndexToColumnPosition, buildLanes, catKey } from "@/lib/board/epics";
 
 type Column = { id: string; title: string; position: number };
 type Task = {
@@ -108,7 +108,7 @@ export function KanbanBoard({
   const router = useRouter();
   const searchQuery = searchParams.get("q")?.toLowerCase() ?? "";
   const { filterTask } = useBoardFilter();
-  const { mode } = useBoardView();
+  const { mode, toggleCollapsed, isCollapsed } = useBoardView();
 
   useEffect(() => {
     if (searchParams.get("create") === "true") {
@@ -311,15 +311,64 @@ export function KanbanBoard({
                 <Plus className="size-3.5" />
               </div>
             </button>
-            {(tasksByColumn.get(activeTab) ?? []).map((task) => (
-              <SwipeableTaskCard
-                key={task.id}
-                task={task}
-                categories={categories}
-                onClick={() => setEditingTaskId(task.id)}
-                onMovePress={() => setMovingTaskId(task.id)}
-              />
-            ))}
+            {mode === "columns" ? (
+              (tasksByColumn.get(activeTab) ?? []).map((task) => (
+                <SwipeableTaskCard
+                  key={task.id}
+                  task={task}
+                  categories={categories}
+                  onClick={() => setEditingTaskId(task.id)}
+                  onMovePress={() => setMovingTaskId(task.id)}
+                />
+              ))
+            ) : (
+              buildLanes(
+                categories,
+                tasksByColumn.get(activeTab) ?? []
+              ).map((lane) => {
+                const laneTasks = (tasksByColumn.get(activeTab) ?? []).filter(
+                  (t) => catKey(t.categoryId) === lane.key
+                );
+                if (laneTasks.length === 0) return null;
+                const collapsed = isCollapsed(lane.key);
+                return (
+                  <div key={lane.key} className="space-y-2">
+                    <button
+                      onClick={() => toggleCollapsed(lane.key)}
+                      className="w-full flex items-center gap-2 rounded-md bg-muted/60 px-3 py-2 text-left"
+                    >
+                      {collapsed ? (
+                        <ChevronRight className="size-4 shrink-0 text-muted-foreground" />
+                      ) : (
+                        <ChevronDown className="size-4 shrink-0 text-muted-foreground" />
+                      )}
+                      {lane.category?.color && (
+                        <span
+                          className="size-2.5 shrink-0 rounded-full"
+                          style={{ backgroundColor: lane.category.color }}
+                        />
+                      )}
+                      <span className="text-sm font-semibold">
+                        {lane.category ? lane.category.name : "Без эпика"}
+                      </span>
+                      <span className="ml-1 text-xs text-muted-foreground">
+                        {laneTasks.length}
+                      </span>
+                    </button>
+                    {!collapsed &&
+                      laneTasks.map((task) => (
+                        <SwipeableTaskCard
+                          key={task.id}
+                          task={task}
+                          categories={categories}
+                          onClick={() => setEditingTaskId(task.id)}
+                          onMovePress={() => setMovingTaskId(task.id)}
+                        />
+                      ))}
+                  </div>
+                );
+              })
+            )}
           </>
         )}
       </div>
