@@ -109,7 +109,15 @@ export const EpicSwimlane = memo(function EpicSwimlane({
                       )}
                     </Draggable>
                   ))}
-                  {provided.placeholder}
+                  <div
+                    className={cn(
+                      !snapshot.isDraggingOver &&
+                        snapshot.draggingFromThisWith &&
+                        "hidden"
+                    )}
+                  >
+                    {provided.placeholder}
+                  </div>
                 </div>
               )}
             </Droppable>
