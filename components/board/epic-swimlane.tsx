@@ -51,7 +51,7 @@ export const EpicSwimlane = memo(function EpicSwimlane({
       {/* Заголовок дорожки на всю ширину сетки */}
       <button
         onClick={() => onToggleCollapsed(laneKey)}
-        className="col-span-full sticky left-0 mt-2 flex items-center gap-2 rounded-md bg-muted/60 px-3 py-2 text-left hover:bg-muted transition-colors"
+        className="col-span-full sticky left-0 mt-2 mb-1 flex items-center gap-2 rounded-lg border border-white/30 dark:border-white/10 bg-background/72 px-3 py-2 text-left shadow-[0_4px_30px_rgba(0,0,0,0.06)] backdrop-blur-xl hover:bg-background/80 hover:shadow-[0_6px_36px_rgba(0,0,0,0.12)] transition-all"
       >
         {collapsed ? (
           <ChevronRight className="size-4 shrink-0 text-muted-foreground" />
@@ -87,7 +87,7 @@ export const EpicSwimlane = memo(function EpicSwimlane({
                   ref={provided.innerRef}
                   {...provided.droppableProps}
                   className={cn(
-                    "flex min-h-[60px] flex-col rounded-md p-1 transition-colors",
+                    "flex min-h-[60px] flex-col rounded-md px-3 py-1 transition-colors",
                     snapshot.isDraggingOver && "bg-muted"
                   )}
                 >

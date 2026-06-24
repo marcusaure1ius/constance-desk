@@ -263,6 +263,10 @@ export function KanbanBoard({
               tasks={Array.from(tasksByColumn.values()).flat()}
               categories={categories}
               onTaskClick={setEditingTaskId}
+              onCreateTask={(columnId) => {
+                setCreateColumnId(columnId);
+                setCreateModalOpen(true);
+              }}
             />
           </div>
         ) : (
