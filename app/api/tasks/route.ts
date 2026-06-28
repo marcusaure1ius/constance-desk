@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { withApiAuth } from "@/lib/api-auth";
 import { getTasks, createTask } from "@/lib/services/tasks";
+import { createTaskSchema } from "@/lib/agent/schemas";
 
 export async function GET(request: NextRequest) {
   return withApiAuth(request, async () => {
@@ -19,7 +20,14 @@ export async function GET(request: NextRequest) {
 export async function POST(request: NextRequest) {
   return withApiAuth(request, async () => {
     const body = await request.json();
-    const task = await createTask(body);
+    const parsed = createTaskSchema.safeParse(body);
+    if (!parsed.success) {
+      return NextResponse.json(
+        { error: "Ошибка валидации", issues: parsed.error.issues },
+        { status: 400 }
+      );
+    }
+    const task = await createTask(parsed.data);
     return NextResponse.json(task, { status: 201 });
   });
 }
