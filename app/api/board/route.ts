@@ -6,7 +6,7 @@ export async function GET(request: NextRequest) {
   return withApiAuth(request, async () => {
     const environmentId = request.nextUrl.searchParams.get("environmentId");
     if (!environmentId) {
-      return NextResponse.json({ error: "environmentId is required" }, { status: 400 });
+      return NextResponse.json({ error: "environmentId обязателен" }, { status: 400 });
     }
     const snapshot = await getBoardSnapshot(environmentId);
     if (!snapshot) {
