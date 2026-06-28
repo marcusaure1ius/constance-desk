@@ -43,10 +43,6 @@ export async function verifyPin(pin: string): Promise<boolean> {
   return bcrypt.compare(pin, row.pinHash);
 }
 
-export async function verifyApiKey(apiKey: string): Promise<boolean> {
-  return verifyPin(apiKey);
-}
-
 export async function getNickname(): Promise<string | null> {
   const [row] = await db
     .select({ nickname: settings.nickname })

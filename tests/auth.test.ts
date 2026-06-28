@@ -27,7 +27,7 @@ vi.mock("next/headers", () => ({
   ),
 }));
 
-import { isPinSet, verifyPin, setPin, verifyApiKey, getNickname, setNickname, createSession, destroySession } from "@/lib/services/auth";
+import { isPinSet, verifyPin, setPin, getNickname, setNickname, createSession, destroySession } from "@/lib/services/auth";
 
 describe("isPinSet", () => {
   beforeEach(() => {
@@ -112,20 +112,6 @@ describe("setPin", () => {
     insertChain.onConflictDoUpdate.mockResolvedValue(undefined);
     await expect(setPin("1234")).resolves.not.toThrow();
     expect(mockDb.insert).toHaveBeenCalled();
-  });
-});
-
-describe("verifyApiKey", () => {
-  beforeEach(() => {
-    vi.clearAllMocks();
-    mockDb.select.mockReturnValue(selectChain);
-    selectChain.from.mockReturnValue(selectChain);
-  });
-
-  it("делегирует проверку в verifyPin", async () => {
-    selectChain.where.mockResolvedValue([{ pinHash: null }]);
-    const result = await verifyApiKey("1234");
-    expect(result).toBe(false);
   });
 });
 
