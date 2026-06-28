@@ -20,10 +20,10 @@ export async function withApiAuth(
 ): Promise<NextResponse> {
   const apiKey = request.headers.get("X-API-Key");
   if (!apiKey) {
-    return NextResponse.json({ error: "API key required" }, { status: 401 });
+    return NextResponse.json({ error: "Требуется API-ключ" }, { status: 401 });
   }
   if (!isValidAgentKey(apiKey)) {
-    return NextResponse.json({ error: "Invalid API key" }, { status: 401 });
+    return NextResponse.json({ error: "Неверный API-ключ" }, { status: 401 });
   }
   return handler();
 }

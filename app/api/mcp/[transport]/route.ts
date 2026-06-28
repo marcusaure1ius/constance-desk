@@ -18,12 +18,20 @@ const json = (data: unknown) => ({
   content: [{ type: "text" as const, text: JSON.stringify(data, null, 2) }],
 });
 
+const safeJson = async (fn: () => Promise<unknown>) => {
+  try {
+    return json(await fn());
+  } catch (e) {
+    return json({ error: e instanceof Error ? e.message : "Внутренняя ошибка" });
+  }
+};
+
 const handler = createMcpHandler(
   (server) => {
     server.registerTool(
       "list_environments",
       { title: "Список сред", description: "Вернуть все среды (проекты).", inputSchema: {} },
-      async () => json(await getEnvironments())
+      async () => safeJson(() => getEnvironments())
     );
 
     server.registerTool(
@@ -33,11 +41,12 @@ const handler = createMcpHandler(
         description: "Вернуть среду, колонки, эпики и задачи одним ответом.",
         inputSchema: { environmentId: z.string() },
       },
-      async ({ environmentId }) => {
-        const snapshot = await getBoardSnapshot(environmentId);
-        if (!snapshot) return json({ error: "Среда не найдена" });
-        return json(snapshot);
-      }
+      async ({ environmentId }) =>
+        safeJson(async () => {
+          const snapshot = await getBoardSnapshot(environmentId);
+          if (!snapshot) return { error: "Среда не найдена" };
+          return snapshot;
+        })
     );
 
     server.registerTool(
@@ -47,7 +56,7 @@ const handler = createMcpHandler(
         description: "Вернуть задачи среды.",
         inputSchema: { environmentId: z.string() },
       },
-      async ({ environmentId }) => json(await getTasks(environmentId))
+      async ({ environmentId }) => safeJson(() => getTasks(environmentId))
     );
 
     server.registerTool(
@@ -64,7 +73,7 @@ const handler = createMcpHandler(
           plannedDate: z.string().regex(/^\d{4}-\d{2}-\d{2}$/).optional(),
         },
       },
-      async (args) => json(await createTask(args))
+      async (args) => safeJson(() => createTask(args))
     );
 
     server.registerTool(
@@ -79,7 +88,7 @@ const handler = createMcpHandler(
         },
       },
       async ({ name, color, environmentId }) =>
-        json(await createCategory(name, color, environmentId))
+        safeJson(() => createCategory(name, color, environmentId))
     );
 
     server.registerTool(
@@ -98,15 +107,16 @@ const handler = createMcpHandler(
           epicColor: z.string().optional(),
         },
       },
-      async (args) => {
-        const result = await createEpicTask(args);
-        if (!result.ok) return json({ error: result.error });
-        return json({
-          task: result.task,
-          category: result.category,
-          createdCategory: result.createdCategory,
-        });
-      }
+      async (args) =>
+        safeJson(async () => {
+          const result = await createEpicTask(args);
+          if (!result.ok) return { error: result.error };
+          return {
+            task: result.task,
+            category: result.category,
+            createdCategory: result.createdCategory,
+          };
+        })
     );
 
     server.registerTool(
@@ -120,10 +130,10 @@ const handler = createMcpHandler(
           description: z.string().nullable().optional(),
           categoryId: z.string().nullable().optional(),
           priority: z.enum(["urgent", "high", "normal"]).optional(),
-          plannedDate: z.string().nullable().optional(),
+          plannedDate: z.string().regex(/^\d{4}-\d{2}-\d{2}$/).nullable().optional(),
         },
       },
-      async ({ id, ...data }) => json(await updateTask(id, data))
+      async ({ id, ...data }) => safeJson(() => updateTask(id, data))
     );
 
     server.registerTool(
@@ -137,10 +147,11 @@ const handler = createMcpHandler(
           targetPosition: z.number().int().min(0),
         },
       },
-      async ({ taskId, targetColumnId, targetPosition }) => {
-        await moveTask(taskId, targetColumnId, targetPosition);
-        return json({ success: true });
-      }
+      async ({ taskId, targetColumnId, targetPosition }) =>
+        safeJson(async () => {
+          await moveTask(taskId, targetColumnId, targetPosition);
+          return { success: true };
+        })
     );
 
     server.registerTool(
@@ -150,10 +161,11 @@ const handler = createMcpHandler(
         description: "Удалить задачу по id.",
         inputSchema: { id: z.string() },
       },
-      async ({ id }) => {
-        await deleteTask(id);
-        return json({ success: true });
-      }
+      async ({ id }) =>
+        safeJson(async () => {
+          await deleteTask(id);
+          return { success: true };
+        })
     );
   },
   { serverInfo: { name: "constance", version: "1.0.0" }, capabilities: { tools: {} } },

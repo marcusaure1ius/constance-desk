@@ -16,7 +16,7 @@ describe("withApiAuth", () => {
     const res = await withApiAuth(makeRequest(), handler);
     const body = await res.json();
     expect(res.status).toBe(401);
-    expect(body.error).toBe("API key required");
+    expect(body.error).toBe("Требуется API-ключ");
     expect(handler).not.toHaveBeenCalled();
   });
 
@@ -25,7 +25,7 @@ describe("withApiAuth", () => {
     const res = await withApiAuth(makeRequest({ "X-API-Key": "wrong" }), handler);
     const body = await res.json();
     expect(res.status).toBe(401);
-    expect(body.error).toBe("Invalid API key");
+    expect(body.error).toBe("Неверный API-ключ");
     expect(handler).not.toHaveBeenCalled();
   });
 

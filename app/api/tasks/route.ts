@@ -8,7 +8,7 @@ export async function GET(request: NextRequest) {
     const environmentId = request.nextUrl.searchParams.get("environmentId");
     if (!environmentId) {
       return NextResponse.json(
-        { error: "environmentId is required" },
+        { error: "environmentId обязателен" },
         { status: 400 }
       );
     }
