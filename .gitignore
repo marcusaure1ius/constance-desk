@@ -25,6 +25,7 @@
 *.pem
 .claude/
 PLAN.MD
+plan.md
 docs/
 .playwright-mcp/
 .superpowers/

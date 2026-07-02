@@ -88,6 +88,7 @@ jobs:
     env:
       DATABASE_URL: postgresql://fake:fake@localhost:5432/fake
       SESSION_SECRET: ci-dummy-secret-value
+      AGENT_API_KEY: ci-dummy-agent-key
     steps:
       - uses: actions/checkout@v4
 
