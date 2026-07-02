@@ -40,5 +40,6 @@ describe("getBoardSnapshot", () => {
 
     const res = await getBoardSnapshot("env-1");
     expect(res).toEqual({ environment: env, columns, categories, tasks });
+    expect(mockGetTasks).toHaveBeenCalledWith("env-1", { includeArchived: false });
   });
 });

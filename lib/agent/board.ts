@@ -11,7 +11,8 @@ export type BoardSnapshot = {
 };
 
 export async function getBoardSnapshot(
-  environmentId: string
+  environmentId: string,
+  includeArchived = false
 ): Promise<BoardSnapshot | null> {
   const environment = await getEnvironmentById(environmentId);
   if (!environment) return null;
@@ -19,7 +20,7 @@ export async function getBoardSnapshot(
   const [columns, categories, tasks] = await Promise.all([
     getColumns(environmentId),
     getCategories(environmentId),
-    getTasks(environmentId),
+    getTasks(environmentId, { includeArchived }),
   ]);
 
   return { environment, columns, categories, tasks };
