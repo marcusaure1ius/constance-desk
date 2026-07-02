@@ -118,6 +118,15 @@ export async function updateTask(
   return task;
 }
 
+export async function restoreTask(id: string) {
+  const [task] = await db
+    .update(tasks)
+    .set({ completedAt: null, updatedAt: new Date() })
+    .where(eq(tasks.id, id))
+    .returning();
+  return task;
+}
+
 export async function deleteTask(id: string) {
   await db.delete(tasks).where(eq(tasks.id, id));
 }

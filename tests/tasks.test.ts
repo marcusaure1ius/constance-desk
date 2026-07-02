@@ -40,6 +40,7 @@ import {
   moveTask,
   getTasksForToday,
   getArchivedTasks,
+  restoreTask,
 } from "@/lib/services/tasks";
 
 describe("getTasks", () => {
@@ -88,6 +89,26 @@ describe("getArchivedTasks", () => {
     selectChain.where.mockResolvedValueOnce([]);
     const result = await getArchivedTasks("env-1");
     expect(result).toEqual([]);
+  });
+});
+
+describe("restoreTask", () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+    mockDb.update.mockReturnValue(updateChain);
+    updateChain.set.mockReturnValue(updateChain);
+    updateChain.where.mockReturnValue(updateChain);
+  });
+
+  it("сбрасывает completedAt в null и возвращает задачу", async () => {
+    const task = { id: "1", title: "Задача", completedAt: null };
+    updateChain.returning.mockResolvedValue([task]);
+
+    const result = await restoreTask("1");
+
+    expect(result).toEqual(task);
+    const setArg = updateChain.set.mock.calls[0][0];
+    expect(setArg.completedAt).toBeNull();
   });
 });
 
