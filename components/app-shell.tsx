@@ -163,6 +163,7 @@ export function AppShell({ children, activeEnvironment, environments, nickname }
               </Link>
               <Link
                 href="/report"
+                prefetch={false}
                 className={`px-3 py-1 text-sm font-medium rounded-full transition-colors ${
                   pathname === "/report"
                     ? "bg-background text-foreground shadow-sm"
@@ -268,6 +269,7 @@ export function AppShell({ children, activeEnvironment, environments, nickname }
           </button>
           <Link
             href="/report"
+            prefetch={false}
             className={`flex flex-col items-center justify-center p-2 rounded-lg transition-colors ${
               pathname === "/report" ? "text-foreground" : "text-muted-foreground"
             }`}
