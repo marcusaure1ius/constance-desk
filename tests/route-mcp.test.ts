@@ -119,13 +119,35 @@ describe("MCP route /api/mcp/[transport]", () => {
       mocks.getBoardSnapshot.mockResolvedValue(snapshot);
       const data = await callTool("get_board", { environmentId: "env-1" });
       expect(data).toEqual(snapshot);
-      expect(mocks.getBoardSnapshot).toHaveBeenCalledWith("env-1");
+      expect(mocks.getBoardSnapshot).toHaveBeenCalledWith("env-1", undefined);
     });
 
     it("возвращает ошибку, если среда не найдена", async () => {
       mocks.getBoardSnapshot.mockResolvedValue(null);
       const data = await callTool("get_board", { environmentId: "missing" });
       expect(data).toEqual({ error: "Среда не найдена" });
+    });
+
+    it("пробрасывает includeArchived в getBoardSnapshot", async () => {
+      const snapshot = { environment: { id: "env-1" }, columns: [], categories: [], tasks: [] };
+      mocks.getBoardSnapshot.mockResolvedValue(snapshot);
+      await callTool("get_board", { environmentId: "env-1", includeArchived: true });
+      expect(mocks.getBoardSnapshot).toHaveBeenCalledWith("env-1", true);
+    });
+  });
+
+  describe("list_tasks", () => {
+    it("по умолчанию исключает архив (includeArchived undefined)", async () => {
+      mocks.getTasks.mockResolvedValue([{ id: "t-1" }]);
+      const data = await callTool("list_tasks", { environmentId: "env-1" });
+      expect(data).toEqual([{ id: "t-1" }]);
+      expect(mocks.getTasks).toHaveBeenCalledWith("env-1", { includeArchived: undefined });
+    });
+
+    it("пробрасывает includeArchived: true", async () => {
+      mocks.getTasks.mockResolvedValue([]);
+      await callTool("list_tasks", { environmentId: "env-1", includeArchived: true });
+      expect(mocks.getTasks).toHaveBeenCalledWith("env-1", { includeArchived: true });
     });
   });
 

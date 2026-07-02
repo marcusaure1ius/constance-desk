@@ -1,6 +1,6 @@
 import { db } from "@/lib/db";
 import { tasks, columns } from "@/lib/db/schema";
-import { eq, and, asc, desc, max, inArray } from "drizzle-orm";
+import { eq, and, or, asc, desc, max, inArray, isNull, gte, lt } from "drizzle-orm";
 
 export type CreateTaskInput = {
   title: string;
@@ -12,7 +12,41 @@ export type CreateTaskInput = {
   plannedDate?: string;
 };
 
-export async function getTasks(environmentId: string) {
+export const ARCHIVE_AFTER_DAYS = 30;
+
+function archiveCutoff(): Date {
+  const d = new Date();
+  d.setDate(d.getDate() - ARCHIVE_AFTER_DAYS);
+  return d;
+}
+
+export async function getTasks(
+  environmentId: string,
+  options?: { includeArchived?: boolean }
+) {
+  const envColumns = await db
+    .select({ id: columns.id })
+    .from(columns)
+    .where(eq(columns.environmentId, environmentId));
+
+  if (envColumns.length === 0) return [];
+  const columnIds = envColumns.map((c) => c.id);
+
+  const conditions = [inArray(tasks.columnId, columnIds)];
+  if (!options?.includeArchived) {
+    conditions.push(
+      or(isNull(tasks.completedAt), gte(tasks.completedAt, archiveCutoff()))!
+    );
+  }
+
+  return db
+    .select()
+    .from(tasks)
+    .where(and(...conditions))
+    .orderBy(asc(tasks.position));
+}
+
+export async function getArchivedTasks(environmentId: string) {
   const envColumns = await db
     .select({ id: columns.id })
     .from(columns)
@@ -24,8 +58,13 @@ export async function getTasks(environmentId: string) {
   return db
     .select()
     .from(tasks)
-    .where(inArray(tasks.columnId, columnIds))
-    .orderBy(asc(tasks.position));
+    .where(
+      and(
+        inArray(tasks.columnId, columnIds),
+        lt(tasks.completedAt, archiveCutoff())
+      )
+    )
+    .orderBy(desc(tasks.completedAt));
 }
 
 export async function getTasksByColumn(columnId: string) {
@@ -36,6 +75,21 @@ export async function getTasksByColumn(columnId: string) {
     .orderBy(asc(tasks.position));
 }
 
+async function isLastColumn(columnId: string): Promise<boolean> {
+  const [col] = await db
+    .select({ position: columns.position, environmentId: columns.environmentId })
+    .from(columns)
+    .where(eq(columns.id, columnId));
+  if (!col) return false;
+
+  const [maxCol] = await db
+    .select({ maxPos: max(columns.position) })
+    .from(columns)
+    .where(eq(columns.environmentId, col.environmentId));
+
+  return maxCol?.maxPos != null && col.position === maxCol.maxPos;
+}
+
 export async function createTask(input: CreateTaskInput) {
   const [maxPos] = await db
     .select({ max: max(tasks.position) })
@@ -43,6 +97,8 @@ export async function createTask(input: CreateTaskInput) {
     .where(eq(tasks.columnId, input.columnId));
 
   const position = (maxPos?.max ?? -1) + 1;
+
+  const completedAt = (await isLastColumn(input.columnId)) ? new Date() : null;
 
   const [task] = await db
     .insert(tasks)
@@ -55,6 +111,7 @@ export async function createTask(input: CreateTaskInput) {
       position,
       startDate: input.startDate || new Date().toISOString().split("T")[0],
       plannedDate: input.plannedDate || null,
+      completedAt,
     })
     .returning();
 
@@ -74,6 +131,15 @@ export async function updateTask(
   const [task] = await db
     .update(tasks)
     .set({ ...data, updatedAt: new Date() })
+    .where(eq(tasks.id, id))
+    .returning();
+  return task;
+}
+
+export async function restoreTask(id: string) {
+  const [task] = await db
+    .update(tasks)
+    .set({ completedAt: null, updatedAt: new Date() })
     .where(eq(tasks.id, id))
     .returning();
   return task;

@@ -7,6 +7,8 @@ import {
   deleteTask as deleteTaskService,
   moveTask as moveTaskService,
   createTasksBatch,
+  getArchivedTasks as getArchivedTasksService,
+  restoreTask as restoreTaskService,
   type CreateTaskInput,
 } from "@/lib/services/tasks";
 
@@ -46,6 +48,15 @@ export async function moveTaskAction(
   await moveTaskService(taskId, targetColumnId, targetPosition);
   revalidatePath("/");
   revalidatePath("/today");
+}
+
+export async function getArchivedTasksAction(environmentId: string) {
+  return getArchivedTasksService(environmentId);
+}
+
+export async function restoreTaskAction(id: string) {
+  await restoreTaskService(id);
+  revalidatePath("/");
 }
 
 export async function createTasksBatchAction(inputs: CreateTaskInput[]) {

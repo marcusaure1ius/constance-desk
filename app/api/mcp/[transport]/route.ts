@@ -38,12 +38,15 @@ const handler = createMcpHandler(
       "get_board",
       {
         title: "Снимок доски",
-        description: "Вернуть среду, колонки, эпики и задачи одним ответом.",
-        inputSchema: { environmentId: z.string() },
+        description: "Вернуть среду, колонки, эпики и задачи одним ответом. По умолчанию без архива.",
+        inputSchema: {
+          environmentId: z.string(),
+          includeArchived: z.boolean().optional(),
+        },
       },
-      async ({ environmentId }) =>
+      async ({ environmentId, includeArchived }) =>
         safeJson(async () => {
-          const snapshot = await getBoardSnapshot(environmentId);
+          const snapshot = await getBoardSnapshot(environmentId, includeArchived);
           if (!snapshot) return { error: "Среда не найдена" };
           return snapshot;
         })
@@ -53,10 +56,14 @@ const handler = createMcpHandler(
       "list_tasks",
       {
         title: "Список задач",
-        description: "Вернуть задачи среды.",
-        inputSchema: { environmentId: z.string() },
+        description: "Вернуть задачи среды. По умолчанию без архива (задачи, выполненные более 30 дней назад).",
+        inputSchema: {
+          environmentId: z.string(),
+          includeArchived: z.boolean().optional(),
+        },
       },
-      async ({ environmentId }) => safeJson(() => getTasks(environmentId))
+      async ({ environmentId, includeArchived }) =>
+        safeJson(() => getTasks(environmentId, { includeArchived }))
     );
 
     server.registerTool(

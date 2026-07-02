@@ -39,6 +39,8 @@ import {
   deleteTask,
   moveTask,
   getTasksForToday,
+  getArchivedTasks,
+  restoreTask,
 } from "@/lib/services/tasks";
 
 describe("getTasks", () => {
@@ -61,6 +63,52 @@ describe("getTasks", () => {
     selectChain.orderBy.mockResolvedValue(taskList);
     const result = await getTasks("env-1");
     expect(result).toEqual(taskList);
+  });
+});
+
+describe("getArchivedTasks", () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+    mockDb.select.mockReturnValue(selectChain);
+    selectChain.from.mockReturnValue(selectChain);
+  });
+
+  it("возвращает архивные задачи, отсортированные по дате выполнения", async () => {
+    const envColumns = [{ id: "col-1" }];
+    const archived = [{ id: "a1", title: "Старая задача" }];
+    // select колонок среды
+    selectChain.where.mockResolvedValueOnce(envColumns);
+    // select задач: where -> chain, orderBy -> результат
+    selectChain.where.mockReturnValueOnce(selectChain);
+    selectChain.orderBy.mockResolvedValue(archived);
+    const result = await getArchivedTasks("env-1");
+    expect(result).toEqual(archived);
+  });
+
+  it("возвращает пустой массив, если у среды нет колонок", async () => {
+    selectChain.where.mockResolvedValueOnce([]);
+    const result = await getArchivedTasks("env-1");
+    expect(result).toEqual([]);
+  });
+});
+
+describe("restoreTask", () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+    mockDb.update.mockReturnValue(updateChain);
+    updateChain.set.mockReturnValue(updateChain);
+    updateChain.where.mockReturnValue(updateChain);
+  });
+
+  it("сбрасывает completedAt в null и возвращает задачу", async () => {
+    const task = { id: "1", title: "Задача", completedAt: null };
+    updateChain.returning.mockResolvedValue([task]);
+
+    const result = await restoreTask("1");
+
+    expect(result).toEqual(task);
+    const setArg = updateChain.set.mock.calls[0][0];
+    expect(setArg.completedAt).toBeNull();
   });
 });
 
@@ -116,6 +164,36 @@ describe("createTask", () => {
       columnId: "col-1",
     });
     expect(result).toEqual(task);
+  });
+
+  it("проставляет completedAt при создании в последней колонке", async () => {
+    selectChain.where.mockResolvedValueOnce([{ max: 0 }]); // max позиции задач
+    selectChain.where.mockResolvedValueOnce([
+      { position: 2, environmentId: "env-1" },
+    ]); // сведения о колонке
+    selectChain.where.mockResolvedValueOnce([{ maxPos: 2 }]); // max позиции колонок среды
+    const task = { id: "1", title: "Готовая", columnId: "done-col" };
+    insertChain.returning.mockResolvedValue([task]);
+
+    await createTask({ title: "Готовая", columnId: "done-col" });
+
+    const values = insertChain.values.mock.calls[0][0];
+    expect(values.completedAt).toBeInstanceOf(Date);
+  });
+
+  it("не проставляет completedAt в обычной колонке", async () => {
+    selectChain.where.mockResolvedValueOnce([{ max: 0 }]);
+    selectChain.where.mockResolvedValueOnce([
+      { position: 0, environmentId: "env-1" },
+    ]);
+    selectChain.where.mockResolvedValueOnce([{ maxPos: 2 }]);
+    const task = { id: "1", title: "Обычная", columnId: "todo-col" };
+    insertChain.returning.mockResolvedValue([task]);
+
+    await createTask({ title: "Обычная", columnId: "todo-col" });
+
+    const values = insertChain.values.mock.calls[0][0];
+    expect(values.completedAt).toBeNull();
   });
 });
 
