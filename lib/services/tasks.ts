@@ -1,6 +1,6 @@
 import { db } from "@/lib/db";
 import { tasks, columns } from "@/lib/db/schema";
-import { eq, and, asc, desc, max, inArray } from "drizzle-orm";
+import { eq, and, or, asc, desc, max, inArray, isNull, gte, lt } from "drizzle-orm";
 
 export type CreateTaskInput = {
   title: string;
@@ -12,7 +12,41 @@ export type CreateTaskInput = {
   plannedDate?: string;
 };
 
-export async function getTasks(environmentId: string) {
+export const ARCHIVE_AFTER_DAYS = 30;
+
+function archiveCutoff(): Date {
+  const d = new Date();
+  d.setDate(d.getDate() - ARCHIVE_AFTER_DAYS);
+  return d;
+}
+
+export async function getTasks(
+  environmentId: string,
+  options?: { includeArchived?: boolean }
+) {
+  const envColumns = await db
+    .select({ id: columns.id })
+    .from(columns)
+    .where(eq(columns.environmentId, environmentId));
+
+  if (envColumns.length === 0) return [];
+  const columnIds = envColumns.map((c) => c.id);
+
+  const conditions = [inArray(tasks.columnId, columnIds)];
+  if (!options?.includeArchived) {
+    conditions.push(
+      or(isNull(tasks.completedAt), gte(tasks.completedAt, archiveCutoff()))!
+    );
+  }
+
+  return db
+    .select()
+    .from(tasks)
+    .where(and(...conditions))
+    .orderBy(asc(tasks.position));
+}
+
+export async function getArchivedTasks(environmentId: string) {
   const envColumns = await db
     .select({ id: columns.id })
     .from(columns)
@@ -24,8 +58,13 @@ export async function getTasks(environmentId: string) {
   return db
     .select()
     .from(tasks)
-    .where(inArray(tasks.columnId, columnIds))
-    .orderBy(asc(tasks.position));
+    .where(
+      and(
+        inArray(tasks.columnId, columnIds),
+        lt(tasks.completedAt, archiveCutoff())
+      )
+    )
+    .orderBy(desc(tasks.completedAt));
 }
 
 export async function getTasksByColumn(columnId: string) {

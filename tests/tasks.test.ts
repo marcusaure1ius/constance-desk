@@ -39,6 +39,7 @@ import {
   deleteTask,
   moveTask,
   getTasksForToday,
+  getArchivedTasks,
 } from "@/lib/services/tasks";
 
 describe("getTasks", () => {
@@ -61,6 +62,32 @@ describe("getTasks", () => {
     selectChain.orderBy.mockResolvedValue(taskList);
     const result = await getTasks("env-1");
     expect(result).toEqual(taskList);
+  });
+});
+
+describe("getArchivedTasks", () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+    mockDb.select.mockReturnValue(selectChain);
+    selectChain.from.mockReturnValue(selectChain);
+  });
+
+  it("возвращает архивные задачи, отсортированные по дате выполнения", async () => {
+    const envColumns = [{ id: "col-1" }];
+    const archived = [{ id: "a1", title: "Старая задача" }];
+    // select колонок среды
+    selectChain.where.mockResolvedValueOnce(envColumns);
+    // select задач: where -> chain, orderBy -> результат
+    selectChain.where.mockReturnValueOnce(selectChain);
+    selectChain.orderBy.mockResolvedValue(archived);
+    const result = await getArchivedTasks("env-1");
+    expect(result).toEqual(archived);
+  });
+
+  it("возвращает пустой массив, если у среды нет колонок", async () => {
+    selectChain.where.mockResolvedValueOnce([]);
+    const result = await getArchivedTasks("env-1");
+    expect(result).toEqual([]);
   });
 });
 
