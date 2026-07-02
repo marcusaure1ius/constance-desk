@@ -8,6 +8,7 @@ import {
   DialogTitle,
 } from "@/components/ui/dialog";
 import { Button } from "@/components/ui/button";
+import { ArchiveRestore } from "lucide-react";
 import { TaskCard } from "@/components/board/task-card";
 import { getArchivedTasksAction, restoreTaskAction } from "@/lib/actions/tasks";
 import { toast } from "sonner";
@@ -79,16 +80,20 @@ export function ArchiveModal({
         ) : (
           <div className="flex flex-col gap-3">
             {tasks.map((task) => (
-              <div key={task.id} className="space-y-1">
-                <TaskCard task={task} categories={categories} />
+              <div key={task.id} className="flex items-stretch gap-2">
+                <div className="min-w-0 flex-1">
+                  <TaskCard task={task} categories={categories} />
+                </div>
                 <Button
-                  variant="ghost"
-                  size="sm"
-                  className="w-full"
+                  variant="outline"
+                  size="icon"
+                  className="h-auto w-11 self-stretch"
+                  title="Вернуть на доску"
+                  aria-label="Вернуть на доску"
                   disabled={restoringId === task.id}
                   onClick={() => handleRestore(task.id)}
                 >
-                  Вернуть на доску
+                  <ArchiveRestore className="h-4 w-4" />
                 </Button>
               </div>
             ))}
