@@ -4,7 +4,7 @@ import { useState, useEffect, useTransition, useMemo, useCallback, useSyncExtern
 import { createPortal } from "react-dom";
 import { useSearchParams, useRouter } from "next/navigation";
 import { DragDropContext, type DropResult } from "@hello-pangea/dnd";
-import { Plus, ChevronDown, ChevronRight } from "lucide-react";
+import { Plus, ChevronDown, ChevronRight, Archive } from "lucide-react";
 import { BoardColumn } from "./board-column";
 import { SwipeableTaskCard } from "./swipeable-task-card";
 import { moveTaskAction } from "@/lib/actions/tasks";
@@ -13,6 +13,7 @@ import { cn } from "@/lib/utils";
 import { Button } from "@/components/ui/button";
 import { CreateTaskModal } from "@/components/modals/create-task-modal";
 import { MoveTaskModal } from "@/components/modals/move-task-modal";
+import { ArchiveModal } from "@/components/modals/archive-modal";
 import { TaskEditDialog } from "./task-edit-dialog";
 import { SmartInput } from "@/components/smart-input/smart-input";
 import { SmartInputSheet } from "@/components/smart-input/smart-input-sheet";
@@ -92,6 +93,7 @@ export function KanbanBoard({
   columns,
   tasks: initialTasks,
   categories,
+  environmentId,
 }: KanbanBoardProps) {
   const [tasks, setTasks] = useState(initialTasks);
   useEffect(() => { setTasks(initialTasks); }, [initialTasks]);
@@ -100,6 +102,7 @@ export function KanbanBoard({
   const [createModalOpen, setCreateModalOpen] = useState(false);
   const [createColumnId, setCreateColumnId] = useState<string | undefined>(undefined);
   const [smartInputOpen, setSmartInputOpen] = useState(false);
+  const [archiveOpen, setArchiveOpen] = useState(false);
   const [editingTaskId, setEditingTaskId] = useState<string | null>(null);
   const [movingTaskId, setMovingTaskId] = useState<string | null>(null);
   const editingTask = editingTaskId ? tasks.find((t) => t.id === editingTaskId) : null;
@@ -247,11 +250,21 @@ export function KanbanBoard({
           <BoardFilter />
           <BoardViewToggle />
         </div>
-        {searchQuery && (
-          <span className="text-sm text-muted-foreground">
-            Найдено: {filteredCount}
-          </span>
-        )}
+        <div className="flex items-center gap-2">
+          {searchQuery && (
+            <span className="text-sm text-muted-foreground">
+              Найдено: {filteredCount}
+            </span>
+          )}
+          <Button
+            variant="outline"
+            className="h-9"
+            onClick={() => setArchiveOpen(true)}
+          >
+            <Archive className="mr-2 h-4 w-4" />
+            Архив
+          </Button>
+        </div>
       </div>
 
       <DragDropContext onDragEnd={searchQuery || filtersActive ? () => {} : handleDragEnd}>
@@ -416,6 +429,13 @@ export function KanbanBoard({
         open={smartInputOpen}
         onOpenChange={setSmartInputOpen}
         defaultColumnId={columns[0]?.id ?? ""}
+      />
+
+      <ArchiveModal
+        open={archiveOpen}
+        onOpenChange={setArchiveOpen}
+        environmentId={environmentId}
+        categories={categories}
       />
     </>
   );
