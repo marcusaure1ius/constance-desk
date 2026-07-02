@@ -75,6 +75,21 @@ export async function getTasksByColumn(columnId: string) {
     .orderBy(asc(tasks.position));
 }
 
+async function isLastColumn(columnId: string): Promise<boolean> {
+  const [col] = await db
+    .select({ position: columns.position, environmentId: columns.environmentId })
+    .from(columns)
+    .where(eq(columns.id, columnId));
+  if (!col) return false;
+
+  const [maxCol] = await db
+    .select({ maxPos: max(columns.position) })
+    .from(columns)
+    .where(eq(columns.environmentId, col.environmentId));
+
+  return maxCol?.maxPos != null && col.position === maxCol.maxPos;
+}
+
 export async function createTask(input: CreateTaskInput) {
   const [maxPos] = await db
     .select({ max: max(tasks.position) })
@@ -82,6 +97,8 @@ export async function createTask(input: CreateTaskInput) {
     .where(eq(tasks.columnId, input.columnId));
 
   const position = (maxPos?.max ?? -1) + 1;
+
+  const completedAt = (await isLastColumn(input.columnId)) ? new Date() : null;
 
   const [task] = await db
     .insert(tasks)
@@ -94,6 +111,7 @@ export async function createTask(input: CreateTaskInput) {
       position,
       startDate: input.startDate || new Date().toISOString().split("T")[0],
       plannedDate: input.plannedDate || null,
+      completedAt,
     })
     .returning();
 

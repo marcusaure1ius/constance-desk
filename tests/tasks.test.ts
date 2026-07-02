@@ -165,6 +165,36 @@ describe("createTask", () => {
     });
     expect(result).toEqual(task);
   });
+
+  it("проставляет completedAt при создании в последней колонке", async () => {
+    selectChain.where.mockResolvedValueOnce([{ max: 0 }]); // max позиции задач
+    selectChain.where.mockResolvedValueOnce([
+      { position: 2, environmentId: "env-1" },
+    ]); // сведения о колонке
+    selectChain.where.mockResolvedValueOnce([{ maxPos: 2 }]); // max позиции колонок среды
+    const task = { id: "1", title: "Готовая", columnId: "done-col" };
+    insertChain.returning.mockResolvedValue([task]);
+
+    await createTask({ title: "Готовая", columnId: "done-col" });
+
+    const values = insertChain.values.mock.calls[0][0];
+    expect(values.completedAt).toBeInstanceOf(Date);
+  });
+
+  it("не проставляет completedAt в обычной колонке", async () => {
+    selectChain.where.mockResolvedValueOnce([{ max: 0 }]);
+    selectChain.where.mockResolvedValueOnce([
+      { position: 0, environmentId: "env-1" },
+    ]);
+    selectChain.where.mockResolvedValueOnce([{ maxPos: 2 }]);
+    const task = { id: "1", title: "Обычная", columnId: "todo-col" };
+    insertChain.returning.mockResolvedValue([task]);
+
+    await createTask({ title: "Обычная", columnId: "todo-col" });
+
+    const values = insertChain.values.mock.calls[0][0];
+    expect(values.completedAt).toBeNull();
+  });
 });
 
 describe("updateTask", () => {
