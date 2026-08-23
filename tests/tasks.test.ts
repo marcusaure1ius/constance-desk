@@ -95,6 +95,8 @@ describe("getArchivedTasks", () => {
 describe("restoreTask", () => {
   beforeEach(() => {
     vi.clearAllMocks();
+    mockDb.select.mockReturnValue(selectChain);
+    selectChain.from.mockReturnValue(selectChain);
     mockDb.update.mockReturnValue(updateChain);
     updateChain.set.mockReturnValue(updateChain);
     updateChain.where.mockReturnValue(updateChain);
@@ -102,12 +104,73 @@ describe("restoreTask", () => {
 
   it("сбрасывает completedAt в null и возвращает задачу", async () => {
     const task = { id: "1", title: "Задача", completedAt: null };
+    // текущая задача
+    selectChain.where.mockResolvedValueOnce([{ columnId: "col-2" }]);
+    // среда колонки
+    selectChain.where.mockResolvedValueOnce([{ environmentId: "env-1" }]);
+    // колонки среды по возрастанию позиции
+    selectChain.where.mockReturnValueOnce(selectChain);
+    selectChain.orderBy.mockResolvedValueOnce([{ id: "col-1" }, { id: "col-2" }]);
     updateChain.returning.mockResolvedValue([task]);
 
     const result = await restoreTask("1");
 
     expect(result).toEqual(task);
     const setArg = updateChain.set.mock.calls[0][0];
+    expect(setArg.completedAt).toBeNull();
+  });
+
+  it("возвращает задачу из последней колонки в предпоследнюю", async () => {
+    // Регрессия: раньше снималась только дата закрытия, а задача оставалась
+    // в «Готово» — прогресс дорожки считает её выполненной по колонке.
+    const task = { id: "1", title: "Задача", completedAt: null };
+    selectChain.where.mockResolvedValueOnce([{ columnId: "col-done" }]);
+    selectChain.where.mockResolvedValueOnce([{ environmentId: "env-1" }]);
+    selectChain.where.mockReturnValueOnce(selectChain);
+    selectChain.orderBy.mockResolvedValueOnce([
+      { id: "col-backlog" },
+      { id: "col-doing" },
+      { id: "col-done" },
+    ]);
+    updateChain.returning.mockResolvedValue([task]);
+
+    await restoreTask("1");
+
+    const setArg = updateChain.set.mock.calls[0][0];
+    expect(setArg.columnId).toBe("col-doing");
+    expect(setArg.completedAt).toBeNull();
+  });
+
+  it("не трогает колонку, если задача не в последней", async () => {
+    const task = { id: "1", title: "Задача", completedAt: null };
+    selectChain.where.mockResolvedValueOnce([{ columnId: "col-doing" }]);
+    selectChain.where.mockResolvedValueOnce([{ environmentId: "env-1" }]);
+    selectChain.where.mockReturnValueOnce(selectChain);
+    selectChain.orderBy.mockResolvedValueOnce([
+      { id: "col-backlog" },
+      { id: "col-doing" },
+      { id: "col-done" },
+    ]);
+    updateChain.returning.mockResolvedValue([task]);
+
+    await restoreTask("1");
+
+    const setArg = updateChain.set.mock.calls[0][0];
+    expect(setArg.columnId).toBeUndefined();
+  });
+
+  it("не двигает задачу, если в среде единственная колонка", async () => {
+    const task = { id: "1", title: "Задача", completedAt: null };
+    selectChain.where.mockResolvedValueOnce([{ columnId: "col-only" }]);
+    selectChain.where.mockResolvedValueOnce([{ environmentId: "env-1" }]);
+    selectChain.where.mockReturnValueOnce(selectChain);
+    selectChain.orderBy.mockResolvedValueOnce([{ id: "col-only" }]);
+    updateChain.returning.mockResolvedValue([task]);
+
+    await restoreTask("1");
+
+    const setArg = updateChain.set.mock.calls[0][0];
+    expect(setArg.columnId).toBeUndefined();
     expect(setArg.completedAt).toBeNull();
   });
 });
@@ -241,12 +304,9 @@ describe("moveTask", () => {
   it("перемещает задачу в другую колонку", async () => {
     // currentTask
     selectChain.where.mockResolvedValueOnce([{ columnId: "col-1" }]);
-    // allColumns ordered by desc position
-    selectChain.orderBy.mockResolvedValueOnce([
-      { id: "col-3", position: 2 },
-      { id: "col-2", position: 1 },
-      { id: "col-1", position: 0 },
-    ]);
+    // isLastColumn: сама колонка, затем максимум позиции в её среде
+    selectChain.where.mockResolvedValueOnce([{ position: 1, environmentId: "env-1" }]);
+    selectChain.where.mockResolvedValueOnce([{ maxPos: 2 }]);
     // update task
     updateChain.where.mockResolvedValueOnce(undefined);
     // tasks in target column
@@ -262,6 +322,44 @@ describe("moveTask", () => {
     selectChain.orderBy.mockResolvedValueOnce([]);
 
     await expect(moveTask("t1", "col-2", 0)).resolves.not.toThrow();
+  });
+
+  it("не помечает выполненной задачу, попавшую в последнюю колонку ЧУЖОЙ среды", async () => {
+    // Регрессия: раньше последняя колонка искалась глобально по всем средам,
+    // и задача в непоследней колонке своего проекта получала completedAt,
+    // если её колонка оказывалась последней по глобальной позиции.
+    selectChain.where.mockResolvedValueOnce([{ columnId: "col-a1" }]);
+    // целевая колонка: позиция 5 — но в своей среде максимум 9
+    selectChain.where.mockResolvedValueOnce([{ position: 5, environmentId: "env-a" }]);
+    selectChain.where.mockResolvedValueOnce([{ maxPos: 9 }]);
+    updateChain.where.mockResolvedValueOnce(undefined);
+    selectChain.where.mockReturnValueOnce(selectChain);
+    selectChain.orderBy.mockResolvedValueOnce([]);
+    updateChain.where.mockResolvedValue(undefined);
+    selectChain.where.mockReturnValueOnce(selectChain);
+    selectChain.orderBy.mockResolvedValueOnce([]);
+
+    await moveTask("t1", "col-a2", 0);
+
+    const setArg = updateChain.set.mock.calls[0][0];
+    expect(setArg.completedAt).toBeNull();
+  });
+
+  it("помечает выполненной задачу в последней колонке СВОЕЙ среды", async () => {
+    selectChain.where.mockResolvedValueOnce([{ columnId: "col-a1" }]);
+    selectChain.where.mockResolvedValueOnce([{ position: 9, environmentId: "env-a" }]);
+    selectChain.where.mockResolvedValueOnce([{ maxPos: 9 }]);
+    updateChain.where.mockResolvedValueOnce(undefined);
+    selectChain.where.mockReturnValueOnce(selectChain);
+    selectChain.orderBy.mockResolvedValueOnce([]);
+    updateChain.where.mockResolvedValue(undefined);
+    selectChain.where.mockReturnValueOnce(selectChain);
+    selectChain.orderBy.mockResolvedValueOnce([]);
+
+    await moveTask("t1", "col-a-done", 0);
+
+    const setArg = updateChain.set.mock.calls[0][0];
+    expect(setArg.completedAt).toBeInstanceOf(Date);
   });
 });
 

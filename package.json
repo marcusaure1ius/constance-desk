@@ -10,6 +10,9 @@
     "db:seed": "npx tsx lib/db/seed.ts",
     "db:push": "drizzle-kit push",
     "db:generate": "drizzle-kit generate",
+    "db:migrate": "drizzle-kit migrate",
+    "db:check": "drizzle-kit check",
+    "db:baseline": "npx tsx lib/db/baseline.ts",
     "db:studio": "drizzle-kit studio",
     "test": "vitest run",
     "test:watch": "vitest"

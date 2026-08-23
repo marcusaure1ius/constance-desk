@@ -15,6 +15,13 @@
       "when": 1775198024367,
       "tag": "0001_concerned_tusk",
       "breakpoints": true
+    },
+    {
+      "idx": 2,
+      "version": "7",
+      "when": 1787511061321,
+      "tag": "0002_settings_nickname",
+      "breakpoints": true
     }
   ]
 }

@@ -82,8 +82,47 @@ jobs:
 
       - run: npm test
 
+  migrations:
+    needs: setup
+    runs-on: ubuntu-latest
+    env:
+      # Подключение не используется: `check` и `generate` работают с файлами
+      # миграций и схемой, к базе не ходят.
+      DATABASE_URL: postgresql://fake:fake@localhost:5432/fake
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+
+      - uses: actions/cache/restore@v4
+        with:
+          path: node_modules
+          key: node-modules-${{ hashFiles('package-lock.json') }}
+          restore-keys: node-modules-
+
+      # Журнал миграций цел: нет коллизий и разрывов
+      - run: npm run db:check
+
+      # Схема не разошлась с миграциями: если schema.ts изменили без
+      # `db:generate`, здесь появится новый файл и джоба упадёт.
+      - name: Проверить, что схема покрыта миграциями
+        run: |
+          npm run db:generate
+          if ! git diff --quiet --exit-code drizzle/; then
+            echo "::error::schema.ts изменён без миграции. Запустите npm run db:generate и закоммитьте drizzle/"
+            git --no-pager diff --stat drizzle/
+            exit 1
+          fi
+          if [ -n "$(git status --porcelain drizzle/)" ]; then
+            echo "::error::Появились несохранённые файлы миграций:"
+            git status --porcelain drizzle/
+            exit 1
+          fi
+
   build:
-    needs: [lint, typecheck, test]
+    needs: [lint, typecheck, test, migrations]
     runs-on: ubuntu-latest
     env:
       DATABASE_URL: postgresql://fake:fake@localhost:5432/fake

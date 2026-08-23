@@ -90,6 +90,25 @@ async function isLastColumn(columnId: string): Promise<boolean> {
   return maxCol?.maxPos != null && col.position === maxCol.maxPos;
 }
 
+/**
+ * Колонки среды, которой принадлежит `columnId`, по возрастанию позиции.
+ * Нужен там, где «последняя колонка» должна считаться внутри одной среды,
+ * а не глобально по всем проектам.
+ */
+async function environmentColumns(columnId: string) {
+  const [col] = await db
+    .select({ environmentId: columns.environmentId })
+    .from(columns)
+    .where(eq(columns.id, columnId));
+  if (!col) return [];
+
+  return db
+    .select({ id: columns.id })
+    .from(columns)
+    .where(eq(columns.environmentId, col.environmentId))
+    .orderBy(asc(columns.position));
+}
+
 export async function createTask(input: CreateTaskInput) {
   const [maxPos] = await db
     .select({ max: max(tasks.position) })
@@ -137,9 +156,30 @@ export async function updateTask(
 }
 
 export async function restoreTask(id: string) {
+  const [current] = await db
+    .select({ columnId: tasks.columnId })
+    .from(tasks)
+    .where(eq(tasks.id, id));
+
+  const patch: {
+    completedAt: null;
+    updatedAt: Date;
+    columnId?: string;
+  } = { completedAt: null, updatedAt: new Date() };
+
+  if (current) {
+    const envColumns = await environmentColumns(current.columnId);
+    const last = envColumns[envColumns.length - 1];
+    // Задача лежит в «Готово»: снять completedAt мало — на доске она останется
+    // выполненной, потому что прогресс дорожки считается по последней колонке.
+    if (envColumns.length > 1 && last?.id === current.columnId) {
+      patch.columnId = envColumns[envColumns.length - 2].id;
+    }
+  }
+
   const [task] = await db
     .update(tasks)
-    .set({ completedAt: null, updatedAt: new Date() })
+    .set(patch)
     .where(eq(tasks.id, id))
     .returning();
   return task;
@@ -161,16 +201,9 @@ export async function moveTask(
     .where(eq(tasks.id, taskId));
   const sourceColumnId = currentTask?.columnId;
 
-  // Определить, является ли целевая колонка последней
-  const allColumns = await db
-    .select()
-    .from(columns)
-    .orderBy(desc(columns.position));
-  const lastColumnId = allColumns[0]?.id;
-  const isLastColumn = targetColumnId === lastColumnId;
-
-  // Обновить саму задачу
-  const completedAt = isLastColumn ? new Date() : null;
+  // Последняя колонка считается внутри среды: глобальный поиск по всем
+  // проектам помечал бы выполненными задачи, попавшие в чужую колонку.
+  const completedAt = (await isLastColumn(targetColumnId)) ? new Date() : null;
 
   await db
     .update(tasks)
