@@ -85,10 +85,21 @@ jobs:
   migrations:
     needs: setup
     runs-on: ubuntu-latest
+    services:
+      postgres:
+        image: postgres:16-alpine
+        env:
+          POSTGRES_PASSWORD: postgres
+          POSTGRES_DB: constance_ci
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U postgres"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 10
     env:
-      # Подключение не используется: `check` и `generate` работают с файлами
-      # миграций и схемой, к базе не ходят.
-      DATABASE_URL: postgresql://fake:fake@localhost:5432/fake
+      DATABASE_URL: postgresql://postgres:postgres@localhost:5432/constance_ci
     steps:
       - uses: actions/checkout@v4
 
@@ -105,18 +116,24 @@ jobs:
       # Журнал миграций цел: нет коллизий и разрывов
       - run: npm run db:check
 
+      # Миграции реально применяются к чистой базе. Драйвер выбирается
+      # автоматически: пакет pg стоит в devDependencies и имеет приоритет
+      # над @neondatabase/serverless, который умеет только websocket.
+      - name: Применить миграции к чистой базе
+        run: npm run db:migrate
+
+      # Повторный прогон не должен ничего менять
+      - name: Проверить идемпотентность
+        run: npm run db:migrate
+
       # Схема не разошлась с миграциями: если schema.ts изменили без
-      # `db:generate`, здесь появится новый файл и джоба упадёт.
+      # db:generate, здесь появится новый файл и джоба упадёт.
       - name: Проверить, что схема покрыта миграциями
         run: |
-          npm run db:generate
-          if ! git diff --quiet --exit-code drizzle/; then
+          npm run db:generate < /dev/null
+          if ! git diff --quiet --exit-code drizzle/ || [ -n "$(git status --porcelain drizzle/)" ]; then
             echo "::error::schema.ts изменён без миграции. Запустите npm run db:generate и закоммитьте drizzle/"
             git --no-pager diff --stat drizzle/
-            exit 1
-          fi
-          if [ -n "$(git status --porcelain drizzle/)" ]; then
-            echo "::error::Появились несохранённые файлы миграций:"
             git status --porcelain drizzle/
             exit 1
           fi

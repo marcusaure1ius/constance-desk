@@ -1,4 +1,5 @@
 import { describe, it, expect, vi, beforeEach } from "vitest";
+import { columnRefs } from "./helpers/sql-conditions";
 
 const { mockDb, selectChain, insertChain, updateChain, deleteChain } =
   vi.hoisted(() => {
@@ -111,6 +112,8 @@ describe("restoreTask", () => {
     // колонки среды по возрастанию позиции
     selectChain.where.mockReturnValueOnce(selectChain);
     selectChain.orderBy.mockResolvedValueOnce([{ id: "col-1" }, { id: "col-2" }]);
+    // максимум позиции в целевой колонке
+    selectChain.where.mockResolvedValueOnce([{ max: 0 }]);
     updateChain.returning.mockResolvedValue([task]);
 
     const result = await restoreTask("1");
@@ -132,6 +135,8 @@ describe("restoreTask", () => {
       { id: "col-doing" },
       { id: "col-done" },
     ]);
+    // максимум позиции в целевой колонке
+    selectChain.where.mockResolvedValueOnce([{ max: 7 }]);
     updateChain.returning.mockResolvedValue([task]);
 
     await restoreTask("1");
@@ -139,6 +144,13 @@ describe("restoreTask", () => {
     const setArg = updateChain.set.mock.calls[0][0];
     expect(setArg.columnId).toBe("col-doing");
     expect(setArg.completedAt).toBeNull();
+    // Позиция обязательна: без неё задача столкнётся с занятым индексом
+    // в целевой колонке, а доска сортирует именно по position.
+    expect(setArg.position).toBe(8);
+
+    // Колонки берутся внутри среды задачи, а не глобально по всем проектам.
+    const envCondition = selectChain.where.mock.calls[2][0];
+    expect(columnRefs(envCondition)).toContain("environment_id");
   });
 
   it("не трогает колонку, если задача не в последней", async () => {
@@ -343,6 +355,12 @@ describe("moveTask", () => {
 
     const setArg = updateChain.set.mock.calls[0][0];
     expect(setArg.completedAt).toBeNull();
+
+    // Ключевая проверка регрессии: максимум позиции ищется среди колонок ОДНОЙ
+    // среды. Без этого утверждения тест прошёл бы и на глобальном запросе —
+    // мок возвращает одни и те же данные независимо от WHERE.
+    const maxPosCondition = selectChain.where.mock.calls[2][0];
+    expect(columnRefs(maxPosCondition)).toContain("environment_id");
   });
 
   it("помечает выполненной задачу в последней колонке СВОЕЙ среды", async () => {

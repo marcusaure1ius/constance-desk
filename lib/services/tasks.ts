@@ -165,6 +165,7 @@ export async function restoreTask(id: string) {
     completedAt: null;
     updatedAt: Date;
     columnId?: string;
+    position?: number;
   } = { completedAt: null, updatedAt: new Date() };
 
   if (current) {
@@ -173,7 +174,16 @@ export async function restoreTask(id: string) {
     // Задача лежит в «Готово»: снять completedAt мало — на доске она останется
     // выполненной, потому что прогресс дорожки считается по последней колонке.
     if (envColumns.length > 1 && last?.id === current.columnId) {
-      patch.columnId = envColumns[envColumns.length - 2].id;
+      const target = envColumns[envColumns.length - 2];
+      const [maxPos] = await db
+        .select({ max: max(tasks.position) })
+        .from(tasks)
+        .where(eq(tasks.columnId, target.id));
+
+      patch.columnId = target.id;
+      // Позиция обязательна: доска сортирует по ней, а без пересчёта задача
+      // столкнулась бы с уже занятым индексом в целевой колонке.
+      patch.position = (maxPos?.max ?? -1) + 1;
     }
   }
 
