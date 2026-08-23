@@ -26,6 +26,7 @@
 - Services: чистая бизнес-логика и запросы Drizzle, без Next.js зависимостей
 - Схема БД: `lib/db/schema.ts` — environments → columns → tasks, categories
 - Активная среда хранится в cookie (`lib/environment.ts`)
+- Инструменты агентов: единый реестр `lib/agent/tools.ts` (`defineTool` из `lib/agent/tool-registry.ts`, флаги `surfaces` и `mutation`). MCP-роут и бот перебирают реестр — инлайн-определений инструментов в роутах быть не должно
 
 ## Тесты
 - Расположение: `tests/` (не `__tests__/`)

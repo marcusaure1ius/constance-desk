@@ -1,179 +1,23 @@
 import type { AuthInfo } from "@modelcontextprotocol/sdk/server/auth/types.js";
 import { createMcpHandler, withMcpAuth } from "mcp-handler";
-import { z } from "zod";
+import { runTool, toMcpResult } from "@/lib/agent/tool-registry";
+import { toolsFor } from "@/lib/agent/tools";
 import { isValidAgentKey } from "@/lib/api-auth";
-import { getBoardSnapshot } from "@/lib/agent/board";
-import { createEpicTask } from "@/lib/agent/epic-task";
-import { getEnvironments } from "@/lib/services/environments";
-import {
-  getTasks,
-  createTask,
-  updateTask,
-  moveTask,
-  deleteTask,
-} from "@/lib/services/tasks";
-import { createCategory } from "@/lib/services/categories";
-
-const json = (data: unknown) => ({
-  content: [{ type: "text" as const, text: JSON.stringify(data, null, 2) }],
-});
-
-const safeJson = async (fn: () => Promise<unknown>) => {
-  try {
-    return json(await fn());
-  } catch (e) {
-    return json({ error: e instanceof Error ? e.message : "Внутренняя ошибка" });
-  }
-};
 
 const handler = createMcpHandler(
   (server) => {
-    server.registerTool(
-      "list_environments",
-      { title: "Список сред", description: "Вернуть все среды (проекты).", inputSchema: {} },
-      async () => safeJson(() => getEnvironments())
-    );
-
-    server.registerTool(
-      "get_board",
-      {
-        title: "Снимок доски",
-        description: "Вернуть среду, колонки, эпики и задачи одним ответом. По умолчанию без архива.",
-        inputSchema: {
-          environmentId: z.string(),
-          includeArchived: z.boolean().optional(),
+    // Инструменты берутся из общего реестра: тот же список видит телеграм-бот.
+    for (const tool of toolsFor({ surface: "mcp" })) {
+      server.registerTool(
+        tool.name,
+        {
+          title: tool.title,
+          description: tool.description,
+          inputSchema: tool.inputSchema,
         },
-      },
-      async ({ environmentId, includeArchived }) =>
-        safeJson(async () => {
-          const snapshot = await getBoardSnapshot(environmentId, includeArchived);
-          if (!snapshot) return { error: "Среда не найдена" };
-          return snapshot;
-        })
-    );
-
-    server.registerTool(
-      "list_tasks",
-      {
-        title: "Список задач",
-        description: "Вернуть задачи среды. По умолчанию без архива (задачи, выполненные более 30 дней назад).",
-        inputSchema: {
-          environmentId: z.string(),
-          includeArchived: z.boolean().optional(),
-        },
-      },
-      async ({ environmentId, includeArchived }) =>
-        safeJson(() => getTasks(environmentId, { includeArchived }))
-    );
-
-    server.registerTool(
-      "create_task",
-      {
-        title: "Создать задачу",
-        description: "Создать задачу в указанной колонке.",
-        inputSchema: {
-          title: z.string(),
-          columnId: z.string(),
-          description: z.string().optional(),
-          categoryId: z.string().optional(),
-          priority: z.enum(["urgent", "high", "normal"]).optional(),
-          plannedDate: z.string().regex(/^\d{4}-\d{2}-\d{2}$/).optional(),
-        },
-      },
-      async (args) => safeJson(() => createTask(args))
-    );
-
-    server.registerTool(
-      "create_epic",
-      {
-        title: "Создать эпик",
-        description: "Создать эпик (категорию) в среде.",
-        inputSchema: {
-          name: z.string(),
-          environmentId: z.string(),
-          color: z.string().optional(),
-        },
-      },
-      async ({ name, color, environmentId }) =>
-        safeJson(() => createCategory(name, color, environmentId))
-    );
-
-    server.registerTool(
-      "create_epic_task",
-      {
-        title: "Создать задачу в эпике",
-        description: "Найти или создать эпик и создать в нём задачу одним вызовом.",
-        inputSchema: {
-          environmentId: z.string(),
-          epicName: z.string(),
-          columnName: z.string(),
-          title: z.string(),
-          description: z.string().optional(),
-          priority: z.enum(["urgent", "high", "normal"]).optional(),
-          plannedDate: z.string().regex(/^\d{4}-\d{2}-\d{2}$/).optional(),
-          epicColor: z.string().optional(),
-        },
-      },
-      async (args) =>
-        safeJson(async () => {
-          const result = await createEpicTask(args);
-          if (!result.ok) return { error: result.error };
-          return {
-            task: result.task,
-            category: result.category,
-            createdCategory: result.createdCategory,
-          };
-        })
-    );
-
-    server.registerTool(
-      "update_task",
-      {
-        title: "Обновить задачу",
-        description: "Изменить поля задачи.",
-        inputSchema: {
-          id: z.string(),
-          title: z.string().optional(),
-          description: z.string().nullable().optional(),
-          categoryId: z.string().nullable().optional(),
-          priority: z.enum(["urgent", "high", "normal"]).optional(),
-          plannedDate: z.string().regex(/^\d{4}-\d{2}-\d{2}$/).nullable().optional(),
-        },
-      },
-      async ({ id, ...data }) => safeJson(() => updateTask(id, data))
-    );
-
-    server.registerTool(
-      "move_task",
-      {
-        title: "Переместить задачу",
-        description: "Переместить задачу в колонку на позицию.",
-        inputSchema: {
-          taskId: z.string(),
-          targetColumnId: z.string(),
-          targetPosition: z.number().int().min(0),
-        },
-      },
-      async ({ taskId, targetColumnId, targetPosition }) =>
-        safeJson(async () => {
-          await moveTask(taskId, targetColumnId, targetPosition);
-          return { success: true };
-        })
-    );
-
-    server.registerTool(
-      "delete_task",
-      {
-        title: "Удалить задачу",
-        description: "Удалить задачу по id.",
-        inputSchema: { id: z.string() },
-      },
-      async ({ id }) =>
-        safeJson(async () => {
-          await deleteTask(id);
-          return { success: true };
-        })
-    );
+        async (args) => toMcpResult(await runTool(tool, args))
+      );
+    }
   },
   { serverInfo: { name: "constance", version: "1.0.0" }, capabilities: { tools: {} } },
   { basePath: "/api/mcp", maxDuration: 60 }
