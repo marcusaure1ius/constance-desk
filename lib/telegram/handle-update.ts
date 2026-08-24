@@ -10,7 +10,21 @@ import {
   type CaptureDeps,
   type CaptureResult,
 } from "@/lib/telegram/capture";
-import { createTelegramClient, escapeHtml, type TelegramClient } from "@/lib/telegram/client";
+import { createTelegramClient, escapeHtml, TelegramApiError, type TelegramClient } from "@/lib/telegram/client";
+import {
+  applyAwaitedInput,
+  applyTaskCallback,
+  expiredCard,
+  isExpiredButton,
+  parseAwaitInput,
+  runSearch,
+  type ManageDeps,
+} from "@/lib/telegram/manage";
+import {
+  parseTaskCallback,
+  type TaskCallback,
+  type TaskCard,
+} from "@/lib/telegram/task-card";
 import { BOT_COMMANDS } from "@/lib/telegram/commands";
 import {
   updateChatId,
@@ -19,10 +33,26 @@ import {
   type TelegramMessage,
   type TelegramUpdate,
 } from "@/lib/telegram/types";
-import { getCategories } from "@/lib/services/categories";
+import { createCategory, getCategories } from "@/lib/services/categories";
 import { getColumns } from "@/lib/services/columns";
 import { getEnvironments } from "@/lib/services/environments";
-import { createTask } from "@/lib/services/tasks";
+import { searchTasks } from "@/lib/services/search";
+import {
+  completeTask,
+  createTask,
+  deleteTask,
+  getTaskDetails,
+  moveTaskToColumn,
+  moveTaskToEnvironment,
+  restoreTask,
+  updateTask,
+} from "@/lib/services/tasks";
+import {
+  cancelAwaitInput,
+  createHandle,
+  getHandle,
+  takeAwaitInput,
+} from "@/lib/services/tg-handles";
 import {
   getUpdate,
   markUpdateFailed,
@@ -49,10 +79,14 @@ export type ReceiveUpdateDeps = {
 };
 
 /** Зависимости обработки: Bot API, отметки в журнале, доска и модель. */
-export type HandleUpdateDeps = CaptureDeps & {
+export type HandleUpdateDeps = CaptureDeps & ManageDeps & {
   client: Pick<
     TelegramClient,
-    "sendMessage" | "answerCallbackQuery" | "getFile" | "downloadFile"
+    | "sendMessage"
+    | "editMessageText"
+    | "answerCallbackQuery"
+    | "getFile"
+    | "downloadFile"
   >;
   markProcessed: typeof markUpdateProcessed;
   markFailed: typeof markUpdateFailed;
@@ -63,6 +97,13 @@ export type HandleUpdateDeps = CaptureDeps & {
    */
   loadUpdate: (updateId: number) => Promise<TelegramUpdate | null>;
   transcribe: (file: File) => Promise<string>;
+  /**
+   * Забирает ожидание ввода для чата. Ответ на «пришлите новое название»
+   * приходит обычным сообщением, в котором про карточку нет ничего.
+   */
+  takeAwaitInput: (
+    chatId: number
+  ) => Promise<{ payload: unknown; messageId: number | null } | null>;
 };
 
 export type TelegramDeps = ReceiveUpdateDeps & HandleUpdateDeps;
@@ -76,6 +117,8 @@ export type UpdateAction =
   | "start"
   | "help"
   | "capture"
+  | "search"
+  | "edit"
   | "voice"
   | "callback"
   | "unsupported";
@@ -152,28 +195,57 @@ async function respond(
   chatId: number,
   deps: HandleUpdateDeps
 ): Promise<RespondOutcome> {
-  // Спиннер на кнопке протухает за ~10 секунд, поэтому отвечаем первым делом.
+  // Спиннер на кнопке протухает за ~10 секунд, поэтому отвечаем первым делом:
+  // до базы, до модели, до правки сообщения.
   if (update.callback_query) {
     await deps.client.answerCallbackQuery({ callbackQueryId: update.callback_query.id });
-    return respondToCallback(update.callback_query.data, chatId, deps);
+    return respondToCallback(update.callback_query, chatId, deps);
   }
 
   const message = updateMessage(update);
   const command = parseCommand(message?.text);
 
-  if (command === "start") {
-    await deps.client.sendMessage({ chatId, text: await startText(deps) });
-    return { action: "start" };
-  }
-
-  if (command === "help") {
-    await deps.client.sendMessage({ chatId, text: helpText() });
-    return { action: "help" };
+  if (command === "start" || command === "help") {
+    // Команда обрывает начатый вопрос: иначе следующее сообщение ушло бы в
+    // название задачи вместо новой записи на доску.
+    await deps.cancelAwaitInput(chatId);
+    const text = command === "start" ? await startText(deps) : helpText();
+    await deps.client.sendMessage({ chatId, text });
+    return { action: command };
   }
 
   if (!message) return { action: "unsupported" };
 
+  const awaited = await respondToAwaitedInput(message, chatId, deps);
+  if (awaited) return awaited;
+
   return capture(update.update_id, message, chatId, deps);
+}
+
+/**
+ * Ответ на «пришлите новое название следующим сообщением».
+ *
+ * null — ожидания не было, сообщение идёт обычным путём в захват. Проверка
+ * стоит перед моделью намеренно: ответ на заданный вопрос разбирать нечем,
+ * это готовое значение поля.
+ */
+async function respondToAwaitedInput(
+  message: TelegramMessage,
+  chatId: number,
+  deps: HandleUpdateDeps
+): Promise<RespondOutcome | null> {
+  const text = message.text?.trim();
+  if (!text) return null;
+
+  const pending = await deps.takeAwaitInput(chatId);
+  if (!pending) return null;
+
+  const input = parseAwaitInput(pending.payload);
+  if (!input) return null;
+
+  const outcome = await applyAwaitedInput(input, text, deps);
+  await showCard(chatId, pending.messageId ?? undefined, outcome.card, deps);
+  return { action: "edit" };
 }
 
 /**
@@ -207,6 +279,32 @@ async function capture(
   }
 
   const result = await captureMessage(read.text, deps);
+
+  /*
+   * Вопрос и рассказ о сделанном уводят в поиск, а не в создание.
+   * «ответил по вэду» обязано показать существующую задачу с кнопкой: завести
+   * из этой фразы вторую такую же — значит насорить на доске ровно там, где
+   * человек хотел прибраться. Закрывает задачу всё равно кнопка, а не фраза.
+   */
+  if (result.status === "captured" && result.tasks.length === 0) {
+    const question = result.questions[0];
+    if (question) {
+      const outcome = await runSearch(
+        {
+          query: question.text,
+          chatId,
+          looksDone: question.done,
+          // «Нет, это новая задача» — та же кнопка, что и у карточки захвата:
+          // она заводит задачу из исходного текста без разбора.
+          createAnywayCallback: captureCallback("astask", updateId),
+        },
+        deps
+      );
+      await showCard(chatId, undefined, outcome.card, deps);
+      return { action: "search", error: failureReason(result) };
+    }
+  }
+
   const card = renderCaptureCard(result, { updateId, transcript: read.transcript });
   await deps.client.sendMessage({
     chatId,
@@ -221,16 +319,21 @@ async function capture(
 }
 
 async function respondToCallback(
-  data: string | undefined,
+  query: NonNullable<TelegramUpdate["callback_query"]>,
   chatId: number,
   deps: HandleUpdateDeps
 ): Promise<RespondOutcome> {
-  const pressed = parseCaptureCallback(data);
+  const action = parseTaskCallback(query.data);
+  if (action) return respondToTaskCallback(action, query, chatId, deps);
+
+  const pressed = parseCaptureCallback(query.data);
 
   if (!pressed) {
     await deps.client.sendMessage({
       chatId,
-      text: "Эта кнопка мне незнакома — карточки задач с кнопками появятся следующим шагом.",
+      text:
+        "Эта кнопка мне незнакома — возможно, она из старой версии бота.\n" +
+        "Найдите задачу заново: напишите, например, «найди задачи по вэду».",
     });
     return { action: "callback" };
   }
@@ -272,6 +375,81 @@ async function respondToCallback(
   });
 
   return { action: "callback", error: failureReason(result) };
+}
+
+/**
+ * Нажатие на карточке задачи.
+ *
+ * Подменю и результат правки уходят в ТО ЖЕ сообщение: серия новых сообщений
+ * на каждый тап забивает чат, а Telegram пускает в него одно сообщение в
+ * секунду — правка ещё и быстрее.
+ */
+async function respondToTaskCallback(
+  action: TaskCallback,
+  query: NonNullable<TelegramUpdate["callback_query"]>,
+  chatId: number,
+  deps: HandleUpdateDeps
+): Promise<RespondOutcome> {
+  // Пустая клетка календаря: спиннер уже погашен, делать больше нечего.
+  if (action.kind === "noop") return { action: "callback" };
+
+  const messageId = query.message?.message_id;
+  const now = deps.now?.() ?? new Date();
+
+  // Инлайн-кнопки не исчезают сами. Нажатие на карточке месячной давности не
+  // должно ничего менять: показываем это прямо и снимаем клавиатуру, чтобы
+  // мёртвых кнопок в чате не осталось.
+  if (isExpiredButton(query.message, now)) {
+    await showCard(chatId, messageId, expiredCard(), deps);
+    return { action: "callback" };
+  }
+
+  const outcome = await applyTaskCallback(action, { chatId, messageId }, deps);
+  await showCard(chatId, messageId, outcome.card, deps);
+  return { action: "callback" };
+}
+
+/**
+ * Показать карточку: правкой сообщения, если известно какого, иначе новым.
+ *
+ * Отсутствие `reply_markup` в editMessageText снимает клавиатуру — на этом
+ * держится снятие кнопок у удалённой задачи и у протухшего сообщения.
+ */
+async function showCard(
+  chatId: number,
+  messageId: number | undefined,
+  card: TaskCard,
+  deps: HandleUpdateDeps
+): Promise<void> {
+  if (messageId === undefined) {
+    await deps.client.sendMessage({
+      chatId,
+      text: card.text,
+      replyMarkup: card.replyMarkup,
+    });
+    return;
+  }
+
+  try {
+    await deps.client.editMessageText({
+      chatId,
+      messageId,
+      text: card.text,
+      replyMarkup: card.replyMarkup,
+    });
+  } catch (error) {
+    // «Message is not modified» — не сбой: пользователь нажал кнопку,
+    // которая ничего не изменила. Ронять из-за неё обработку апдейта нельзя.
+    if (!isNotModified(error)) throw error;
+  }
+}
+
+function isNotModified(error: unknown): boolean {
+  return (
+    error instanceof TelegramApiError &&
+    error.status === 400 &&
+    /message is not modified/i.test(error.description)
+  );
 }
 
 /** Текст сообщения: у голосового — расшифровка, у остального — text или caption. */
@@ -354,6 +532,10 @@ async function startText(deps: HandleUpdateDeps): Promise<string> {
     "",
     "Пришлите текст или голосовое — разберу на задачи и положу на доску.",
     "Несколько дел в одном сообщении — несколько задач; срок и «срочно» понимаю.",
+    "",
+    "Спросите «найди задачи по вэду» — покажу найденное с кнопками:",
+    "закрыть, поставить срок, сменить эпик, приоритет, колонку или проект.",
+    "Сам я задачи не закрываю: только по нажатию кнопки.",
   ].join("\n");
 }
 
@@ -365,6 +547,9 @@ function helpText(): string {
     "Обычное сообщение или голосовое я разбираю на задачи сам.",
     "Примеры: «сходить к суровцеву, заполнить итмо» — две задачи;",
     "«контроль за ВШЭ кейсы до 25.08» — задача со сроком.",
+    "",
+    "«найди задачи по вэду» — покажу найденное с кнопками.",
+    "«ответил по вэду» — тоже поиск: закрою только по нажатию кнопки.",
   ].join("\n");
 }
 
@@ -420,5 +605,56 @@ export function defaultDeps(options: { deadlineAt?: number } = {}): TelegramDeps
     createTask: (input) => createTask(input),
     transcribe: (file) => transcribeAudio(file),
     allowedChatId: allowedChatIdFromEnv(),
+
+    // Управление задачами: найти → показать → нажать кнопку.
+    getTask: (taskId) => getTaskDetails(taskId),
+    listEpics: async (environmentId) =>
+      (await getCategories(environmentId)).map((epic) => ({ id: epic.id, name: epic.name })),
+    listColumns: async (environmentId) =>
+      (await getColumns(environmentId)).map((column) => ({
+        id: column.id,
+        title: column.title,
+      })),
+    listEnvironments: async () =>
+      (await getEnvironments()).map((environment) => ({
+        id: environment.id,
+        name: environment.name,
+      })),
+    searchTasks: (query, limit) => searchTasks(query, { limit }),
+    completeTask: (taskId) => completeTask(taskId),
+    restoreTask: (taskId) => restoreTask(taskId),
+    updateTask: (taskId, patch) => updateTask(taskId, patch),
+    deleteTask: (taskId) => deleteTask(taskId),
+    moveTaskToColumn: (taskId, columnId) => moveTaskToColumn(taskId, columnId),
+    moveTaskToEnvironment: (taskId, environmentId) =>
+      moveTaskToEnvironment(taskId, environmentId),
+    createEpic: (name, environmentId) => createCategory(name, undefined, environmentId),
+    createHandle: (input) => createHandle(input),
+    getHandle: (id) => getHandle(id),
+    cancelAwaitInput: (chatId) => cancelAwaitInput(chatId),
+    takeAwaitInput: (chatId) => takeAwaitInput(chatId),
+    boardUrl: boardUrlFromEnv(),
   };
+}
+
+/**
+ * Корень приложения для кнопки «Открыть на доске».
+ *
+ * На Vercel адрес известен из окружения, локально задаётся явно. Ничего не
+ * нашли — кнопки не будет: ссылка «в никуда» хуже её отсутствия.
+ */
+export function boardUrlFromEnv(): string | undefined {
+  const raw =
+    process.env.APP_BASE_URL ??
+    process.env.NEXT_PUBLIC_APP_URL ??
+    (process.env.VERCEL_PROJECT_PRODUCTION_URL
+      ? `https://${process.env.VERCEL_PROJECT_PRODUCTION_URL}`
+      : undefined);
+  if (!raw) return undefined;
+
+  try {
+    return new URL(raw).origin;
+  } catch {
+    return undefined;
+  }
 }

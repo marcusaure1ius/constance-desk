@@ -29,6 +29,13 @@
       "when": 1787583530560,
       "tag": "0003_tg_updates",
       "breakpoints": true
+    },
+    {
+      "idx": 4,
+      "version": "7",
+      "when": 1787605331836,
+      "tag": "0004_tg_handles",
+      "breakpoints": true
     }
   ]
 }

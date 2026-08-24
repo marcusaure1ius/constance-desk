@@ -6,7 +6,8 @@ import {
   receiveUpdate,
   type TelegramDeps,
 } from "@/lib/telegram/handle-update";
-import { createTelegramClient } from "@/lib/telegram/client";
+import { createTelegramClient, TelegramApiError } from "@/lib/telegram/client";
+import { parseTaskCallback, taskCallback } from "@/lib/telegram/task-card";
 import type { CapturedItem } from "@/lib/llm/capture";
 import type { CaptureBoardData } from "@/lib/telegram/capture";
 import type { TelegramUpdate } from "@/lib/telegram/types";
@@ -25,6 +26,39 @@ const BOARD: CaptureBoardData = {
 
 const ONE_TASK: CapturedItem[] = [{ kind: "task", text: "заполнить итмо" }];
 
+/** UUID с четвёркой в версии: packUuid/unpackUuid принимают только настоящие. */
+const TASK_ID = "3f1a2b3c-4d5e-4f60-8123-456789abcdef";
+const OTHER_ID = "11111111-2222-4333-8444-555555555555";
+
+const TASK_DETAILS = {
+  task: {
+    id: TASK_ID,
+    title: "ответить по вэду",
+    description: null,
+    priority: "normal" as const,
+    plannedDate: null,
+    completedAt: null,
+    createdAt: new Date("2026-08-20T10:00:00Z"),
+    columnId: "col-backlog",
+    categoryId: null,
+  },
+  column: { id: "col-backlog", title: "Бэклог" },
+  environment: { id: "env-1", name: "Работа" },
+  epic: null,
+};
+
+const HIT = {
+  task: {
+    id: TASK_ID,
+    title: "ответить по вэду",
+    priority: "normal" as const,
+    completedAt: null,
+    createdAt: new Date("2026-08-20T10:00:00Z"),
+  },
+  column: { id: "col-backlog", title: "Бэклог" },
+  environment: { id: "env-1", name: "Работа" },
+};
+
 /** Мок из собранных зависимостей: подменённый через overrides, а не исходный. */
 function asMock(value: unknown): ReturnType<typeof vi.fn> {
   return value as ReturnType<typeof vi.fn>;
@@ -34,6 +68,7 @@ function makeDeps(overrides: Partial<TelegramDeps> = {}) {
   const deps: TelegramDeps = {
     client: {
       sendMessage: vi.fn().mockResolvedValue({ message_id: 1 }),
+      editMessageText: vi.fn().mockResolvedValue(true),
       answerCallbackQuery: vi.fn().mockResolvedValue(true),
       getFile: vi.fn().mockResolvedValue({
         file_id: "voice-file-1",
@@ -51,12 +86,31 @@ function makeDeps(overrides: Partial<TelegramDeps> = {}) {
     createTask: vi.fn().mockResolvedValue({ id: "task-1" }),
     transcribe: vi.fn().mockResolvedValue("заполнить итмо"),
     allowedChatId: CHAT,
+
+    getTask: vi.fn().mockResolvedValue(TASK_DETAILS),
+    listEpics: vi.fn().mockResolvedValue([{ id: "epic-1", name: "Техдолг" }]),
+    listColumns: vi.fn().mockResolvedValue([{ id: "col-backlog", title: "Бэклог" }]),
+    listEnvironments: vi.fn().mockResolvedValue([{ id: "env-1", name: "Работа" }]),
+    searchTasks: vi.fn().mockResolvedValue([HIT]),
+    completeTask: vi.fn().mockResolvedValue(undefined),
+    restoreTask: vi.fn().mockResolvedValue(undefined),
+    updateTask: vi.fn().mockResolvedValue(undefined),
+    deleteTask: vi.fn().mockResolvedValue(undefined),
+    moveTaskToColumn: vi.fn().mockResolvedValue(undefined),
+    moveTaskToEnvironment: vi.fn().mockResolvedValue(undefined),
+    createEpic: vi.fn().mockResolvedValue({ id: "epic-2" }),
+    createHandle: vi.fn().mockResolvedValue("HANDLE1234"),
+    getHandle: vi.fn().mockResolvedValue(null),
+    cancelAwaitInput: vi.fn().mockResolvedValue(undefined),
+    takeAwaitInput: vi.fn().mockResolvedValue(null),
+    now: () => new Date("2026-08-25T12:00:00Z"),
     ...overrides,
   };
 
   return {
     deps,
     sendMessage: asMock(deps.client.sendMessage),
+    editMessageText: asMock(deps.client.editMessageText),
     answerCallbackQuery: asMock(deps.client.answerCallbackQuery),
     getFile: asMock(deps.client.getFile),
     downloadFile: asMock(deps.client.downloadFile),
@@ -68,6 +122,14 @@ function makeDeps(overrides: Partial<TelegramDeps> = {}) {
     captureItems: asMock(deps.captureItems),
     createTask: asMock(deps.createTask),
     transcribe: asMock(deps.transcribe),
+    getTask: asMock(deps.getTask),
+    searchTasks: asMock(deps.searchTasks),
+    completeTask: asMock(deps.completeTask),
+    updateTask: asMock(deps.updateTask),
+    deleteTask: asMock(deps.deleteTask),
+    createHandle: asMock(deps.createHandle),
+    takeAwaitInput: asMock(deps.takeAwaitInput),
+    cancelAwaitInput: asMock(deps.cancelAwaitInput),
   };
 }
 
@@ -91,7 +153,10 @@ const voiceUpdate = (updateId = 5, fileSize?: number): TelegramUpdate => ({
   },
 });
 
-const callbackUpdate = (data: string, updateId = 9): TelegramUpdate => ({
+/** Дата сообщения по умолчанию — «сегодня» относительно deps.now: кнопки живут неделю. */
+const FRESH = Math.floor(new Date("2026-08-25T11:00:00Z").getTime() / 1000);
+
+const callbackUpdate = (data: string, updateId = 9, date = FRESH): TelegramUpdate => ({
   update_id: updateId,
   callback_query: {
     id: "cb-1",
@@ -99,7 +164,7 @@ const callbackUpdate = (data: string, updateId = 9): TelegramUpdate => ({
     data,
     message: {
       message_id: 3,
-      date: 1_700_000_000,
+      date,
       chat: { id: CHAT, type: "private" },
     },
   },
@@ -184,6 +249,7 @@ describe("отметки в журнале", () => {
     const { deps, markFailed, markProcessed } = makeDeps({
       client: {
         sendMessage: vi.fn().mockRejectedValue(new Error("Telegram недоступен")),
+        editMessageText: vi.fn(),
         answerCallbackQuery: vi.fn(),
         getFile: vi.fn(),
         downloadFile: vi.fn(),
@@ -437,7 +503,7 @@ describe("кнопки", () => {
   it("сначала гасит спиннер, потом отвечает", async () => {
     const { deps, answerCallbackQuery, sendMessage } = makeDeps();
 
-    const result = await handleUpdate(callbackUpdate("noop"), CHAT, deps);
+    const result = await handleUpdate(callbackUpdate("что-то чужое"), CHAT, deps);
 
     expect(result).toEqual({ status: "processed", action: "callback" });
     expect(answerCallbackQuery).toHaveBeenCalledWith({ callbackQueryId: "cb-1" });
@@ -505,6 +571,165 @@ describe("кнопки", () => {
 
     expect(loadUpdate).not.toHaveBeenCalled();
     expect(lastText(sendMessage)).toContain("кнопка мне незнакома");
+  });
+});
+
+describe("управление задачами", () => {
+  beforeEach(() => vi.clearAllMocks());
+
+  const taskButton = (data: string) => callbackUpdate(data);
+
+  it("«ответил по вэду» уводит в поиск, а не заводит новую задачу", async () => {
+    // Прошедшее время — это про существующее дело. Заведи бот из этой фразы
+    // задачу, её пришлось бы тут же закрывать: мусор ровно там, где человек
+    // хотел прибраться.
+    const { deps, createTask, searchTasks, sendMessage } = makeDeps({
+      captureItems: vi
+        .fn()
+        .mockResolvedValue([{ kind: "question", text: "вэду", done: true }]),
+    });
+
+    const result = await handleUpdate(textUpdate("ответил по вэду"), CHAT, deps);
+
+    expect(result).toEqual({ status: "processed", action: "search" });
+    expect(createTask).not.toHaveBeenCalled();
+    expect(searchTasks).toHaveBeenCalledWith("вэду", expect.any(Number));
+
+    const [{ text, replyMarkup }] = sendMessage.mock.calls.at(-1)!;
+    expect(text).toContain("уже сделана");
+    expect(text).toContain("ответить по вэду");
+
+    const buttons = replyMarkup.inline_keyboard.flat();
+    expect(buttons.map((b: { text: string }) => b.text)).toContain("Нет, это новая задача");
+    // Кнопка закрытия есть — но нажимает её человек, а не бот.
+    expect(
+      buttons.some((b: { callback_data?: string }) =>
+        parseTaskCallback(b.callback_data)?.kind === "done"
+      )
+    ).toBe(true);
+  });
+
+  it("«найди задачи по вэду» показывает найденное с кнопкой на каждой", async () => {
+    const { deps, createTask, sendMessage } = makeDeps({
+      captureItems: vi.fn().mockResolvedValue([{ kind: "question", text: "вэду" }]),
+      searchTasks: vi.fn().mockResolvedValue([
+        HIT,
+        { ...HIT, task: { ...HIT.task, id: OTHER_ID, title: "Заполнить пилот по вэду" } },
+      ]),
+    });
+
+    const result = await handleUpdate(textUpdate("найди задачи по вэду"), CHAT, deps);
+
+    expect(result.status).toBe("processed");
+    expect(createTask).not.toHaveBeenCalled();
+
+    const [{ text, replyMarkup }] = sendMessage.mock.calls.at(-1)!;
+    expect(text).toContain("Нашёл 2");
+    const labels = replyMarkup.inline_keyboard.flat().map((b: { text: string }) => b.text);
+    expect(labels).toContain("✓ ответить по вэду");
+    expect(labels).toContain("✓ Заполнить пилот по вэду");
+  });
+
+  it("нажатие кнопки правит то же сообщение, а не шлёт новое", async () => {
+    const { deps, editMessageText, sendMessage, completeTask } = makeDeps();
+
+    const result = await handleUpdate(
+      taskButton(taskCallback.done(TASK_ID)),
+      CHAT,
+      deps
+    );
+
+    expect(result).toEqual({ status: "processed", action: "callback" });
+    expect(completeTask).toHaveBeenCalledWith(TASK_ID);
+    expect(sendMessage).not.toHaveBeenCalled();
+    expect(editMessageText).toHaveBeenCalledWith(
+      expect.objectContaining({ chatId: CHAT, messageId: 3 })
+    );
+  });
+
+  it("спиннер гасится раньше похода в базу", async () => {
+    const { deps, answerCallbackQuery, getTask, editMessageText } = makeDeps();
+
+    await handleUpdate(taskButton(taskCallback.done(TASK_ID)), CHAT, deps);
+
+    expect(answerCallbackQuery.mock.invocationCallOrder[0]).toBeLessThan(
+      getTask.mock.invocationCallOrder[0]
+    );
+    expect(answerCallbackQuery.mock.invocationCallOrder[0]).toBeLessThan(
+      editMessageText.mock.invocationCallOrder[0]
+    );
+  });
+
+  it("кнопка на сообщении месячной давности ничего не делает и снимает клавиатуру", async () => {
+    const { deps, deleteTask, getTask, editMessageText } = makeDeps();
+    const stale = Math.floor(new Date("2026-07-01T12:00:00Z").getTime() / 1000);
+
+    await handleUpdate(
+      callbackUpdate(taskCallback.removeConfirm(TASK_ID), 9, stale),
+      CHAT,
+      deps
+    );
+
+    expect(deleteTask).not.toHaveBeenCalled();
+    expect(getTask).not.toHaveBeenCalled();
+    const [{ text, replyMarkup }] = editMessageText.mock.calls.at(-1)!;
+    expect(text).toContain("устарели");
+    expect(replyMarkup).toBeUndefined();
+  });
+
+  it("«message is not modified» не роняет обработку апдейта", async () => {
+    const { deps, markProcessed } = makeDeps({
+      client: {
+        sendMessage: vi.fn().mockResolvedValue({ message_id: 1 }),
+        editMessageText: vi
+          .fn()
+          .mockRejectedValue(
+            new TelegramApiError("editMessageText", 400, "Bad Request: message is not modified")
+          ),
+        answerCallbackQuery: vi.fn().mockResolvedValue(true),
+        getFile: vi.fn(),
+        downloadFile: vi.fn(),
+      },
+    });
+
+    const result = await handleUpdate(taskButton(taskCallback.back(TASK_ID)), CHAT, deps);
+
+    expect(result).toEqual({ status: "processed", action: "callback" });
+    expect(markProcessed).toHaveBeenCalledWith(9);
+  });
+
+  it("ответ на «пришлите название» правит задачу, а не создаёт новую", async () => {
+    const { deps, createTask, updateTask, captureItems, editMessageText } = makeDeps({
+      takeAwaitInput: vi.fn().mockResolvedValue({
+        payload: { taskId: TASK_ID, field: "title" },
+        messageId: 42,
+      }),
+    });
+
+    const result = await handleUpdate(textUpdate("ответить по вэду до пятницы"), CHAT, deps);
+
+    expect(result).toEqual({ status: "processed", action: "edit" });
+    expect(captureItems).not.toHaveBeenCalled();
+    expect(createTask).not.toHaveBeenCalled();
+    expect(updateTask).toHaveBeenCalledWith(TASK_ID, { title: "ответить по вэду до пятницы" });
+    // Правится карточка, с которой спрашивали, а не последнее сообщение чата.
+    expect(editMessageText).toHaveBeenCalledWith(expect.objectContaining({ messageId: 42 }));
+  });
+
+  it("без заданного вопроса сообщение идёт в захват как обычно", async () => {
+    const { deps, createTask, captureItems, takeAwaitInput } = makeDeps();
+
+    await handleUpdate(textUpdate("заполнить итмо"), CHAT, deps);
+
+    expect(takeAwaitInput).toHaveBeenCalledWith(CHAT);
+    expect(captureItems).toHaveBeenCalled();
+    expect(createTask).toHaveBeenCalled();
+  });
+
+  it("команда обрывает заданный вопрос", async () => {
+    const { deps, cancelAwaitInput } = makeDeps();
+    await handleUpdate(textUpdate("/start"), CHAT, deps);
+    expect(cancelAwaitInput).toHaveBeenCalledWith(CHAT);
   });
 });
 

@@ -34,6 +34,9 @@ export type CreatedTask = {
   epic?: string;
 };
 
+/** Вопрос к доске: поисковый запрос и признак «дело уже сделано». */
+export type CaptureQuestion = { text: string; done?: boolean };
+
 export type CaptureDeps = {
   loadBoard: () => Promise<CaptureBoardData | null>;
   captureItems: (text: string, board: CaptureBoard) => Promise<CapturedItem[]>;
@@ -52,6 +55,12 @@ export type CaptureResult =
       environmentName: string;
       columnTitle: string;
       tasks: CreatedTask[];
+      /**
+       * Вопросы и рассказы о сделанном. Задачами они не становятся: их
+       * обрабатывает поиск — «ответил по вэду» обязано показать существующую
+       * задачу с кнопкой, а не завести вторую такую же.
+       */
+      questions: CaptureQuestion[];
       others: CapturedItem[];
       /** Часть задач не записалась: база отвалилась посреди списка. */
       warning?: string;
@@ -119,13 +128,19 @@ export async function captureMessage(
     warning = reasonOf(error);
   }
 
-  const others = items.filter((item) => item.kind !== "task");
+  const questions = items
+    .filter((item) => item.kind === "question")
+    .map((item) => ({ text: item.text, done: item.done }));
+  const others = items.filter(
+    (item) => item.kind !== "task" && item.kind !== "question"
+  );
 
   return {
     status: "captured",
     environmentName: board.environment.name,
     columnTitle: target.title,
     tasks,
+    questions,
     others,
     warning,
   };
@@ -156,6 +171,7 @@ export async function createTaskFromText(
     environmentName: board.environment.name,
     columnTitle: target.title,
     tasks: [{ title, priority: "normal" }],
+    questions: [],
     others: [],
   };
 }
@@ -242,6 +258,8 @@ const TITLE_LIMIT = 200;
 const NAME_LIMIT = 64;
 /** Текст не-задачи в списке «остального». */
 const OTHER_LIMIT = 120;
+/** Вопрос, который в этом сообщении остался без ответа: цитируем коротко. */
+const QUESTION_LIMIT = 80;
 /** Причина сбоя: чужие сообщения об ошибках бывают многословными. */
 const REASON_LIMIT = 160;
 /** Сколько задач перечислять поимённо; остальные считаются числом. */
@@ -359,6 +377,17 @@ function renderCaptured(result: Extract<CaptureResult, { status: "captured" }>):
     if (hidden > 0) add(hiddenTasksLine(hidden));
   }
 
+  // Вопрос в сообщении с задачами: сам он уходит в поиск только когда задач
+  // не нашлось, а здесь их создали — и промолчать про вопрос нельзя, иначе
+  // человек решит, что бот его прочитал и что-то по нему нашёл. Строка идёт
+  // через бюджет: подтверждение созданных задач важнее подсказки.
+  if (tasks.length > 0 && result.questions.length > 0) {
+    add(
+      `\n\nПро «${field(result.questions[0].text, QUESTION_LIMIT)}» ничего не менял — ` +
+        "спросите отдельным сообщением, покажу найденное с кнопками."
+    );
+  }
+
   if (others.length > 0) {
     let shown = 0;
     for (const item of others.slice(0, MAX_LISTED_OTHERS)) {
@@ -437,6 +466,10 @@ export function plural(count: number, forms: [string, string, string]): string {
 /**
  * Пользовательская строка → готовый кусок HTML не длиннее `limit`.
  *
+ * Экспортируется и используется карточкой задачи: два экземпляра одного
+ * правила разной аккуратности — ровно тот способ, которым ошибка с разрезанным
+ * эмодзи и появилась.
+ *
  * Экранируем до обрезки, а меряем после: escapeHtml растит «&» впятеро
  * («&amp;»), поэтому предел, посчитанный по сырому тексту, длину сообщения не
  * ограничивает вовсе.
@@ -447,7 +480,7 @@ export function plural(count: number, forms: [string, string, string]): string {
  * клиент не ретраит и не понижает до plain text. Тегов здесь быть не может —
  * они уже экранированы.
  */
-function field(value: string, limit: number): string {
+export function field(value: string, limit: number): string {
   if (limit <= 0) return "";
 
   const html = escapeHtml(value);
