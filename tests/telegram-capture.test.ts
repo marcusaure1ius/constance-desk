@@ -42,6 +42,7 @@ const captured = (over: Partial<Extract<CaptureResult, { status: "captured" }>> 
     environmentName: "Работа",
     columnTitle: "Бэклог",
     tasks: [{ title: "заполнить итмо", priority: "normal" as const }],
+    questions: [],
     others: [],
     ...over,
   }) satisfies CaptureResult;
@@ -427,6 +428,8 @@ const SLOTS: Record<string, (text: string) => string> = {
   остальное: (text) =>
     renderCaptureCard(captured({ tasks: [], others: [{ kind: "note", text }] }), { updateId: 1 })
       .text,
+  "неотвеченный вопрос": (text) =>
+    renderCaptureCard(captured({ questions: [{ text }] }), { updateId: 1 }).text,
   "причина сбоя": (text) => renderCaptureCard({ status: "failed", reason: text }, { updateId: 1 }).text,
   "предупреждение о частичной записи": (text) =>
     renderCaptureCard(captured({ warning: text }), { updateId: 1 }).text,
@@ -538,6 +541,63 @@ describe("карточка ответа — лимит 4096 при любых д
     expect(card.text.split("• ").length - 1).toBe(5);
     expect(card.text).toContain("…и ещё 25 элементов");
     expect(card.text.length).toBeLessThanOrEqual(TELEGRAM_MESSAGE_LIMIT);
+  });
+
+  it("вопрос без ответа не выдавливает подтверждение задач", () => {
+    // Вопрос в сообщении с задачами — подсказка, а не главное: при полной
+    // карточке он обязан уступить место подтверждению, а не наоборот.
+    const card = renderCaptureCard(
+      captured({
+        tasks: ceiling(25, 200),
+        questions: [{ text: "что там с вэду и итмо ".repeat(10) }],
+        others: Array.from({ length: 10 }, () => ({
+          kind: "note" as const,
+          text: "мысль ".repeat(40),
+        })),
+        warning: "база недоступна",
+      }),
+      { updateId: 1, transcript: "расшифровка ".repeat(80) }
+    );
+
+    expect(card.text.length).toBeLessThanOrEqual(TELEGRAM_MESSAGE_LIMIT);
+    expect(card.text).toContain("✅ 25 задач · Работа · Бэклог");
+    expect(card.text).toMatch(/…и ещё \d+ задач\S* — все на доске/);
+    expect(card.text).toContain("Часть задач сохранить не удалось: база недоступна");
+  });
+
+  it("в свободной карточке вопрос виден и назван словами автора", () => {
+    const card = renderCaptureCard(
+      captured({ questions: [{ text: "вэду" }] }),
+      { updateId: 1 }
+    );
+
+    expect(card.text).toContain("Про «вэду» ничего не менял");
+    expect(card.text).toContain("<b>заполнить итмо</b>");
+  });
+
+  it("вопрос меряется после экранирования, а не до", () => {
+    // escapeHtml растит «&» впятеро, поэтому предел, посчитанный по сырому
+    // тексту, длину сообщения не ограничивает вовсе: восемьдесят амперсандов
+    // превращаются в четыреста символов.
+    const plain = renderCaptureCard(captured({ questions: [{ text: "я".repeat(500) }] }), {
+      updateId: 1,
+    });
+    const amps = renderCaptureCard(captured({ questions: [{ text: "&".repeat(500) }] }), {
+      updateId: 1,
+    });
+
+    expect(amps.text.length).toBeLessThanOrEqual(plain.text.length);
+  });
+
+  it("без созданных задач вопрос в карточку не пишется — он уходит в поиск", () => {
+    // Когда задач не нашлось, обработчик показывает выдачу поиска вместо этой
+    // карточки. Подсказка «ничего не менял» там была бы неправдой.
+    const card = renderCaptureCard(
+      captured({ tasks: [], questions: [{ text: "вэду" }] }),
+      { updateId: 1 }
+    );
+
+    expect(card.text).not.toContain("ничего не менял");
   });
 
   it("остальное не выдавливает задачи из карточки", () => {

@@ -8,6 +8,7 @@ import {
   timestamp,
   date,
   pgEnum,
+  index,
 } from "drizzle-orm/pg-core";
 
 export const priorityEnum = pgEnum("priority", ["urgent", "high", "normal"]);
@@ -105,3 +106,42 @@ export const tgUpdates = pgTable("tg_updates", {
   createdAt: timestamp("created_at").defaultNow().notNull(),
   processedAt: timestamp("processed_at"),
 });
+
+/** Состояние хендла: живой, отработанный, отменённый. */
+export const tgHandleStatusEnum = pgEnum("tg_handle_status", [
+  "active",
+  "used",
+  "cancelled",
+]);
+
+/**
+ * Состояние за короткой кнопкой.
+ *
+ * В `callback_data` помещается 64 байта, и поисковый запрос («найди всё по
+ * стратегии за третий квартал») туда не влезает в принципе. В кнопке лежит
+ * идентификатор из десяти символов, а сам запрос — здесь.
+ *
+ * Вторая роль — ожидание ввода: нажатие «Название» не может изменить задачу
+ * сразу, бот ждёт следующего сообщения, и это ожидание нужно где-то держать.
+ *
+ * `expires_at` не украшение: инлайн-кнопки живут вечно, и нажатие на карточке
+ * месячной давности не должно ничего менять.
+ */
+export const tgHandles = pgTable(
+  "tg_handles",
+  {
+    id: text("id").primaryKey(),
+    kind: text("kind").notNull(),
+    payload: jsonb("payload").notNull(),
+    chatId: bigint("chat_id", { mode: "number" }),
+    messageId: bigint("message_id", { mode: "number" }),
+    status: tgHandleStatusEnum("status").notNull().default("active"),
+    createdAt: timestamp("created_at").defaultNow().notNull(),
+    expiresAt: timestamp("expires_at").notNull(),
+  },
+  (table) => [
+    // Ожидание ввода ищется по чату, а не по идентификатору: следующее
+    // сообщение пользователя про хендл ничего не знает.
+    index("tg_handles_chat_idx").on(table.chatId, table.kind, table.status),
+  ]
+);
