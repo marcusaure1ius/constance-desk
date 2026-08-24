@@ -3,11 +3,22 @@ import { parseTasks } from "@/lib/services/groq";
 
 /*
  * Интеграционные тесты — реальные запросы к Groq API.
- * Требуют GROQ_API_KEY в .env.local
- * Запуск: npm test -- tests/groq.integration.test.ts
+ * В основной прогон (npm test) не попадают: файлы *.integration.test.ts
+ * исключены маской в vitest.config.ts.
+ *
+ * Запуск: npm run test:integration:groq (нужен GROQ_API_KEY в .env.local)
  */
 
-describe.skipIf(!process.env.GROQ_API_KEY)("parseTasks — реальные запросы к Groq", () => {
+// Раньше здесь стоял describe.skipIf: без ключа прогон был зелёным, не проверив
+// ничего. Теперь явная команда без ключа падает — «зелёный» значит «проверено».
+if (!process.env.GROQ_API_KEY) {
+  throw new Error(
+    "GROQ_API_KEY не задан — интеграционным тестам Groq нужен настоящий ключ. " +
+      "Запуск: npm run test:integration:groq"
+  );
+}
+
+describe("parseTasks — реальные запросы к Groq", () => {
   it("разбирает несколько задач из потока текста", async () => {
     const result = await parseTasks(
       "Починить баг с авторизацией, это срочно. Ещё нужно обновить документацию по API и добавить валидацию на форму регистрации"

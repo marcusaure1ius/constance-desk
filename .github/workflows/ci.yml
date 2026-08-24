@@ -5,6 +5,9 @@ on:
     branches: [main]
   pull_request:
     branches: [main]
+  # Интеграционные тесты Groq ходят в живой API — только по кнопке, см. джобу
+  # groq-integration.
+  workflow_dispatch:
 
 concurrency:
   group: ci-${{ github.ref }}
@@ -64,6 +67,8 @@ jobs:
 
       - run: npx tsc --noEmit
 
+  # Основной прогон: офлайн и без чужих квот. Файлы *.integration.test.ts
+  # исключены маской в vitest.config.ts, сеть заглушена setupFile.
   test:
     needs: setup
     runs-on: ubuntu-latest
@@ -129,10 +134,12 @@ jobs:
       # Часть поведения выполняет сама база, а не наш код: регистронезависимость
       # и экранирование шаблона LIKE в поиске, ON CONFLICT DO NOTHING в дедупе
       # апдейтов. На моках drizzle такие тесты были бы бутафорией.
+      # В основной прогон эти файлы не входят — здесь они запускаются явно.
+      # Без TEST_DATABASE_URL шаг падает, а не проходит с пропущенными тестами.
       - name: Интеграционные тесты на настоящей базе
         env:
           TEST_DATABASE_URL: postgresql://postgres:postgres@localhost:5432/constance_ci
-        run: npm test -- tests/search.integration.test.ts tests/tg-updates.integration.test.ts
+        run: npm run test:integration:db
 
       # Схема не разошлась с миграциями: если schema.ts изменили без
       # db:generate, здесь появится новый файл и джоба упадёт.
@@ -145,6 +152,30 @@ jobs:
             git status --porcelain drizzle/
             exit 1
           fi
+
+  # Живой Groq — только по кнопке (workflow_dispatch). В гейт PR эти тесты не
+  # входят намеренно: у ключа квота, из-за неё прогон и падал по HTTP 429.
+  # Нужен секрет GROQ_API_KEY в настройках репозитория, иначе шаг упадёт.
+  groq-integration:
+    if: github.event_name == 'workflow_dispatch'
+    needs: setup
+    runs-on: ubuntu-latest
+    env:
+      GROQ_API_KEY: ${{ secrets.GROQ_API_KEY }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+
+      - uses: actions/cache/restore@v4
+        with:
+          path: node_modules
+          key: node-modules-${{ hashFiles('package-lock.json') }}
+          restore-keys: node-modules-
+
+      - run: npm run test:integration:groq
 
   build:
     needs: [lint, typecheck, test, migrations]

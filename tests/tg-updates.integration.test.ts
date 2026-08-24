@@ -1,19 +1,24 @@
 import { describe, it, expect, beforeAll, afterAll, vi } from "vitest";
 import { inArray } from "drizzle-orm";
-import { hasTestDatabase } from "./helpers/test-db";
 
 /*
  * Дедуп повторной доставки — это ON CONFLICT DO NOTHING RETURNING, то есть
  * поведение PostgreSQL, а не нашего кода. На моках drizzle такой тест ничего
  * не доказывает, поэтому журнал проверяется на настоящей базе.
  *
+ * В основной прогон (npm test) не попадают: файлы *.integration.test.ts
+ * исключены маской в vitest.config.ts.
+ *
  * Запуск: TEST_DATABASE_URL=postgresql://postgres:postgres@localhost:55455/constance_ci \
- *   npm test -- tests/tg-updates.integration.test.ts
+ *   npm run test:integration:db
  */
 
+// Пропуска (describe.skipIf) здесь намеренно нет: без базы прогон был бы зелёным,
+// не проверив ничего. Без TEST_DATABASE_URL createTestDb падает — и файл падает
+// вместе с ним, так что «зелёный» значит «проверено».
 vi.mock("@/lib/db", async () => {
-  const { createTestDb, hasTestDatabase: has } = await import("./helpers/test-db");
-  return { db: has() ? createTestDb() : ({} as never) };
+  const { createTestDb } = await import("./helpers/test-db");
+  return { db: createTestDb() };
 });
 
 import {
@@ -27,7 +32,7 @@ import { closeTestDb, createTestDb } from "./helpers/test-db";
 
 const IDS = [900001, 900002, 900003, 900004, 900005, 900006];
 
-describe.skipIf(!hasTestDatabase())("журнал апдейтов на настоящей базе", () => {
+describe("журнал апдейтов на настоящей базе", () => {
   beforeAll(async () => {
     const db = createTestDb();
     await db.delete(tgUpdates).where(inArray(tgUpdates.updateId, IDS));
