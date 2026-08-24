@@ -21,8 +21,10 @@ export const TELEGRAM_MESSAGE_LIMIT = 4096;
 const ELLIPSIS = "…";
 
 /**
- * Запас под закрывающие теги, дописанные после обрезки. Наша разметка глубже
- * `<b><i>` не вкладывается, восьми символов хватает с большим избытком.
+ * Запас под закрывающие теги, дописанные после обрезки. Нашей разметке хватило
+ * бы восьми символов (`</i></b>` — глубже она не вкладывается), но запас взят с
+ * избытком: он стоит два десятка символов из 4096, а пересчитывать его при
+ * каждом новом теге не хочется.
  */
 const CLOSERS_RESERVE = 32;
 
@@ -51,12 +53,29 @@ export function clampMessageText(text: string, limit = TELEGRAM_MESSAGE_LIMIT): 
   const lastClose = text.lastIndexOf(">", cut - 1);
   if (lastOpen > lastClose) cut = lastOpen;
 
-  // Половина суррогатной пары — битый символ вместо эмодзи.
-  const code = text.charCodeAt(cut - 1);
-  if (code >= 0xd800 && code <= 0xdbff) cut -= 1;
-
-  const head = text.slice(0, cut);
+  const head = text.slice(0, safeCutIndex(text, cut));
   return head + danglingClosers(head).slice(0, CLOSERS_RESERVE) + ELLIPSIS;
+}
+
+/**
+ * Ближайшее к `index` место, где текст резать законно: не между половинами
+ * суррогатной пары.
+ *
+ * Одинокий `\ud83d` — это не символ, а обрубок: Telegram отвечает на него 400
+ * «strings must be encoded in UTF-8», а такую 400 клиент не ретраит и не
+ * понижает до plain text, поэтому отправка просто падает.
+ *
+ * Функция общая с карточкой захвата: пределы у них разные (там режется каждое
+ * поле по отдельности, здесь — готовое сообщение целиком), но место разреза
+ * обязано быть законным у обоих, и держать это правило в двух копиях разной
+ * аккуратности — ровно тот способ, которым ошибка и появилась.
+ */
+export function safeCutIndex(text: string, index: number): number {
+  if (index <= 0) return 0;
+  if (index >= text.length) return text.length;
+
+  const code = text.charCodeAt(index - 1);
+  return code >= 0xd800 && code <= 0xdbff ? index - 1 : index;
 }
 
 /** Закрывающие теги для всех, что остались открытыми после обрезки. */
