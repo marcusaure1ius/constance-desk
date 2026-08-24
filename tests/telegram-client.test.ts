@@ -179,16 +179,28 @@ describe("вызовы Bot API", () => {
   });
 
   it("без токена не делает запросов", async () => {
-    const noToken = createTelegramClient({
-      token: undefined,
-      fetchFn: fetchFn as unknown as typeof fetch,
-    });
+    // Подменяем окружение ДО создания клиента: токен читается в этот момент.
+    // vitest подтягивает .env.local целиком, и настоящий токен там может быть.
     vi.stubEnv("TELEGRAM_BOT_TOKEN", "");
+    const noToken = createTelegramClient({ fetchFn: fetchFn as unknown as typeof fetch });
 
     await expect(noToken.sendMessage({ chatId: 1, text: "x" })).rejects.toThrow(
       /TELEGRAM_BOT_TOKEN/
     );
     expect(fetchFn).not.toHaveBeenCalled();
+    vi.unstubAllEnvs();
+  });
+
+  it("токен из окружения используется, если не передан явно", async () => {
+    vi.stubEnv("TELEGRAM_BOT_TOKEN", "env-token");
+    fetchFn.mockResolvedValue(ok({ message_id: 1 }));
+
+    await createTelegramClient({ fetchFn: fetchFn as unknown as typeof fetch }).sendMessage({
+      chatId: 1,
+      text: "x",
+    });
+
+    expect(fetchFn.mock.calls[0][0]).toBe("https://api.telegram.org/botenv-token/sendMessage");
     vi.unstubAllEnvs();
   });
 });

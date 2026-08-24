@@ -15,7 +15,7 @@ import { loadEnvConfig } from "@next/env";
 loadEnvConfig(process.cwd());
 
 import { createTelegramClient } from "../lib/telegram/client";
-import { BOT_COMMANDS } from "../lib/telegram/handle-update";
+import { BOT_COMMANDS } from "../lib/telegram/commands";
 
 const WEBHOOK_PATH = "/api/telegram/webhook";
 

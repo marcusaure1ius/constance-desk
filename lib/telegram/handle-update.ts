@@ -1,4 +1,5 @@
 import { escapeHtml, getTelegramClient, type TelegramClient } from "@/lib/telegram/client";
+import { BOT_COMMANDS } from "@/lib/telegram/commands";
 import {
   updateChatId,
   updateText,
@@ -32,11 +33,6 @@ export type HandleUpdateResult =
   | { status: "duplicate" }
   | { status: "processed"; action: "start" | "help" | "callback" | "unsupported" }
   | { status: "failed"; error: string };
-
-export const BOT_COMMANDS = [
-  { command: "start", description: "Что умеет бот и какой проект активен" },
-  { command: "help", description: "Список команд" },
-];
 
 export async function handleUpdate(
   update: TelegramUpdate,
