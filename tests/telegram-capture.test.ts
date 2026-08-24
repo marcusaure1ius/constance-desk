@@ -11,6 +11,7 @@ import {
   type CaptureBoardData,
   type CaptureDeps,
   type CaptureResult,
+  type CreatedTask,
 } from "@/lib/telegram/capture";
 
 /**
@@ -715,6 +716,13 @@ describe("карточка ответа — лимит 4096 при любых д
  * Слабое место здесь ровно одно: расшифровка приписывается к готовому телу
  * карточки, и её предел считается из остатка — то есть длину пятикратно
  * выросшего текста никто уже не пересчитает.
+ *
+ * «На исходе» — не фигура речи, а требование к наполнению: перебор, у которого
+ * максимум встал в семи сотнях символов от 4096, гоняет экранирование там, где
+ * остаток ничего не режет. Так и было до T-0016 — остаток под расшифровку не
+ * опускался ниже восьмисот, окна 40–600 перебор не касался вовсе, и мутант
+ * «field отдаёт на четыре символа больше предела» жил на нём припеваючи.
+ * Поэтому каждый перебор ниже упирается в expectAtCeiling.
  */
 describe("карточка ответа — экранируемые символы при бюджете на исходе", () => {
   /** Задачи, забивающие карточку почти до потолка. */
@@ -724,15 +732,48 @@ describe("карточка ответа — экранируемые симво�
       priority: "normal" as const,
     }));
 
-  it("расшифровка из амперсандов над заполненной карточкой остаётся в лимите", () => {
-    const card = renderCaptureCard(captured({ tasks: bulk(15, 200) }), {
+  /** Мысли в хвосте: перечисляются после задач, ими и доедается остаток бюджета. */
+  const notes = (count: number, size: number): CapturedItem[] =>
+    Array.from({ length: count }, () => ({ kind: "note", text: "м".repeat(size) }));
+
+  /** Обёртка расшифровки — по ней же цитата и вырезается из готовой карточки. */
+  const TRANSCRIPT_OPEN = "🎤 <i>";
+  const TRANSCRIPT_CLOSE = "</i>\n\n";
+  /** Предел цитаты и порог, ниже которого её не показывают вовсе. */
+  const TRANSCRIPT_LIMIT = 600;
+  const TRANSCRIPT_MIN = 40;
+
+  /** Расшифровка, как её видно в карточке. Пусто — значит, её выбросили целиком. */
+  const quoteOf = (text: string) =>
+    text.startsWith(TRANSCRIPT_OPEN)
+      ? text.slice(TRANSCRIPT_OPEN.length, text.indexOf(TRANSCRIPT_CLOSE))
+      : "";
+
+  /**
+   * Карточка обязана стоять у потолка. Проверка не на лимит, а на то, что
+   * наполнение всё ещё доводит до него: подрастёт заголовок или подпись — и
+   * перебор тихо съедет в область, где бюджет никого не ограничивает.
+   */
+  const expectAtCeiling = (length: number, where: string) => {
+    expect(length, where).toBeLessThanOrEqual(TELEGRAM_MESSAGE_LIMIT);
+    expect(length, `${where}: наполнение перестало доводить карточку до потолка`).toBeGreaterThan(
+      TELEGRAM_MESSAGE_LIMIT - 64
+    );
+  };
+
+  it("расшифровка из амперсандов над забитой до потолка карточкой остаётся в лимите", () => {
+    // Двадцать задач и пять мыслей оставляют под расшифровку полторы сотни
+    // символов — предел ей ставит остаток бюджета, а не TRANSCRIPT_LIMIT.
+    const card = renderCaptureCard(captured({ tasks: bulk(20, 200), others: notes(5, 120) }), {
       updateId: 1,
       transcript: "&".repeat(2000),
     });
 
-    expect(card.text.length).toBeLessThanOrEqual(TELEGRAM_MESSAGE_LIMIT);
-    expect(card.text.startsWith("🎤 <i>")).toBe(true);
-    expect(card.text).toContain("✅ 15 задач · Работа · Бэклог");
+    expectAtCeiling(card.text.length, "амперсанды над забитой карточкой");
+    expect(card.text.startsWith(TRANSCRIPT_OPEN)).toBe(true);
+    expect(quoteOf(card.text).length).toBeLessThan(TRANSCRIPT_LIMIT);
+    expect(card.text).toContain("✅ 20 задач · Работа · Бэклог");
+    expect(card.text).toContain("Остальное сохранил как есть");
     expect(card.text).not.toMatch(BROKEN_ENTITY);
   });
 
@@ -740,48 +781,142 @@ describe("карточка ответа — экранируемые симво�
     // Шаг в один символ по обе стороны от предела расшифровки (600): окно,
     // где сырой текст ещё влезает, а экранированный уже нет, — узкое, и
     // прыжками его не поймать.
-    const tasks = bulk(12, 200);
+    //
+    // Наполнения два, и обе карточки стоят у потолка: в первой расшифровку
+    // режет её собственный предел в 600 (остатка ей отведено 612), во второй —
+    // остаток бюджета (полторы сотни). Именно на втором и живёт «field отдаёт
+    // на четыре символа больше предела»: перебор проводит длину готового HTML
+    // ровно через остаток, и на переходе лишние четыре символа вылезают за 4096.
+    const fills = {
+      "остаток 612 — режет предел цитаты": notes(3, 49),
+      "остаток 139 — режет бюджет": notes(5, 120),
+    };
     const shapes = { амперсанды: "&", "открывающие скобки": "<", "закрывающие скобки": ">" };
+    let longest = 0;
 
-    for (const [shape, char] of Object.entries(shapes)) {
-      for (let size = 1; size <= 700; size++) {
-        const card = renderCaptureCard(captured({ tasks }), {
-          updateId: 1,
-          transcript: char.repeat(size),
-        });
-        const where = `${shape} · расшифровка в ${size} символов`;
+    for (const [fill, others] of Object.entries(fills)) {
+      for (const [shape, char] of Object.entries(shapes)) {
+        for (let size = 1; size <= 700; size++) {
+          const card = renderCaptureCard(captured({ tasks: bulk(20, 200), others }), {
+            updateId: 1,
+            transcript: char.repeat(size),
+          });
+          const where = `${fill} · ${shape} · расшифровка в ${size} символов`;
 
-        expect(card.text.length, where).toBeLessThanOrEqual(TELEGRAM_MESSAGE_LIMIT);
-        expect(card.text, where).not.toMatch(BROKEN_ENTITY);
-        expect(card.text, where).not.toMatch(BROKEN_TAG);
-        // Подтверждение важнее цитаты: под нож идёт расшифровка, не оно.
-        expect(card.text, where).toContain("✅ 12 задач · Работа · Бэклог");
+          expect(card.text.length, where).toBeLessThanOrEqual(TELEGRAM_MESSAGE_LIMIT);
+          expect(card.text, where).not.toMatch(BROKEN_ENTITY);
+          expect(card.text, where).not.toMatch(BROKEN_TAG);
+          // Цитату держит предел в 600 — сколько бы места ни оставалось.
+          expect(quoteOf(card.text).length, where).toBeLessThanOrEqual(TRANSCRIPT_LIMIT);
+          // Подтверждение важнее цитаты: под нож идёт расшифровка, не оно.
+          expect(card.text, where).toContain("✅ 20 задач · Работа · Бэклог");
+
+          longest = Math.max(longest, card.text.length);
+        }
       }
     }
+
+    expectAtCeiling(longest, "максимум перебора длины расшифровки");
   });
 
-  it("перебор объёма карточки: остаток бюджета под расшифровку считается после экранирования", () => {
-    // Здесь меняется не расшифровка, а то, сколько от лимита ей достаётся:
-    // остаток проходит через всё окно — от шести сотен символов до нуля.
-    for (let size = 1; size <= 260; size++) {
-      const card = renderCaptureCard(
-        captured({ tasks: bulk(20, size), warning: "база недоступна" }),
-        { updateId: 1, transcript: "&<>".repeat(300) }
-      );
-      const where = `заголовки по ${size} символов`;
+  /**
+   * Наполнения от лёгкого к тяжёлому — грубый шаг перебора объёма.
+   *
+   * Пятнадцать перечисленных задач упираются в свой предел по числу, а не в
+   * бюджет, и оставляют под расшифровку восемь сотен символов: до нуля его
+   * доедают мысли в хвосте. Тридцать четыре задачи с эпиком, сроком и
+   * приоритетом съедают бюджет сами — их строка длиннее трёх сотен символов.
+   *
+   * Задач именно тридцать четыре, а не двадцать пять: место под «…и ещё N»
+   * занимается заранее, по самой длинной форме склонения и по общему числу
+   * задач, — и на «21 задача» этот запас совпадает с настоящей строкой символ
+   * в символ. Там, где он совпадает, карточка встаёт ровно в 4096, и перебор
+   * на единицу в проверке «влезает ли кусок» вылезает наружу; при любом другом
+   * числе лишний символ съедается запасом и мутант живёт.
+   */
+  const fills: { what: string; tasks: CreatedTask[]; others: CapturedItem[] }[] = [
+    ...Array.from({ length: 27 }, (_, i) => ({
+      what: `20 задач и 5 мыслей по ${i * 5} символов`,
+      tasks: bulk(20, 200),
+      others: notes(5, i * 5),
+    })),
+    ...Array.from({ length: 25 }, (_, i) => ({
+      what: `34 задачи с эпиком и сроком, заголовок в ${176 + i} символов`,
+      tasks: Array.from({ length: 34 }, (_, n) => ({
+        title: `${n + 1} ${"я".repeat(176 + i)}`,
+        priority: "urgent" as const,
+        plannedDate: "2026-08-25",
+        epic: "эпик с довольно длинным названием про вэд, итмо и физюриков",
+      })),
+      others: [],
+    })),
+  ];
 
-      expect(card.text.length, where).toBeLessThanOrEqual(TELEGRAM_MESSAGE_LIMIT);
-      expect(card.text, where).not.toMatch(BROKEN_ENTITY);
-      expect(card.text, where).not.toMatch(BROKEN_TAG);
-      expect(card.text, where).toContain("✅ 20 задач · Работа · Бэклог");
-      expect(card.text, where).toContain("Часть задач сохранить не удалось: база недоступна");
+  it("перебор объёма карточки: остаток под расшифровку проходит окно от 600 до нуля", () => {
+    // Здесь меняется не расшифровка, а то, сколько от лимита ей достаётся.
+    // Наполнение задаёт грубый шаг, длина имени проекта — точный: имя стоит в
+    // заголовке, который в бюджет не просится, поэтому каждый его символ
+    // двигает остаток ровно на единицу. Без этого перебор идёт прыжками в три
+    // сотни символов и всё окно 40–600 перешагивает, ни разу в него не попав.
+    const shapes = { буквы: "я", амперсанды: "&", "скобки и амперсанды": "&<>" };
+
+    let longest = 0;
+    let shortestQuote = Infinity;
+    let dropped = 0;
+    const lengths = new Set<number>();
+
+    for (const fill of fills) {
+      for (let name = 1; name <= 64; name++) {
+        const result = captured({
+          tasks: fill.tasks,
+          others: fill.others,
+          environmentName: "п".repeat(name),
+          warning: "база недоступна",
+        });
+
+        for (const [shape, char] of Object.entries(shapes)) {
+          // Расшифровка заведомо длиннее любого остатка: режется всегда.
+          const card = renderCaptureCard(result, { updateId: 1, transcript: char.repeat(900) });
+          const where = `${fill.what} · имя проекта в ${name} символов · ${shape}`;
+          const quote = quoteOf(card.text);
+
+          expect(card.text.length, where).toBeLessThanOrEqual(TELEGRAM_MESSAGE_LIMIT);
+          expect(card.text, where).not.toMatch(BROKEN_ENTITY);
+          expect(card.text, where).not.toMatch(BROKEN_TAG);
+          expect(quote.length, where).toBeLessThanOrEqual(TRANSCRIPT_LIMIT);
+          expect(card.text, where).toMatch(/✅ \d+ задач\S* · /);
+          expect(card.text, where).toMatch(/…и ещё \d+ задач\S* — все на доске/);
+          expect(card.text, where).toContain("Часть задач сохранить не удалось: база недоступна");
+
+          longest = Math.max(longest, card.text.length);
+          if (quote.length === 0) dropped++;
+          else {
+            shortestQuote = Math.min(shortestQuote, quote.length);
+            lengths.add(quote.length);
+          }
+        }
+      }
     }
+
+    // Перебор обязан пройти окно целиком, а не задеть его краем: цитату и
+    // держали потолком в 600, и резали остатком бюджета, и выбрасывали.
+    expectAtCeiling(longest, "максимум перебора объёма");
+    expect(Math.max(...lengths), "самая длинная расшифровка").toBe(TRANSCRIPT_LIMIT);
+    expect(lengths.size, "сколько разных длин расшифровки встретилось").toBeGreaterThan(400);
+    expect(dropped, "сколько раз расшифровку выбросило целиком").toBeGreaterThan(100);
+    // Огрызок короче порога не показывается вовсе. Ниже порога длину опускает
+    // только отступ до границы сущности — и тот на считаные символы.
+    expect(shortestQuote, "самая короткая показанная расшифровка").toBeGreaterThan(
+      TRANSCRIPT_MIN - 8
+    );
   });
 
   it("экранируемые заголовки у потолка не выдавливают карточку за лимит", () => {
     // Тот же угол, но экранируемое стоит в заголовках, а не в расшифровке:
     // двадцать пять названий из одних амперсандов и скобок при пределе в 200
     // символов — это до двадцати пяти тысяч символов готового HTML.
+    let longest = 0;
+
     for (const char of ["&", "<", ">"]) {
       for (let size = 190; size <= 210; size++) {
         const card = renderCaptureCard(
@@ -801,10 +936,15 @@ describe("карточка ответа — экранируемые симво�
         expect(card.text.length, where).toBeLessThanOrEqual(TELEGRAM_MESSAGE_LIMIT);
         expect(card.text, where).not.toMatch(BROKEN_ENTITY);
         expect(card.text, where).not.toMatch(BROKEN_TAG);
+        expect(quoteOf(card.text).length, where).toBeLessThanOrEqual(TRANSCRIPT_LIMIT);
         expect(card.text, where).toContain("✅ 25 задач · Работа · Бэклог");
         expect(card.text, where).toMatch(/…и ещё \d+ задач\S* — все на доске/);
+
+        longest = Math.max(longest, card.text.length);
       }
     }
+
+    expectAtCeiling(longest, "максимум перебора экранируемых заголовков");
   });
 });
 
