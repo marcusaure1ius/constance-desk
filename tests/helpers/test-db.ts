@@ -13,7 +13,8 @@ import { databaseHost, isLocalDatabaseHost } from "@/lib/db/db-host";
  * Сама проверка локальности — общая с барьером команд миграций
  * (`lib/db/db-host.ts`). Здесь она когда-то жила своей копией и отвергала
  * `LOCALHOST` в верхнем регистре: `new URL()` не приводит хост к нижнему
- * регистру для схемы `postgresql:`.
+ * регистру для схемы `postgresql:`. Хост берётся так же, как его понимает
+ * драйвер, — то есть с учётом `?host=`, который сильнее authority.
  */
 export function assertLocalDatabase(url: string): void {
   const host = databaseHost(url);
