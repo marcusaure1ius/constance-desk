@@ -1,5 +1,5 @@
-import { escapeHtml } from "@/lib/telegram/client";
-import { plural } from "@/lib/telegram/capture";
+import { safeCutIndex } from "@/lib/telegram/client";
+import { field, plural } from "@/lib/telegram/capture";
 import { packUuid, unpackUuid, isHandleId } from "@/lib/telegram/ids";
 
 /**
@@ -244,6 +244,12 @@ const TITLE_LIMIT = 200;
 const BUTTON_TITLE_LIMIT = 40;
 /** Описание показываем началом: карточка — не редактор. */
 const DESCRIPTION_LIMIT = 300;
+/** Имя проекта, колонки, эпика — такие же пользовательские строки без потолка. */
+const NAME_LIMIT = 64;
+/** Подпись о результате и заголовок подменю: их пишем мы, но предел нужен всем. */
+const NOTE_LIMIT = 120;
+/** Поисковый запрос в ответе «ничего не нашёл»: цитируем коротко. */
+const QUERY_LIMIT = 100;
 /** Сколько задач показывать в выдаче поиска. Больше — клавиатура нечитаема. */
 export const SEARCH_CARD_SIZE = 3;
 /** Сколько вариантов в подменю на страницу, дальше — «Ещё N». */
@@ -321,29 +327,29 @@ function taskText(task: TaskCardData, options: CardOptions = {}): string {
   const emoji = done ? "✅" : PRIORITY_EMOJI[task.priority];
 
   const meta = [
-    escapeHtml(task.environment.name),
-    escapeHtml(task.column.title),
+    field(task.environment.name, NAME_LIMIT),
+    field(task.column.title, NAME_LIMIT),
     done ? `висела ${lifetimeWord(lifetimeDays(task))}` : dueLabel(task.plannedDate, options.today ?? new Date()),
   ].filter(Boolean);
 
   const lines = [
-    `${emoji} <b>${escapeHtml(truncate(task.title, TITLE_LIMIT))}</b>`,
+    `${emoji} <b>${field(task.title, TITLE_LIMIT)}</b>`,
     `<i>${meta.join(" · ")}</i>`,
   ];
 
-  if (task.epicName) lines.push(`<i>эпик «${escapeHtml(task.epicName)}»</i>`);
+  if (task.epicName) lines.push(`<i>эпик «${field(task.epicName, NAME_LIMIT)}»</i>`);
   if (task.description) {
-    lines.push("", escapeHtml(truncate(task.description, DESCRIPTION_LIMIT)));
+    lines.push("", field(task.description, DESCRIPTION_LIMIT));
   }
 
-  const note = options.note ? `${escapeHtml(options.note)}\n\n` : "";
+  const note = options.note ? `${field(options.note, NOTE_LIMIT)}\n\n` : "";
   return note + lines.join("\n");
 }
 
 /** Заголовок подменю: та же карточка, но вопросом вместо описания. */
 function menuText(task: TaskCardData, question: string, options: CardOptions): string {
   const head = taskText({ ...task, description: null }, options);
-  return `${head}\n\n<b>${escapeHtml(question)}</b>`;
+  return `${head}\n\n<b>${field(question, NOTE_LIMIT)}</b>`;
 }
 
 /* ── подменю ──────────────────────────────────────────────────────────────── */
@@ -494,6 +500,8 @@ export function renderEnvironmentMenu(
  */
 export function renderDeleteConfirm(task: TaskCardData, options: CardOptions = {}): TaskCard {
   return {
+    // Заголовок здесь идёт внутрь menuText и экранируется там же, поэтому
+    // режем сырой текст, а не готовый HTML.
     text: menuText(task, `Удалить «${truncate(task.title, 80)}»?`, options),
     replyMarkup: {
       inline_keyboard: [
@@ -574,9 +582,9 @@ export function renderSearchCard(
     const emoji = done ? "✅" : PRIORITY_EMOJI[item.priority];
     const meta = done
       ? `Готово · висела ${lifetimeWord(lifetimeDays(item))}`
-      : `${escapeHtml(item.environment.name)} · ${escapeHtml(item.column.title)} · ${daysWord(ageDays(item.createdAt, now))}`;
+      : `${field(item.environment.name, NAME_LIMIT)} · ${field(item.column.title, NAME_LIMIT)} · ${daysWord(ageDays(item.createdAt, now))}`;
 
-    lines.push(`${emoji} <b>${escapeHtml(truncate(item.title, TITLE_LIMIT))}</b>`);
+    lines.push(`${emoji} <b>${field(item.title, TITLE_LIMIT)}</b>`);
     lines.push(`<i>${meta}</i>`);
   }
 
@@ -610,7 +618,7 @@ export function renderSearchCard(
 
   if (options.boardUrl) rows.push([{ text: "Открыть на доске", url: options.boardUrl }]);
 
-  const note = options.note ? `${escapeHtml(options.note)}\n\n` : "";
+  const note = options.note ? `${field(options.note, NOTE_LIMIT)}\n\n` : "";
   const card: TaskCard = { text: note + lines.join("\n") };
   if (rows.length > 0) card.replyMarkup = { inline_keyboard: rows };
   return card;
@@ -618,7 +626,7 @@ export function renderSearchCard(
 
 /** Задача удалена: клавиатуры больше нет, нажимать нечего. */
 export function renderDeletedCard(title: string): TaskCard {
-  return { text: `🗑 Удалил «${escapeHtml(truncate(title, TITLE_LIMIT))}»` };
+  return { text: `🗑 Удалил «${field(title, TITLE_LIMIT)}»` };
 }
 
 /** Ничего не нашлось. Кнопка «завести задачей» — только для прошедшего времени. */
@@ -636,7 +644,7 @@ export function renderEmptySearch(options: {
   if (options.boardUrl) rows.push([{ text: "Открыть на доске", url: options.boardUrl }]);
 
   const card: TaskCard = {
-    text: `🔍 Ничего не нашёл по «${escapeHtml(truncate(options.query, 100))}».`,
+    text: `🔍 Ничего не нашёл по «${field(options.query, QUERY_LIMIT)}».`,
   };
   if (rows.length > 0) card.replyMarkup = { inline_keyboard: rows };
   return card;
@@ -759,6 +767,15 @@ function optionRows(
   return rows;
 }
 
+/**
+ * Обрезка сырого текста — надписи на кнопке и куска, который экранируют позже.
+ *
+ * Место разреза выбирает общий safeCutIndex: половина суррогатной пары — не
+ * UTF-8, и Telegram отвечает на неё 400, которую клиент не ретраит и не
+ * понижает до plain text. Заголовок задачи, оканчивающийся эмодзи ровно на
+ * пределе кнопки, — совершенно штатный случай.
+ */
 function truncate(value: string, limit: number): string {
-  return value.length > limit ? `${value.slice(0, limit - 1)}…` : value;
+  if (value.length <= limit) return value;
+  return value.slice(0, safeCutIndex(value, limit - 1)) + "…";
 }

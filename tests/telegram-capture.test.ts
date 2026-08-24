@@ -35,6 +35,18 @@ const BOARD: CaptureBoardData = {
   ],
 };
 
+/** Удачный захват: одна задача в первой колонке. Поля переопределяются точечно. */
+const captured = (over: Partial<Extract<CaptureResult, { status: "captured" }>> = {}) =>
+  ({
+    status: "captured",
+    environmentName: "Работа",
+    columnTitle: "Бэклог",
+    tasks: [{ title: "заполнить итмо", priority: "normal" as const }],
+    questions: [],
+    others: [],
+    ...over,
+  }) satisfies CaptureResult;
+
 function makeDeps(items: CapturedItem[], overrides: Partial<CaptureDeps> = {}) {
   const loadBoard = vi.fn().mockResolvedValue(BOARD);
   const captureItems = vi.fn().mockResolvedValue(items);
@@ -239,17 +251,6 @@ describe("кнопки захвата", () => {
 });
 
 describe("карточка ответа", () => {
-  const captured = (over: Partial<Extract<CaptureResult, { status: "captured" }>> = {}) =>
-    ({
-      status: "captured",
-      environmentName: "Работа",
-      columnTitle: "Бэклог",
-      tasks: [{ title: "заполнить итмо", priority: "normal" as const }],
-      questions: [],
-      others: [],
-      ...over,
-    }) satisfies CaptureResult;
-
   it("первая строка подтверждает, дальше идёт заголовок задачи", () => {
     const card = renderCaptureCard(captured(), { updateId: 1 });
     const [first] = card.text.split("\n");
@@ -382,6 +383,237 @@ describe("карточка ответа", () => {
   it("нет проекта — говорим об этом, а не молчим", () => {
     const card = renderCaptureCard({ status: "no_board" }, { updateId: 1 });
     expect(card.text).toContain("Складывать некуда");
+  });
+});
+
+/*
+ * Пределы карточки — перебором, а не парой примеров.
+ *
+ * Все три беды здесь одного класса: Telegram отвечает 400, а это не 429 и не
+ * «can't parse entities», поэтому ни ретрай, ни фолбэк без parse_mode отправку
+ * не спасают — пользователь не получает ничего, хотя задачи уже на доске.
+ * Ошибиться легко: удачно выбранное смещение проходит и на сломанном коде.
+ */
+
+/** Одинокая половина суррогатной пары: для Telegram это не UTF-8 → 400. */
+const LONE_SURROGATE = /[\uD800-\uDBFF](?![\uDC00-\uDFFF])|(?<![\uD800-\uDBFF])[\uDC00-\uDFFF]/;
+/** «&», не начинающая сущность: разрезанная пополам «&amp;» — битая разметка. */
+const BROKEN_ENTITY = /&(?!amp;|lt;|gt;)/;
+/** Тег, разрезанный пополам. */
+const BROKEN_TAG = /<[^>]*$/;
+
+/** Куда попадает пользовательский текст: у каждого слота свой предел. */
+const SLOTS: Record<string, (text: string) => string> = {
+  расшифровка: (text) => renderCaptureCard(captured(), { updateId: 1, transcript: text }).text,
+  "заголовок единственной задачи": (text) =>
+    renderCaptureCard(captured({ tasks: [{ title: text, priority: "normal" }] }), { updateId: 1 })
+      .text,
+  "заголовок в списке": (text) =>
+    renderCaptureCard(
+      captured({
+        tasks: [
+          { title: "первая", priority: "normal" },
+          { title: text, priority: "normal" },
+        ],
+      }),
+      { updateId: 1 }
+    ).text,
+  "имя проекта": (text) =>
+    renderCaptureCard(captured({ environmentName: text, columnTitle: text }), { updateId: 1 }).text,
+  "имя эпика": (text) =>
+    renderCaptureCard(
+      captured({ tasks: [{ title: "заполнить итмо", priority: "normal", epic: text }] }),
+      { updateId: 1 }
+    ).text,
+  остальное: (text) =>
+    renderCaptureCard(captured({ tasks: [], others: [{ kind: "note", text }] }), { updateId: 1 })
+      .text,
+  "неотвеченный вопрос": (text) =>
+    renderCaptureCard(captured({ questions: [{ text }] }), { updateId: 1 }).text,
+  "причина сбоя": (text) => renderCaptureCard({ status: "failed", reason: text }, { updateId: 1 }).text,
+  "предупреждение о частичной записи": (text) =>
+    renderCaptureCard(captured({ warning: text }), { updateId: 1 }).text,
+};
+
+/**
+ * Виды текста, на которых обрезка ломается по-разному: эмодзи (суррогатные
+ * пары), «&» (экранирование растит его впятеро), угловые скобки (после
+ * экранирования это тоже сущности).
+ */
+const SHAPES: Record<string, (offset: number) => string> = {
+  "эмодзи посреди текста": (offset) => `${"я".repeat(offset)}😀${"я".repeat(700)}`,
+  "сплошные эмодзи": (offset) => `${"😀".repeat(offset)}!${"😀".repeat(400)}`,
+  "эмодзи вперемешку с амперсандами": (offset) => `${"&😀".repeat(offset)}😀&${"я".repeat(700)}`,
+  "сплошные амперсанды": (offset) => `${"&".repeat(offset)}${"😀".repeat(400)}`,
+  "разметка в тексте пользователя": (offset) => `${"<b>😀".repeat(offset)}<i>${"я".repeat(700)}`,
+};
+
+describe("карточка ответа — обрезка перебором смещений", () => {
+  for (const [slot, render] of Object.entries(SLOTS)) {
+    it(`${slot}: ни битых символов, ни битой разметки, ни выхода за лимит`, () => {
+      // Расшифровке отведено 600 символов, остальным слотам — от 64 до 200;
+      // перебор идёт с запасом по обе стороны от каждого предела, чтобы тест
+      // не зависел от конкретных чисел.
+      const maxOffset = slot === "расшифровка" ? 640 : 230;
+
+      for (const [shape, build] of Object.entries(SHAPES)) {
+        for (let offset = 0; offset <= maxOffset; offset++) {
+          const where = `${slot} · ${shape} · смещение ${offset}`;
+          const text = render(build(offset));
+
+          expect(text.length, where).toBeLessThanOrEqual(TELEGRAM_MESSAGE_LIMIT);
+          expect(text, where).not.toMatch(LONE_SURROGATE);
+          expect(text, where).not.toMatch(BROKEN_ENTITY);
+          expect(text, where).not.toMatch(BROKEN_TAG);
+        }
+      }
+    });
+  }
+});
+
+describe("карточка ответа — лимит 4096 при любых данных", () => {
+  const ceiling = (count: number, size: number, prefix = "") =>
+    Array.from({ length: count }, (_, i) => ({
+      title: `${i + 1} ${prefix}${"я".repeat(size)}`,
+      priority: "normal" as const,
+      plannedDate: "2026-08-25",
+      epic: "Техдолг",
+    }));
+
+  it("двадцать заголовков у потолка и длинная расшифровка укладываются в лимит", () => {
+    // Ровно тот угол, из-за которого задача и заведена: 20 × 200 символов плюс
+    // эпик, срок и расшифровка на 600 давали 4444 символа.
+    const card = renderCaptureCard(captured({ tasks: ceiling(20, 200) }), {
+      updateId: 1,
+      transcript: "надиктованная расшифровка голосового ".repeat(30),
+    });
+
+    expect(card.text.length).toBeLessThanOrEqual(TELEGRAM_MESSAGE_LIMIT);
+    // Подтверждение — и первая строка, и хвост списка — на месте: режется
+    // расшифровка, ради которой сообщение точно не слали.
+    expect(card.text).toContain("✅ 20 задач · Работа · Бэклог");
+    expect(card.text).toContain("15. <b>");
+    expect(card.text).toContain("…и ещё 5 задач — все на доске");
+    expect(card.text.startsWith("🎤 <i>")).toBe(true);
+  });
+
+  it("подтверждение и «…и ещё N» переживают любую длину заголовков", () => {
+    // Перебор по одному символу: окно, в котором строка «…и ещё N» перестаёт
+    // помещаться в остаток бюджета, шириной в три десятка символов — прыжками
+    // его не поймать, а именно она и есть то, ради чего пределы вводились.
+    // Задачи здесь с эпиком, сроком и приоритетом: на одних заголовках у
+    // потолка карточка ещё укладывается, а вместе с подписями — уже нет.
+    const shapes = { обычный: "я", "экранируемый впятеро": "&" };
+
+    for (const [shape, char] of Object.entries(shapes)) {
+      for (let size = 1; size <= 250; size++) {
+        const card = renderCaptureCard(
+          captured({
+            tasks: Array.from({ length: 25 }, (_, i) => ({
+              title: `${i + 1} ${char.repeat(size)}`,
+              priority: "urgent" as const,
+              plannedDate: "2026-08-25",
+              epic: "эпик с довольно длинным названием про вэд, итмо и физюриков",
+            })),
+            warning: "база недоступна",
+          }),
+          { updateId: 1, transcript: "надиктованная расшифровка ".repeat(40) }
+        );
+
+        const where = `${shape} заголовок в ${size} символов`;
+        expect(card.text.length, where).toBeLessThanOrEqual(TELEGRAM_MESSAGE_LIMIT);
+        expect(card.text, where).toContain("✅ 25 задач · Работа · Бэклог");
+        expect(card.text, where).toMatch(/…и ещё \d+ задач\S* — все на доске/);
+        expect(card.text, where).toContain("Часть задач сохранить не удалось: база недоступна");
+        expect(card.text, where).not.toMatch(BROKEN_ENTITY);
+      }
+    }
+  });
+
+  it("список остального ограничен по числу и говорит про хвост", () => {
+    const others: CapturedItem[] = Array.from({ length: 30 }, (_, i) => ({
+      kind: "note",
+      text: `мысль номер ${i + 1}`,
+    }));
+
+    const card = renderCaptureCard(captured({ others }), { updateId: 1 });
+
+    expect(card.text.split("• ").length - 1).toBe(5);
+    expect(card.text).toContain("…и ещё 25 элементов");
+    expect(card.text.length).toBeLessThanOrEqual(TELEGRAM_MESSAGE_LIMIT);
+  });
+
+  it("вопрос без ответа не выдавливает подтверждение задач", () => {
+    // Вопрос в сообщении с задачами — подсказка, а не главное: при полной
+    // карточке он обязан уступить место подтверждению, а не наоборот.
+    const card = renderCaptureCard(
+      captured({
+        tasks: ceiling(25, 200),
+        questions: [{ text: "что там с вэду и итмо ".repeat(10) }],
+        others: Array.from({ length: 10 }, () => ({
+          kind: "note" as const,
+          text: "мысль ".repeat(40),
+        })),
+        warning: "база недоступна",
+      }),
+      { updateId: 1, transcript: "расшифровка ".repeat(80) }
+    );
+
+    expect(card.text.length).toBeLessThanOrEqual(TELEGRAM_MESSAGE_LIMIT);
+    expect(card.text).toContain("✅ 25 задач · Работа · Бэклог");
+    expect(card.text).toMatch(/…и ещё \d+ задач\S* — все на доске/);
+    expect(card.text).toContain("Часть задач сохранить не удалось: база недоступна");
+  });
+
+  it("в свободной карточке вопрос виден и назван словами автора", () => {
+    const card = renderCaptureCard(
+      captured({ questions: [{ text: "вэду" }] }),
+      { updateId: 1 }
+    );
+
+    expect(card.text).toContain("Про «вэду» ничего не менял");
+    expect(card.text).toContain("<b>заполнить итмо</b>");
+  });
+
+  it("вопрос меряется после экранирования, а не до", () => {
+    // escapeHtml растит «&» впятеро, поэтому предел, посчитанный по сырому
+    // тексту, длину сообщения не ограничивает вовсе: восемьдесят амперсандов
+    // превращаются в четыреста символов.
+    const plain = renderCaptureCard(captured({ questions: [{ text: "я".repeat(500) }] }), {
+      updateId: 1,
+    });
+    const amps = renderCaptureCard(captured({ questions: [{ text: "&".repeat(500) }] }), {
+      updateId: 1,
+    });
+
+    expect(amps.text.length).toBeLessThanOrEqual(plain.text.length);
+  });
+
+  it("без созданных задач вопрос в карточку не пишется — он уходит в поиск", () => {
+    // Когда задач не нашлось, обработчик показывает выдачу поиска вместо этой
+    // карточки. Подсказка «ничего не менял» там была бы неправдой.
+    const card = renderCaptureCard(
+      captured({ tasks: [], questions: [{ text: "вэду" }] }),
+      { updateId: 1 }
+    );
+
+    expect(card.text).not.toContain("ничего не менял");
+  });
+
+  it("остальное не выдавливает задачи из карточки", () => {
+    const others: CapturedItem[] = Array.from({ length: 30 }, () => ({
+      kind: "note",
+      text: "мысль ".repeat(40),
+    }));
+
+    const card = renderCaptureCard(captured({ tasks: ceiling(25, 200), others }), {
+      updateId: 1,
+      transcript: "расшифровка ".repeat(80),
+    });
+
+    expect(card.text.length).toBeLessThanOrEqual(TELEGRAM_MESSAGE_LIMIT);
+    expect(card.text).toContain("✅ 25 задач · Работа · Бэклог");
+    expect(card.text).toMatch(/…и ещё \d+ задач\S* — все на доске/);
   });
 });
 

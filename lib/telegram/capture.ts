@@ -1,6 +1,6 @@
 import type { CaptureBoard, CapturedItem, CapturePriority } from "@/lib/llm/capture";
 import { sanitizeTitle } from "@/lib/llm/capture";
-import { escapeHtml } from "@/lib/telegram/client";
+import { escapeHtml, safeCutIndex, TELEGRAM_MESSAGE_LIMIT } from "@/lib/telegram/client";
 
 /**
  * Захват в терминах доски: элементы от модели → задачи в первой колонке
@@ -230,19 +230,49 @@ const KIND_LABEL: Record<CapturedItem["kind"], string> = {
 export type CaptureCard = { text: string; replyMarkup?: InlineKeyboard };
 
 /*
- * Пределы карточки. В сообщение Telegram влезает 4096 символов, и решать, чем
- * жертвовать, обязана карточка: расшифровка стоит первой строкой, а
- * подтверждение созданных задач — последней, поэтому слепая обрезка с хвоста
- * (она есть в клиенте как страховка) выкинула бы ровно то, ради чего
- * пользователь сообщение и слал.
+ * Пределы карточки.
+ *
+ * На всё длиннее 4096 символов Telegram отвечает 400 «message is too long» —
+ * это не 429 и не ошибка разметки, поэтому ни ретрай, ни фолбэк без parse_mode
+ * такую отправку не спасают: пользователь не получает ничего, хотя задачи уже
+ * на доске. Значит, укладываться обязана сама карточка, а страховка в клиенте
+ * остаётся тем, чем и была, — последней.
+ *
+ * Пределов на каждое поле для этого мало: пятнадцать заголовков у потолка дают
+ * больше четырёх тысяч, да и сам потолок поля ничего не обещает — escapeHtml
+ * растит «&» впятеро. Поэтому карточка собирается по бюджету: место сперва
+ * занимают строки, которые видно всегда (подтверждение, предупреждение о
+ * частичной записи, «…и ещё N — все на доске»), а перечисления добавляются,
+ * пока влезают. Чем жертвовать, решает порядок: расшифровка стоит первой
+ * строкой, подтверждение — последней, и слепая обрезка с хвоста выкинула бы
+ * ровно то, ради чего пользователь сообщение и слал.
  */
 
 /** Расшифровка голосового: показываем начало, целиком она нужна редко. */
 const TRANSCRIPT_LIMIT = 600;
+/** Короче — уже не цитата, а огрызок: такую расшифровку лучше не показывать. */
+const TRANSCRIPT_MIN = 40;
 /** Заголовок в карточке. В самой задаче он сохраняется целиком. */
 const TITLE_LIMIT = 200;
+/** Имя проекта, колонки, эпика — такие же пользовательские строки. */
+const NAME_LIMIT = 64;
+/** Текст не-задачи в списке «остального». */
+const OTHER_LIMIT = 120;
+/** Вопрос, который в этом сообщении остался без ответа: цитируем коротко. */
+const QUESTION_LIMIT = 80;
+/** Причина сбоя: чужие сообщения об ошибках бывают многословными. */
+const REASON_LIMIT = 160;
 /** Сколько задач перечислять поимённо; остальные считаются числом. */
 const MAX_LISTED_TASKS = 15;
+/** Сколько не-задач перечислять; остальные так же считаются числом. */
+const MAX_LISTED_OTHERS = 5;
+
+const ELLIPSIS = "…";
+const TRANSCRIPT_OPEN = "🎤 <i>";
+const TRANSCRIPT_CLOSE = "</i>\n\n";
+
+const TASK_FORMS: [string, string, string] = ["задача", "задачи", "задач"];
+const ITEM_FORMS: [string, string, string] = ["элемент", "элемента", "элементов"];
 
 /**
  * Карточка ответа. Первая строка — подтверждение: её видно в списке чатов, не
@@ -252,14 +282,15 @@ export function renderCaptureCard(
   result: CaptureResult,
   options: { updateId: number; transcript?: string }
 ): CaptureCard {
-  const prefix = options.transcript
-    ? `🎤 <i>${escapeHtml(truncate(options.transcript, TRANSCRIPT_LIMIT))}</i>\n\n`
-    : "";
+  const card = renderBody(result, options.updateId);
+  return { ...card, text: withTranscript(card.text, options.transcript) };
+}
 
+/** Карточка без расшифровки: расшифровка приписывается сверху тем, что осталось. */
+function renderBody(result: CaptureResult, updateId: number): CaptureCard {
   if (result.status === "no_board") {
     return {
       text:
-        prefix +
         "Складывать некуда: на доске нет проекта с колонками.\n" +
         "Создайте проект в приложении — и я начну класть задачи в первую колонку.",
     };
@@ -268,81 +299,27 @@ export function renderCaptureCard(
   if (result.status === "failed" || result.status === "empty") {
     const first =
       result.status === "failed"
-        ? `Сохранил сообщение, но не разобрал: ${escapeHtml(result.reason)}.`
+        ? `Сохранил сообщение, но не разобрал: ${field(result.reason, REASON_LIMIT)}.`
         : "Сохранил сообщение, но не понял, что с ним делать.";
 
     return {
-      text:
-        prefix +
-        first +
-        "\n\nМогу попробовать ещё раз или завести задачу из текста как есть.",
+      text: first + "\n\nМогу попробовать ещё раз или завести задачу из текста как есть.",
       replyMarkup: {
         inline_keyboard: [
-          [{ text: "↻ Разобрать заново", callback_data: captureCallback("retry", options.updateId) }],
-          [{ text: "→ Задачей как есть", callback_data: captureCallback("astask", options.updateId) }],
+          [{ text: "↻ Разобрать заново", callback_data: captureCallback("retry", updateId) }],
+          [{ text: "→ Задачей как есть", callback_data: captureCallback("astask", updateId) }],
         ],
       },
     };
   }
 
-  const lines: string[] = [];
-  const { tasks, others } = result;
-
-  if (tasks.length === 0) {
-    lines.push(`Задач не нашёл · ${escapeHtml(result.environmentName)}`);
-  } else if (tasks.length === 1) {
-    lines.push(
-      `✅ Задача · ${escapeHtml(result.environmentName)} · ${escapeHtml(result.columnTitle)}`,
-      "",
-      `<b>${escapeHtml(truncate(tasks[0].title, TITLE_LIMIT))}</b>${details(tasks[0])}`
-    );
-  } else {
-    lines.push(
-      `✅ ${tasks.length} ${plural(tasks.length, ["задача", "задачи", "задач"])} · ${escapeHtml(result.environmentName)} · ${escapeHtml(result.columnTitle)}`,
-      ""
-    );
-    tasks.slice(0, MAX_LISTED_TASKS).forEach((task, index) => {
-      lines.push(
-        `${index + 1}. <b>${escapeHtml(truncate(task.title, TITLE_LIMIT))}</b>${details(task)}`
-      );
-    });
-
-    // Задачи созданы все до одной, поэтому про скрытые говорим вслух: молчание
-    // выглядело бы как «остальные потерялись».
-    const hidden = tasks.length - MAX_LISTED_TASKS;
-    if (hidden > 0) {
-      lines.push(`…и ещё ${hidden} ${plural(hidden, ["задача", "задачи", "задач"])} — все на доске`);
-    }
-  }
-
-  if (result.warning) {
-    lines.push("", `⚠️ Часть задач сохранить не удалось: ${escapeHtml(result.warning)}`);
-  }
-
-  // Вопрос в сообщении с задачами: задачи созданы, а вопрос молча потерять
-  // нельзя — иначе человек решит, что бот его прочитал и что-то нашёл.
-  if (result.questions.length > 0 && tasks.length > 0) {
-    lines.push(
-      "",
-      `Про «${escapeHtml(truncate(result.questions[0].text, 80))}» ничего не менял — ` +
-        "спросите отдельным сообщением, покажу найденное с кнопками."
-    );
-  }
-
-  if (others.length > 0) {
-    lines.push("", "Остальное сохранил как есть — тетради и читалка появятся позже:");
-    for (const item of others) {
-      lines.push(`• ${KIND_LABEL[item.kind]}: ${escapeHtml(truncate(item.text, 120))}`);
-    }
-  }
-
-  const card: CaptureCard = { text: prefix + lines.join("\n") };
+  const card: CaptureCard = { text: renderCaptured(result) };
 
   // Кнопка нужна там, где задач не появилось: иначе повтор наплодит дубли.
-  if (tasks.length === 0) {
+  if (result.tasks.length === 0) {
     card.replyMarkup = {
       inline_keyboard: [
-        [{ text: "→ Задачей как есть", callback_data: captureCallback("astask", options.updateId) }],
+        [{ text: "→ Задачей как есть", callback_data: captureCallback("astask", updateId) }],
       ],
     };
   }
@@ -350,11 +327,121 @@ export function renderCaptureCard(
   return card;
 }
 
+function renderCaptured(result: Extract<CaptureResult, { status: "captured" }>): string {
+  const { tasks, others } = result;
+  const environment = field(result.environmentName, NAME_LIMIT);
+  const column = field(result.columnTitle, NAME_LIMIT);
+
+  const head =
+    tasks.length === 0
+      ? `Задач не нашёл · ${environment}`
+      : tasks.length === 1
+        ? `✅ Задача · ${environment} · ${column}`
+        : `✅ ${tasks.length} ${plural(tasks.length, TASK_FORMS)} · ${environment} · ${column}`;
+
+  // Про частичную запись говорим всегда: без этой строки пользователь решит,
+  // что на доске лежит весь список. Место под неё занимаем сразу.
+  const warning = result.warning
+    ? `\n\n⚠️ Часть задач сохранить не удалось: ${field(result.warning, REASON_LIMIT)}`
+    : "";
+
+  const chunks = [head];
+  let left = TELEGRAM_MESSAGE_LIMIT - head.length - warning.length;
+
+  /** Кусок вместе с его отступом: не влез — не добавляем, бюджет не трогаем. */
+  const add = (chunk: string): boolean => {
+    if (chunk.length > left) return false;
+    chunks.push(chunk);
+    left -= chunk.length;
+    return true;
+  };
+
+  if (tasks.length === 1) {
+    add(`\n\n<b>${field(tasks[0].title, TITLE_LIMIT)}</b>${details(tasks[0])}`);
+  } else if (tasks.length > 1) {
+    // Место под «…и ещё N» занимаем до списка: задачи созданы все до одной, и
+    // молчание про непоказанные выглядело бы как «остальные потерялись».
+    const reserve = hiddenTasksLine(tasks.length, longestForm(TASK_FORMS)).length;
+    left -= reserve;
+
+    let shown = 0;
+    for (const task of tasks.slice(0, MAX_LISTED_TASKS)) {
+      const gap = shown === 0 ? "\n\n" : "\n";
+      const line = `${gap}${shown + 1}. <b>${field(task.title, TITLE_LIMIT)}</b>${details(task)}`;
+      if (!add(line)) break;
+      shown++;
+    }
+
+    left += reserve;
+    const hidden = tasks.length - shown;
+    if (hidden > 0) add(hiddenTasksLine(hidden));
+  }
+
+  // Вопрос в сообщении с задачами: сам он уходит в поиск только когда задач
+  // не нашлось, а здесь их создали — и промолчать про вопрос нельзя, иначе
+  // человек решит, что бот его прочитал и что-то по нему нашёл. Строка идёт
+  // через бюджет: подтверждение созданных задач важнее подсказки.
+  if (tasks.length > 0 && result.questions.length > 0) {
+    add(
+      `\n\nПро «${field(result.questions[0].text, QUESTION_LIMIT)}» ничего не менял — ` +
+        "спросите отдельным сообщением, покажу найденное с кнопками."
+    );
+  }
+
+  if (others.length > 0) {
+    let shown = 0;
+    for (const item of others.slice(0, MAX_LISTED_OTHERS)) {
+      // Заголовок блока идёт вместе с первым пунктом: без пунктов он ни о чём.
+      const intro =
+        shown === 0 ? "\n\nОстальное сохранил как есть — тетради и читалка появятся позже:" : "";
+      if (!add(`${intro}\n• ${KIND_LABEL[item.kind]}: ${field(item.text, OTHER_LIMIT)}`)) break;
+      shown++;
+    }
+
+    const hidden = others.length - shown;
+    if (shown > 0 && hidden > 0) add(`\n…и ещё ${hidden} ${plural(hidden, ITEM_FORMS)}`);
+  }
+
+  return chunks.join("") + warning;
+}
+
+/**
+ * Обещание, что непоказанные задачи всё равно на доске.
+ *
+ * Форма слова — отдельным параметром, чтобы место под строку можно было занять
+ * заранее, ещё не зная, сколько задач не поместится: от этого числа зависит и
+ * склонение, и длина строки.
+ */
+function hiddenTasksLine(count: number, form = plural(count, TASK_FORMS)): string {
+  return `\n…и ещё ${count} ${form} — все на доске`;
+}
+
+/** Самая длинная из форм склонения: под неё и резервируется место. */
+function longestForm(forms: [string, string, string]): string {
+  return forms.reduce((longest, form) => (form.length > longest.length ? form : longest));
+}
+
+/**
+ * Расшифровка над карточкой. Сколько её показать, решает то, что осталось от
+ * лимита: она первая в сообщении и первая же под нож — подтверждение созданных
+ * задач важнее цитаты из голосового.
+ */
+function withTranscript(body: string, transcript: string | undefined): string {
+  if (!transcript) return body;
+
+  const room =
+    TELEGRAM_MESSAGE_LIMIT - body.length - TRANSCRIPT_OPEN.length - TRANSCRIPT_CLOSE.length;
+  const limit = Math.min(TRANSCRIPT_LIMIT, room);
+  if (limit < TRANSCRIPT_MIN) return body;
+
+  return `${TRANSCRIPT_OPEN}${field(transcript, limit)}${TRANSCRIPT_CLOSE}${body}`;
+}
+
 function details(task: CreatedTask): string {
   const parts = [
     PRIORITY_LABEL[task.priority],
     task.plannedDate ? `до ${formatShortDate(task.plannedDate)}` : "",
-    task.epic ? `эпик «${escapeHtml(task.epic)}»` : "",
+    task.epic ? `эпик «${field(task.epic, NAME_LIMIT)}»` : "",
   ].filter(Boolean);
 
   return parts.length > 0 ? `\n<i>${parts.join(" · ")}</i>` : "";
@@ -376,11 +463,47 @@ export function plural(count: number, forms: [string, string, string]): string {
   return forms[2];
 }
 
+/**
+ * Пользовательская строка → готовый кусок HTML не длиннее `limit`.
+ *
+ * Экспортируется и используется карточкой задачи: два экземпляра одного
+ * правила разной аккуратности — ровно тот способ, которым ошибка с разрезанным
+ * эмодзи и появилась.
+ *
+ * Экранируем до обрезки, а меряем после: escapeHtml растит «&» впятеро
+ * («&amp;»), поэтому предел, посчитанный по сырому тексту, длину сообщения не
+ * ограничивает вовсе.
+ *
+ * Резать готовый HTML можно не в любом месте. Разрезанная пополам сущность
+ * («&am») — такая же ошибка разметки, как разрезанный тег, а половина
+ * суррогатной пары вообще не UTF-8: на неё Telegram отвечает 400, которую
+ * клиент не ретраит и не понижает до plain text. Тегов здесь быть не может —
+ * они уже экранированы.
+ */
+export function field(value: string, limit: number): string {
+  if (limit <= 0) return "";
+
+  const html = escapeHtml(value);
+  if (html.length <= limit) return html;
+
+  let cut = limit - ELLIPSIS.length;
+
+  // Каждая «&» в экранированном тексте начинает сущность, поэтому «& без ;»
+  // слева от разреза значит, что разрез пришёлся внутрь неё.
+  const amp = html.lastIndexOf("&", cut - 1);
+  const semi = html.lastIndexOf(";", cut - 1);
+  if (amp > semi) cut = amp;
+
+  return html.slice(0, safeCutIndex(html, cut)) + ELLIPSIS;
+}
+
+/** Обрезка сырого текста — без экранирования, но по тому же законному месту. */
 function truncate(value: string, limit: number): string {
-  return value.length > limit ? `${value.slice(0, limit - 1)}…` : value;
+  if (value.length <= limit) return value;
+  return value.slice(0, safeCutIndex(value, limit - ELLIPSIS.length)) + ELLIPSIS;
 }
 
 function reasonOf(error: unknown): string {
   const message = error instanceof Error ? error.message : "неизвестная ошибка";
-  return truncate(message, 160);
+  return truncate(message, REASON_LIMIT);
 }

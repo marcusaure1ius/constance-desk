@@ -520,3 +520,97 @@ describe("выдача поиска", () => {
     expect(card.replyMarkup).toBeUndefined();
   });
 });
+
+/*
+ * Обрезка перебором смещений — тем же приёмом, что и в карточке захвата.
+ *
+ * Пара примеров здесь ничего не доказывает: удачно выбранная длина проходит и
+ * на наивном разрезе. Ошибка живёт ровно в одной точке — когда предел
+ * приходится на середину суррогатной пары или сущности «&amp;», а это одно
+ * смещение из сотни.
+ */
+
+/** Одинокая половина суррогатной пары: для Telegram это не UTF-8 → 400. */
+const LONE_SURROGATE = /[\uD800-\uDBFF](?![\uDC00-\uDFFF])|(?<![\uD800-\uDBFF])[\uDC00-\uDFFF]/;
+/** «&», не начинающая сущность: разрезанная пополам «&amp;» — битая разметка. */
+const BROKEN_ENTITY = /&(?!amp;|lt;|gt;)/;
+/** Тег, разрезанный пополам. */
+const BROKEN_TAG = /<[^>]*$/;
+
+/** Куда в карточке задачи попадает пользовательский текст. */
+const SLOTS: Record<string, (text: string) => TaskCard> = {
+  "заголовок задачи": (text) => renderTaskCard({ ...TASK, title: text }, { today: TODAY }),
+  описание: (text) => renderTaskCard({ ...TASK, description: text }, { today: TODAY }),
+  "имя проекта и колонки": (text) =>
+    renderTaskCard(
+      { ...TASK, environment: { id: MAX_ID, name: text }, column: { id: MAX_ID, title: text } },
+      { today: TODAY }
+    ),
+  "имя эпика": (text) => renderTaskCard({ ...TASK, epicName: text }, { today: TODAY }),
+  "подпись о результате": (text) => renderTaskCard(TASK, { today: TODAY, note: text }),
+  "заголовок в подтверждении удаления": (text) =>
+    renderDeleteConfirm({ ...TASK, title: text }, { today: TODAY }),
+  "вариант в подменю": (text) =>
+    renderEpicMenu(TASK, [{ id: MAX_ID, name: text }], 1, { today: TODAY }),
+  "заголовок в выдаче поиска": (text) =>
+    renderSearchCard(
+      [
+        {
+          id: MAX_ID,
+          title: text,
+          priority: "normal" as const,
+          completedAt: null,
+          createdAt: new Date("2026-08-23T09:00:00Z"),
+          column: { title: text },
+          environment: { name: text },
+        },
+      ],
+      { query: text, total: 1, page: 1, now: TODAY }
+    ),
+  "запрос без находок": (text) => renderEmptySearch({ query: text }),
+};
+
+/** Виды текста, на которых обрезка ломается по-разному. */
+const SHAPES: Record<string, (offset: number) => string> = {
+  "эмодзи посреди текста": (offset) => `${"я".repeat(offset)}😀${"я".repeat(400)}`,
+  "сплошные эмодзи": (offset) => `${"😀".repeat(offset)}!${"😀".repeat(200)}`,
+  "эмодзи вперемешку с амперсандами": (offset) => `${"&😀".repeat(offset)}😀&${"я".repeat(400)}`,
+  "сплошные амперсанды": (offset) => `${"&".repeat(offset)}${"😀".repeat(200)}`,
+  "разметка в тексте пользователя": (offset) => `${"<b>😀".repeat(offset)}<i>${"я".repeat(400)}`,
+};
+
+describe("карточка задачи — обрезка перебором смещений", () => {
+  for (const [slot, render] of Object.entries(SLOTS)) {
+    it(`${slot}: ни битых символов, ни битой разметки, ни выхода за лимит`, () => {
+      // Пределы слотов — от 40 (кнопка) до 300 (описание); перебор идёт с
+      // запасом по обе стороны, чтобы тест не зависел от конкретных чисел.
+      for (const [shape, build] of Object.entries(SHAPES)) {
+        for (let offset = 0; offset <= 330; offset++) {
+          const where = `${slot} · ${shape} · смещение ${offset}`;
+          const card = render(build(offset));
+
+          expect(card.text.length, where).toBeLessThanOrEqual(TELEGRAM_MESSAGE_LIMIT);
+          expect(card.text, where).not.toMatch(LONE_SURROGATE);
+          expect(card.text, where).not.toMatch(BROKEN_ENTITY);
+          expect(card.text, where).not.toMatch(BROKEN_TAG);
+
+          // Надпись на кнопке — не HTML, экранировать её нечем и незачем;
+          // но половина суррогатной пары не UTF-8 и в ней.
+          for (const button of buttons(card.replyMarkup)) {
+            expect(button.text, `${where} · кнопка`).not.toMatch(LONE_SURROGATE);
+            expect(button.text.length, `${where} · кнопка`).toBeGreaterThan(0);
+          }
+        }
+      }
+    });
+  }
+
+  it("пользовательская строка меряется после экранирования, а не до", () => {
+    // escapeHtml растит «&» впятеро: предел, посчитанный по сырому тексту,
+    // длину сообщения не ограничивает вовсе.
+    const plain = renderTaskCard({ ...TASK, title: "я".repeat(1000) }, { today: TODAY });
+    const amps = renderTaskCard({ ...TASK, title: "&".repeat(1000) }, { today: TODAY });
+
+    expect(amps.text.length).toBeLessThanOrEqual(plain.text.length);
+  });
+});

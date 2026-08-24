@@ -411,6 +411,24 @@ describe("clampMessageText", () => {
     expect(clamped).not.toMatch(/(?<![\uD800-\uDBFF])[\uDC00-\uDFFF]/);
   });
 
+  it("не разрезает суррогатную пару — где бы ни пришлась граница", () => {
+    // Тот же перебор, что и для тегов: единственное «удачное» смещение
+    // проходит и на сломанной обрезке — на этом уже обжигались. Эмодзи здесь
+    // соседствует с разметкой, потому что оба правила применяются к одному
+    // разрезу и мешать друг другу не должны.
+    const limit = 60;
+
+    for (let offset = 0; offset <= 60; offset++) {
+      const text = `${"я".repeat(offset)}😀<b>жирный</b>${"я".repeat(200)}`;
+      const clamped = clampMessageText(text, limit);
+
+      expect(clamped.length, `смещение ${offset}`).toBeLessThanOrEqual(limit);
+      expect(clamped, `смещение ${offset}`).not.toMatch(/[\uD800-\uDBFF](?![\uDC00-\uDFFF])/);
+      expect(clamped, `смещение ${offset}`).not.toMatch(/(?<![\uD800-\uDBFF])[\uDC00-\uDFFF]/);
+      expect(clamped, `смещение ${offset}`).not.toMatch(/<[^>]*$/);
+    }
+  });
+
   it("короткий текст возвращается как есть", () => {
     expect(clampMessageText("привет")).toBe("привет");
   });

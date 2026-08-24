@@ -39,7 +39,7 @@
 - Unit-тесты сервисов: `tests/{tasks,columns,categories,...}.test.ts`
 - **`npm test` — основной прогон: офлайн.** Файлы `*.integration.test.ts` исключены маской в `vitest.config.ts`, `fetch` заглушен через `tests/helpers/no-network.ts`, `GROQ_API_KEY` подменён пустым. Сетевой тест здесь падает с подсказкой: либо мокайте `fetch`, либо переносите файл в `*.integration.test.ts`. В CI — джоба `test`
 - **`npm run test:integration` — всё, что ходит наружу** (конфиг `vitest.integration.config.ts`, только `*.integration.test.ts`). Пропусков (`describe.skipIf`) там нет намеренно: без ключа или без базы прогон падает, а не зеленеет с нулём проверок
-  - `npm run test:integration:db` — тесты на настоящей БД. Набор задан **вычитанием** (`--exclude` живого Groq), а не списком файлов: новый `*.integration.test.ts` попадает в CI сам, а переименование файла не сужает прогон молча. Берут `TEST_DATABASE_URL` (и только его, никогда `DATABASE_URL`), хост обязан быть локальным. В CI — шаг джобы `migrations`
+  - `npm run test:integration:db` — тесты на настоящей БД, обёртка `scripts/run-db-integration.sh`. Набор задан **вычитанием** (`--exclude` живого Groq лежит в обёртке), а не списком файлов: новый `*.integration.test.ts` попадает в CI сам, а переименование файла не сужает прогон молча. Берут `TEST_DATABASE_URL` (и только его, никогда `DATABASE_URL`), хост обязан быть локальным. Обёртка сторожит прогон с двух сторон: переменная обязана быть непустой до старта, а после прогона обязан быть хотя бы один выполненный тест и ни одного пропущенного — сам `vitest` выходит с кодом 0 и на строке «16 passed, 8 skipped». В CI — шаг джобы `migrations`
   - `npm run test:integration:groq` — реальные запросы к Groq (`tests/groq.integration.test.ts`), нужен `GROQ_API_KEY`. В CI только вручную (джоба `groq-integration`, `workflow_dispatch`): у ключа квота, из-за неё `npm test` и падал по HTTP 429. Появится ещё один тест с живой сетью — допишите его в `--exclude` скрипта `:db`, иначе он уедет в джобу с базой
 - `tests/test-isolation.test.ts` сторожит эту схему: сломается, если из конфига убрать заглушку сети или подмену ключа
 
@@ -48,11 +48,20 @@
 - `npm run build` — билд
 - `npm test` — vitest run (офлайн, без интеграционных)
 - `npm run test:integration` — интеграционные (`:db` — на настоящей БД, `:groq` — живой Groq)
-- `npm run db:push` — применить схему к БД
+- `npm run db:push` / `db:migrate` — применить схему / миграции к БД
 - `npm run db:generate` — сгенерировать миграции Drizzle
+- `npm run db:drift` — проверить, что схема покрыта миграциями (тот же шаг, что в CI)
 - `npm run db:studio` — GUI Drizzle Studio
 - `npm run db:seed` — заполнить БД тестовыми данными
 - `npm run tg:webhook -- set <URL>` — поставить вебхук бота и команды меню; `info`, `commands`, `delete`
+
+## Команды по базе целятся в прод по умолчанию
+`drizzle.config.ts` подтягивает `.env.local`, где боевой Neon-URL. Поэтому
+`db:migrate`, `db:push` и `db:baseline --apply` проходят через барьер
+`lib/db/db-host.ts`: нелокальный хост требует флага `--i-know-its-production`
+и печатается перед запуском. Локальность считается там же — не пишите вторую
+копию проверки (её уже приходилось чинить из-за `LOCALHOST` в верхнем регистре:
+для схемы `postgresql:` `new URL()` регистр хоста не понижает).
 
 ## Соглашения
 - Весь UI-текст и коммиты на русском
