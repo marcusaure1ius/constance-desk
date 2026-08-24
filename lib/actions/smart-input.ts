@@ -1,7 +1,7 @@
 "use server";
 
-import { parseTasks, transcribeAudio } from "@/lib/services/groq";
-import type { ParsedTask } from "@/lib/services/groq";
+import { parseTasks, type ParsedTask } from "@/lib/llm/parse-tasks";
+import { transcribeAudio } from "@/lib/llm/transcribe";
 
 export async function parseTasksAction(text: string): Promise<ParsedTask[]> {
   if (!text.trim()) return [];

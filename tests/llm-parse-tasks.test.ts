@@ -1,9 +1,10 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
-import { buildParseTasksPrompt, parseTasksResponse, parseTasks, transcribeAudio } from "@/lib/services/groq";
+import { buildParseTasksPrompt, parseTasksResponse, parseTasks } from "@/lib/llm/parse-tasks";
+import { transcribeAudio } from "@/lib/llm/transcribe";
 
 describe("buildParseTasksPrompt", () => {
   it("подставляет текущую дату в system prompt", () => {
-    const prompt = buildParseTasksPrompt("тест", "2026-04-04");
+    const prompt = buildParseTasksPrompt("2026-04-04");
     expect(prompt).toContain("Сегодня: 2026-04-04");
   });
 });
@@ -68,7 +69,7 @@ describe("parseTasks", () => {
 
   it("выбрасывает ошибку при неуспешном ответе API", async () => {
     vi.mocked(fetch).mockResolvedValue(new Response("error", { status: 500 }));
-    await expect(parseTasks("тест")).rejects.toThrow("Groq API error: 500");
+    await expect(parseTasks("тест")).rejects.toThrow("Модель groq: 500");
   });
 
   it("возвращает пустой массив если content пустой", async () => {
@@ -103,7 +104,7 @@ describe("transcribeAudio", () => {
     vi.mocked(fetch).mockResolvedValue(new Response("error", { status: 400 }));
 
     const file = new File(["audio"], "test.webm", { type: "audio/webm" });
-    await expect(transcribeAudio(file)).rejects.toThrow("Groq transcription error: 400");
+    await expect(transcribeAudio(file)).rejects.toThrow("Модель groq: 400");
   });
 
   it("возвращает пустую строку если text отсутствует", async () => {

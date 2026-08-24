@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { withApiAuth } from "@/lib/api-auth";
-import { transcribeAudio } from "@/lib/services/groq";
+import { transcribeAudio } from "@/lib/llm/transcribe";
 
 export async function POST(request: NextRequest) {
   return withApiAuth(request, async () => {

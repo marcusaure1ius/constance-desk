@@ -8,10 +8,10 @@
 - DB: Drizzle ORM + Neon PostgreSQL
 - Тесты: vitest
 - DnD: @hello-pangea/dnd
-- AI: Groq API (модель gpt-oss-20b) — парсинг задач через SmartInput
+- AI: `lib/llm/` — общий OpenAI-совместимый клиент (`client.ts`), Groq первым и OpenRouter вторым при 429. Захват из телеграма — `capture.ts` (gpt-oss-120b), веб-форма SmartInput — `parse-tasks.ts` (gpt-oss-20b), голос — `transcribe.ts` (whisper, только Groq)
 - Auth: PIN-код через jose JWT, `proxy.ts` (Next.js 16) + проверка в API
 - Отчёты: @react-pdf/renderer (PDF), pptxgenjs (PPTX), recharts (графики)
-- Телеграм-бот: вебхук `app/api/telegram/webhook`, клиент Bot API `lib/telegram/client.ts` (разметка HTML, не MarkdownV2)
+- Телеграм-бот: вебхук `app/api/telegram/webhook`, клиент Bot API `lib/telegram/client.ts` (разметка HTML, не MarkdownV2). Захват сообщения в задачи — `lib/telegram/capture.ts`
 
 ## Структура маршрутов
 - `app/(app)/(board)/page.tsx` — доска (route group для изоляции loading.tsx)
@@ -29,6 +29,7 @@
 - Схема БД: `lib/db/schema.ts` — environments → columns → tasks, categories
 - Активная среда хранится в cookie (`lib/environment.ts`)
 - Инструменты агентов: единый реестр `lib/agent/tools.ts` (`defineTool` из `lib/agent/tool-registry.ts`, флаги `surfaces` и `mutation`). MCP-роут и бот перебирают реестр — инлайн-определений инструментов в роутах быть не должно
+- Захват из телеграма: сообщение → `lib/llm/capture.ts` (один вызов модели, список типизированных элементов) → `lib/telegram/capture.ts` (элементы `task` в первую колонку активной среды, карточка ответа). Формулировка автора не переписывается: снимаются только «Надо/Нужно» в начале и `@упоминания`, перевод на английский откатывается к словам автора
 
 ## Тесты
 - Расположение: `tests/` (не `__tests__/`)
