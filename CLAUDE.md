@@ -44,11 +44,20 @@
 - `npm run build` — билд
 - `npm test` — vitest run (офлайн, без интеграционных)
 - `npm run test:integration` — интеграционные (`:db` — на настоящей БД, `:groq` — живой Groq)
-- `npm run db:push` — применить схему к БД
+- `npm run db:push` / `db:migrate` — применить схему / миграции к БД
 - `npm run db:generate` — сгенерировать миграции Drizzle
+- `npm run db:drift` — проверить, что схема покрыта миграциями (тот же шаг, что в CI)
 - `npm run db:studio` — GUI Drizzle Studio
 - `npm run db:seed` — заполнить БД тестовыми данными
 - `npm run tg:webhook -- set <URL>` — поставить вебхук бота и команды меню; `info`, `commands`, `delete`
+
+## Команды по базе целятся в прод по умолчанию
+`drizzle.config.ts` подтягивает `.env.local`, где боевой Neon-URL. Поэтому
+`db:migrate`, `db:push` и `db:baseline --apply` проходят через барьер
+`lib/db/db-host.ts`: нелокальный хост требует флага `--i-know-its-production`
+и печатается перед запуском. Локальность считается там же — не пишите вторую
+копию проверки (её уже приходилось чинить из-за `LOCALHOST` в верхнем регистре:
+для схемы `postgresql:` `new URL()` регистр хоста не понижает).
 
 ## Соглашения
 - Весь UI-текст и коммиты на русском
