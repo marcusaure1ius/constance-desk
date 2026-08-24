@@ -135,26 +135,23 @@ jobs:
       # и экранирование шаблона LIKE в поиске, ON CONFLICT DO NOTHING в дедупе
       # апдейтов. На моках drizzle такие тесты были бы бутафорией.
       # В основной прогон эти файлы не входят — здесь они запускаются явно.
-      # Набор задан вычитанием (все *.integration.test.ts, кроме живого Groq),
-      # поэтому новый тест на базе попадает сюда сам, а переименование файла не
-      # сужает шаг молча. Без TEST_DATABASE_URL шаг падает, а не проходит
-      # с пропущенными тестами.
+      # Прогон вынесен в scripts/run-db-integration.sh: он же и сторож. Сам по
+      # себе vitest выходит с кодом 0 на строке «1 passed, 12 skipped», так что
+      # шаг мог бы позеленеть, ничего не проверив. Скрипт требует непустую
+      # TEST_DATABASE_URL до прогона и хотя бы один выполненный тест после.
       - name: Интеграционные тесты на настоящей базе
         env:
           TEST_DATABASE_URL: postgresql://postgres:postgres@localhost:5432/constance_ci
         run: npm run test:integration:db
 
-      # Схема не разошлась с миграциями: если schema.ts изменили без
-      # db:generate, здесь появится новый файл и джоба упадёт.
+      # Схема не разошлась с миграциями. Шаг вынесен в скрипт, чтобы его можно
+      # было прогнать локально ровно тем же кодом: `npm run db:drift`.
+      # Проверка построена на положительном признаке успеха — прежний вариант
+      # (db:generate < /dev/null + git status) пропускал переименование
+      # колонки: drizzle-kit печатал «Interactive prompts require a TTY» и
+      # выходил с кодом 0, не сгенерировав миграцию.
       - name: Проверить, что схема покрыта миграциями
-        run: |
-          npm run db:generate < /dev/null
-          if ! git diff --quiet --exit-code drizzle/ || [ -n "$(git status --porcelain drizzle/)" ]; then
-            echo "::error::schema.ts изменён без миграции. Запустите npm run db:generate и закоммитьте drizzle/"
-            git --no-pager diff --stat drizzle/
-            git status --porcelain drizzle/
-            exit 1
-          fi
+        run: npm run db:drift
 
   # Живой Groq — только по кнопке (workflow_dispatch). В гейт PR эти тесты не
   # входят намеренно: у ключа квота, из-за неё прогон и падал по HTTP 429.

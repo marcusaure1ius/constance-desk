@@ -69,9 +69,16 @@ npm run dev
 | `npm run lint` | Проверка ESLint |
 | `npm test` | Запуск тестов |
 | `npm run db:push` | Применить схему к БД |
+| `npm run db:migrate` | Применить миграции к БД |
 | `npm run db:generate` | Сгенерировать миграции Drizzle |
+| `npm run db:drift` | Проверить, что схема покрыта миграциями |
 | `npm run db:studio` | Открыть Drizzle Studio |
 | `npm run db:seed` | Заполнить БД тестовыми данными |
+
+Команды, которые пишут в базу (`db:push`, `db:migrate`, `db:baseline -- --apply`),
+печатают хост перед запуском и на нелокальном хосте требуют явного
+`--i-know-its-production`: без этого `DATABASE_URL` из `.env.local` уводит их
+в продакшен.
 
 ## Деплой
 
