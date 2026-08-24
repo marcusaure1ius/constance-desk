@@ -23,6 +23,11 @@ vi.mock("pg", () => ({
 
 const NEON = "postgresql://user:pass@ep-fake-name.eu-central-1.aws.neon.tech/db";
 
+// DATABASE_URL общий на процесс: при выключенной изоляции файлов безусловное
+// `delete` в afterEach обокрало бы соседей (так же снимает и восстанавливает
+// переменную tests/db-connection.test.ts).
+const ORIGINAL_URL = process.env.DATABASE_URL;
+
 let logs: string[] = [];
 let logSpy: ReturnType<typeof vi.spyOn>;
 
@@ -36,7 +41,8 @@ beforeEach(() => {
 
 afterEach(() => {
   logSpy.mockRestore();
-  delete process.env.DATABASE_URL;
+  if (ORIGINAL_URL === undefined) delete process.env.DATABASE_URL;
+  else process.env.DATABASE_URL = ORIGINAL_URL;
 });
 
 describe("baseline: барьер по нелокальному хосту", () => {
