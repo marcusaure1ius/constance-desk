@@ -22,7 +22,12 @@ vi.mock("@/lib/db", async () => {
   return { db: createTestDb() };
 });
 
-import { searchAll, searchTasks } from "@/lib/services/search";
+import {
+  SEARCH_MAX_LIMIT,
+  SEARCH_PAGE_SIZE,
+  searchAll,
+  searchTasks,
+} from "@/lib/services/search";
 import { columns, environments, tasks } from "@/lib/db/schema";
 import { closeTestDb, createTestDb } from "./helpers/test-db";
 
@@ -153,6 +158,34 @@ describe("поиск по настоящей базе", () => {
       )
       .returning();
     ids.paged = paged.map((t) => t.id).join(",");
+
+    // Шесть задач с ОДИНАКОВЫМ updatedAt. При равной свежести порядок строк
+    // задаёт не наш ORDER BY, а план запроса, и страницы начинают пересекаться:
+    // одна задача попадает в две, другая пропадает совсем. Держит их только
+    // разрыв ничьей asc(tasks.id) — здесь проверяется он, а не сама пагинация.
+    const sameMoment = new Date();
+    await db.insert(tasks).values(
+      [0, 1, 2, 3, 4, 5].map((n) => ({
+        title: `Ничья ыы ${n}`,
+        columnId: colA.id,
+        position: 20 + n,
+        startDate: "2026-08-01",
+        updatedAt: sameMoment,
+      }))
+    );
+
+    // Подходящих под запрос заведомо больше потолка страницы — иначе тест на
+    // потолок проходил бы и без потолка.
+    const overCeiling = SEARCH_MAX_LIMIT + 5;
+    await db.insert(tasks).values(
+      Array.from({ length: overCeiling }, (_, n) => ({
+        title: `Потолок ээ ${n}`,
+        columnId: colA.id,
+        position: 100 + n,
+        startDate: "2026-08-01",
+        updatedAt: daysAgo(n + 1),
+      }))
+    );
   });
 
   afterAll(async () => {
@@ -245,11 +278,53 @@ describe("поиск по настоящей базе", () => {
     expect(result.notes).toEqual([]);
   });
 
-  it("лимит ограничен потолком страницы", async () => {
-    const hits = await searchTasks("пагинация щщ", { limit: 1000 });
-    expect(hits.length).toBeLessThanOrEqual(5);
-    const single = await searchTasks("пагинация щщ", { limit: 1 });
-    expect(single).toHaveLength(1);
+  it("страницы не пересекаются, когда updatedAt у всех одинаковый", async () => {
+    const all = await searchTasks("ничья ыы", { limit: 10 });
+    const allIds = all.map((h) => h.task.id);
+    expect(allIds).toHaveLength(6);
+
+    // Свежесть у всех одна, значит весь порядок задаёт разрыв ничьей по id.
+    // uuid в PostgreSQL сравниваются побайтово, а канонический текст — те же
+    // байты в нижнем регистре, поэтому лексикографический sort() совпадает.
+    expect(allIds).toEqual([...allIds].sort());
+
+    const walked: string[] = [];
+    for (let offset = 0; offset < 6; offset += 2) {
+      const page = await searchTasks("ничья ыы", { limit: 2, offset });
+      expect(page).toHaveLength(2);
+      walked.push(...page.map((h) => h.task.id));
+    }
+    // Ни одна задача не показана дважды и ни одна не потеряна между страницами.
+    expect(new Set(walked).size).toBe(6);
+    expect(walked).toEqual(allIds);
+  });
+
+  it("лимит выше потолка режется до SEARCH_MAX_LIMIT", async () => {
+    // Сначала убеждаемся, что подходящих действительно больше потолка: иначе
+    // проверка ниже была бы верна и без всякого потолка.
+    const beyond = await searchTasks("потолок ээ", {
+      limit: SEARCH_MAX_LIMIT,
+      offset: SEARCH_MAX_LIMIT,
+    });
+    expect(beyond.length).toBeGreaterThan(0);
+
+    const hits = await searchTasks("потолок ээ", { limit: 1000 });
+    expect(hits).toHaveLength(SEARCH_MAX_LIMIT);
+  });
+
+  it("без лимита отдаёт страницу по умолчанию, нулевой лимит — тоже", async () => {
+    const byDefault = await searchTasks("потолок ээ");
+    expect(byDefault).toHaveLength(SEARCH_PAGE_SIZE);
+
+    // Ноль — это «лимит не задан», а не «пустая страница»: пустая выдача из
+    // бота неотличима от «ничего не найдено».
+    const zero = await searchTasks("потолок ээ", { limit: 0 });
+    expect(zero.map((h) => h.task.id)).toEqual(byDefault.map((h) => h.task.id));
+  });
+
+  it("маленький лимит отдаёт ровно столько, сколько попросили", async () => {
+    expect(await searchTasks("потолок ээ", { limit: 1 })).toHaveLength(1);
+    expect(await searchTasks("потолок ээ", { limit: 3 })).toHaveLength(3);
   });
 });
 
