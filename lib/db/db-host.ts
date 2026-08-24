@@ -14,6 +14,14 @@
  * подтверждения. Проверка живёт здесь, а не копией в каждом скрипте, — у
  * копий разъезжаются края, а края тут дорогие (тестовый хелпер отвергал
  * `LOCALHOST` в верхнем регистре именно из-за такого края).
+ *
+ * Ещё один дорогой край стоил дыры: барьер читал хост только из authority,
+ * а драйвер сильнее authority считает параметры запроса. Строка
+ * `postgresql://postgres:postgres@localhost:9999/db?host=…&port=…` печатала
+ * «База: localhost», проходила барьер и работала с базой по другому адресу —
+ * при том что на порту 9999 не слушал никто. Поэтому разбор ниже повторяет
+ * драйвер, а не здравый смысл: барьер обязан судить ровно о той машине, к
+ * которой пойдёт соединение.
  */
 
 /** Флаг «да, я знаю, что это не локальная база». */
@@ -35,27 +43,75 @@ const LOCAL_HOSTNAMES = new Set([
   "database",
 ]);
 
+/** Куда пойдёт соединение. Порт — строкой, как его отдаёт драйвер. */
+export type DatabaseTarget = { host: string; port: string };
+
+/**
+ * Хост и порт строки подключения так, как их понимает драйвер.
+ *
+ * Разбор повторяет `pg-connection-string` (его зовёт `pg`, а через `pg` ходит
+ * и drizzle-kit) вместе с его краями — сверено с
+ * `node_modules/pg-connection-string/index.js`:
+ *
+ * - строка, начинающаяся со слэша, — вообще не URL, а «путь-к-сокету [база]»;
+ * - параметры `host` и `port` сильнее authority, но только непустые:
+ *   `?host=` откатывает драйвер обратно на authority;
+ * - при повторе параметра побеждает последний: драйвер складывает пары в
+ *   объект, а не берёт первую через `searchParams.get()`;
+ * - имена параметров регистрозависимы — `?HOST=` драйвер не читает
+ *   (а вот значение хоста регистронезависимо, см. `normalizeHost`);
+ * - строку с пробелом или битым %-экранированием драйвер сначала прогоняет
+ *   через `encodeURI`, поэтому `? host=` — это параметр « host», а не «host»;
+ * - `postgresql://u:p@/db` WHATWG-парсер не принимает: драйвер подставляет
+ *   фиктивный хост и считает хост пустым, то есть сокетом;
+ * - хост из authority %-декодируется, поэтому `%2Fvar%2Frun%2Fpostgresql` —
+ *   это путь к сокету, а не имя машины.
+ *
+ * Строка подключения в сообщения об ошибках не попадает — в ней пароль.
+ */
+export function databaseTarget(url: string): DatabaseTarget {
+  // Не URL, а путь к unix-сокету: `/var/run/postgresql constance`.
+  if (url.startsWith("/")) return { host: url.split(" ")[0], port: "" };
+
+  const { parsed, dummyHost } = parseConnectionUrl(url);
+
+  // Последнее вхождение параметра, включая пустое: `?host=evil&host=` драйвер
+  // прочитает как «параметра нет» и вернётся к authority.
+  let queryHost = "";
+  let queryPort = "";
+  for (const [key, value] of parsed.searchParams) {
+    if (key === "host") queryHost = value;
+    else if (key === "port") queryPort = value;
+  }
+
+  // Схема `socket:`: хост — это путь, и `?host=` драйвер здесь затирает.
+  if (parsed.protocol === "socket:") {
+    return { host: decodeOrFail(parsed.pathname, decodeURI), port: queryPort };
+  }
+
+  const port = queryPort || parsed.port;
+
+  // Authority разбирается только когда он вообще нужен: при живом `?host=`
+  // драйвер до него не доходит, а значит и не падает на битом %-экранировании.
+  if (queryHost) return { host: queryHost, port };
+
+  const host = dummyHost ? "" : decodeOrFail(parsed.hostname, decodeURIComponent);
+  return { host, port };
+}
+
 /**
  * Хост из строки подключения в каноническом виде: нижний регистр, без скобок
  * вокруг IPv6.
- *
- * Регистр приводится вручную намеренно. Схема `postgresql:` для WHATWG-парсера
- * не «специальная», поэтому `new URL()` оставляет хост как есть:
- * `postgresql://u:p@LOCALHOST/db` даёт `"LOCALHOST"`, тогда как
- * `https://LOCALHOST` дал бы `"localhost"`.
- *
- * Строка подключения в сообщение об ошибке не попадает — в ней пароль.
  */
 export function databaseHost(url: string): string {
-  let parsed: URL;
-  try {
-    parsed = new URL(url);
-  } catch {
-    throw new Error(
-      "Строка подключения к базе не разбирается как URL — проверьте DATABASE_URL."
-    );
-  }
-  return stripBrackets(parsed.hostname).toLowerCase();
+  return normalizeHost(databaseTarget(url).host);
+}
+
+/** Хост с портом — для человека: «localhost:55473». */
+export function databaseEndpoint(url: string): string {
+  const { host, port } = databaseTarget(url);
+  const shown = normalizeHost(host);
+  return port ? `${shown}:${port}` : shown;
 }
 
 /**
@@ -63,10 +119,12 @@ export function databaseHost(url: string): string {
  * печатает хост в сообщении и не должен разбирать URL дважды.
  */
 export function isLocalDatabaseHost(host: string): boolean {
-  const h = stripBrackets(host).toLowerCase();
+  // Unix-сокет в обеих формах: пустой хост (драйвер подставит сокет по
+  // умолчанию) и явный путь `?host=/var/run/postgresql` — так же, как решает
+  // сам `pg`: `if (this.host && this.host.indexOf('/') === 0)`.
+  if (host === "" || isSocketPath(host)) return true;
 
-  // Unix-сокет: `postgresql:///constance?host=/var/run/postgresql`.
-  if (h === "") return true;
+  const h = normalizeHost(host);
 
   if (LOCAL_HOSTNAMES.has(h)) return true;
 
@@ -117,6 +175,74 @@ export function assertWriteAllowed(
       `  DATABASE_URL=… ${example}\n` +
       "Для локальной базы задайте DATABASE_URL на localhost."
   );
+}
+
+/** Фиктивный хост из `pg-connection-string` — им драйвер чинит `@/`. */
+const DUMMY_HOST = "___DUMMY___";
+
+/**
+ * Разбор строки подключения теми же двумя попытками, что и у драйвера.
+ *
+ * `dummyHost` означает «authority пуст»: WHATWG-парсер не принимает
+ * `postgresql://u:p@/db`, и драйвер подставляет фиктивный хост, чтобы достать
+ * из строки всё остальное.
+ *
+ * Своя ошибка вместо драйверной намеренно: сюда приходит `DATABASE_URL` с
+ * паролем, и он не должен утечь в лог через текст исключения.
+ */
+function parseConnectionUrl(url: string): { parsed: URL; dummyHost: boolean } {
+  // Тот же препроцессинг, что и в драйвере: пробелы и битые %-экранирования.
+  const str = / |%[^a-f0-9]|%[a-f0-9][^a-f0-9]/i.test(url)
+    ? encodeURI(url).replace(/%25(\d\d)/g, "%$1")
+    : url;
+
+  // Базового URL, в отличие от драйвера, здесь нет намеренно: драйвер
+  // разбирает строку относительно `postgres://base`, и строка-мусор молча
+  // превращается в хост «base». Барьеру так нельзя — непонятую строку он
+  // обязан отвергнуть, а не выдумать ей адрес.
+  try {
+    return { parsed: new URL(str), dummyHost: false };
+  } catch {
+    // Вторая попытка — драйверная.
+    try {
+      return { parsed: new URL(str.replace("@/", `@${DUMMY_HOST}/`)), dummyHost: true };
+    } catch {
+      throw parseFailed();
+    }
+  }
+}
+
+function decodeOrFail(value: string, decode: (v: string) => string): string {
+  try {
+    return decode(value);
+  } catch {
+    // На битом %-экранировании в хосте падает и сам драйвер — соединения не
+    // будет в любом случае, так что барьеру честнее закрыться.
+    throw parseFailed();
+  }
+}
+
+function parseFailed(): Error {
+  return new Error(
+    "Строка подключения к базе не разбирается как URL — проверьте DATABASE_URL."
+  );
+}
+
+/** Путь к unix-сокету, а не имя машины. */
+function isSocketPath(host: string): boolean {
+  return host.startsWith("/");
+}
+
+/**
+ * Имя машины регистронезависимо, путь к сокету — нет.
+ *
+ * Регистр приводится вручную намеренно: схема `postgresql:` для WHATWG-парсера
+ * не «специальная», поэтому `new URL()` оставляет хост как есть —
+ * `postgresql://u:p@LOCALHOST/db` даёт `"LOCALHOST"`, тогда как
+ * `https://LOCALHOST` дал бы `"localhost"`.
+ */
+function normalizeHost(host: string): string {
+  return isSocketPath(host) ? host : stripBrackets(host).toLowerCase();
 }
 
 function stripBrackets(host: string): string {
