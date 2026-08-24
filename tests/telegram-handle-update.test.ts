@@ -7,29 +7,68 @@ import {
   type TelegramDeps,
 } from "@/lib/telegram/handle-update";
 import { createTelegramClient } from "@/lib/telegram/client";
+import type { CapturedItem } from "@/lib/llm/capture";
+import type { CaptureBoardData } from "@/lib/telegram/capture";
 import type { TelegramUpdate } from "@/lib/telegram/types";
 
 const CHAT = 555;
 
-function makeDeps(overrides: Partial<TelegramDeps> = {}) {
-  const sendMessage = vi.fn().mockResolvedValue({ message_id: 1 });
-  const answerCallbackQuery = vi.fn().mockResolvedValue(true);
-  const recordUpdate = vi.fn().mockResolvedValue(true);
-  const markProcessed = vi.fn().mockResolvedValue(undefined);
-  const markFailed = vi.fn().mockResolvedValue(undefined);
-  const getActiveEnvironment = vi.fn().mockResolvedValue({ name: "Работа" });
+const BOARD: CaptureBoardData = {
+  environment: { id: "env-1", name: "Работа" },
+  environmentNames: ["Работа"],
+  columns: [
+    { id: "col-backlog", title: "Бэклог" },
+    { id: "col-done", title: "Готово" },
+  ],
+  epics: [{ id: "epic-1", name: "Техдолг" }],
+};
 
+const ONE_TASK: CapturedItem[] = [{ kind: "task", text: "заполнить итмо" }];
+
+/** Мок из собранных зависимостей: подменённый через overrides, а не исходный. */
+function asMock(value: unknown): ReturnType<typeof vi.fn> {
+  return value as ReturnType<typeof vi.fn>;
+}
+
+function makeDeps(overrides: Partial<TelegramDeps> = {}) {
   const deps: TelegramDeps = {
-    client: { sendMessage, answerCallbackQuery },
-    recordUpdate,
-    markProcessed,
-    markFailed,
-    getActiveEnvironment,
+    client: {
+      sendMessage: vi.fn().mockResolvedValue({ message_id: 1 }),
+      answerCallbackQuery: vi.fn().mockResolvedValue(true),
+      getFile: vi.fn().mockResolvedValue({
+        file_id: "voice-file-1",
+        file_unique_id: "u1",
+        file_path: "voice/file_1.oga",
+      }),
+      downloadFile: vi.fn().mockResolvedValue(new ArrayBuffer(1024)),
+    },
+    recordUpdate: vi.fn().mockResolvedValue(true),
+    markProcessed: vi.fn().mockResolvedValue(undefined),
+    markFailed: vi.fn().mockResolvedValue(undefined),
+    loadUpdate: vi.fn().mockResolvedValue(null),
+    loadBoard: vi.fn().mockResolvedValue(BOARD),
+    captureItems: vi.fn().mockResolvedValue(ONE_TASK),
+    createTask: vi.fn().mockResolvedValue({ id: "task-1" }),
+    transcribe: vi.fn().mockResolvedValue("заполнить итмо"),
     allowedChatId: CHAT,
     ...overrides,
   };
 
-  return { deps, sendMessage, answerCallbackQuery, recordUpdate, markProcessed, markFailed };
+  return {
+    deps,
+    sendMessage: asMock(deps.client.sendMessage),
+    answerCallbackQuery: asMock(deps.client.answerCallbackQuery),
+    getFile: asMock(deps.client.getFile),
+    downloadFile: asMock(deps.client.downloadFile),
+    recordUpdate: asMock(deps.recordUpdate),
+    markProcessed: asMock(deps.markProcessed),
+    markFailed: asMock(deps.markFailed),
+    loadUpdate: asMock(deps.loadUpdate),
+    loadBoard: asMock(deps.loadBoard),
+    captureItems: asMock(deps.captureItems),
+    createTask: asMock(deps.createTask),
+    transcribe: asMock(deps.transcribe),
+  };
 }
 
 const textUpdate = (text: string, chatId = CHAT, updateId = 1): TelegramUpdate => ({
@@ -41,6 +80,36 @@ const textUpdate = (text: string, chatId = CHAT, updateId = 1): TelegramUpdate =
     text,
   },
 });
+
+const voiceUpdate = (updateId = 5, fileSize?: number): TelegramUpdate => ({
+  update_id: updateId,
+  message: {
+    message_id: 11,
+    date: 1_700_000_000,
+    chat: { id: CHAT, type: "private" },
+    voice: { file_id: "voice-file-1", file_unique_id: "u1", duration: 4, file_size: fileSize },
+  },
+});
+
+const callbackUpdate = (data: string, updateId = 9): TelegramUpdate => ({
+  update_id: updateId,
+  callback_query: {
+    id: "cb-1",
+    from: { id: CHAT, is_bot: false, first_name: "Денис" },
+    data,
+    message: {
+      message_id: 3,
+      date: 1_700_000_000,
+      chat: { id: CHAT, type: "private" },
+    },
+  },
+});
+
+/** Текст последнего отправленного сообщения. */
+function lastText(sendMessage: ReturnType<typeof vi.fn>): string {
+  const calls = sendMessage.mock.calls;
+  return calls[calls.length - 1][0].text as string;
+}
 
 describe("приём апдейта", () => {
   beforeEach(() => vi.clearAllMocks());
@@ -116,6 +185,8 @@ describe("отметки в журнале", () => {
       client: {
         sendMessage: vi.fn().mockRejectedValue(new Error("Telegram недоступен")),
         answerCallbackQuery: vi.fn(),
+        getFile: vi.fn(),
+        downloadFile: vi.fn(),
       },
     });
     const result = await handleUpdate(textUpdate("/start"), CHAT, deps);
@@ -157,10 +228,10 @@ describe("отметки в журнале", () => {
   });
 });
 
-describe("/start", () => {
+describe("/start и /help", () => {
   beforeEach(() => vi.clearAllMocks());
 
-  it("отвечает приветствием с активным проектом", async () => {
+  it("приветствие называет проект и колонку, куда лягут задачи", async () => {
     const { deps, sendMessage } = makeDeps();
     const result = await handleUpdate(textUpdate("/start"), CHAT, deps);
 
@@ -168,12 +239,15 @@ describe("/start", () => {
     const [{ chatId, text }] = sendMessage.mock.calls[0];
     expect(chatId).toBe(CHAT);
     expect(text).toContain("Работа");
-    expect(text).toContain("Активный проект");
+    expect(text).toContain("Бэклог");
   });
 
   it("экранирует имя проекта в разметке", async () => {
     const { deps, sendMessage } = makeDeps({
-      getActiveEnvironment: vi.fn().mockResolvedValue({ name: "Цены & <ККУ>" }),
+      loadBoard: vi.fn().mockResolvedValue({
+        ...BOARD,
+        environment: { id: "env-1", name: "Цены & <ККУ>" },
+      }),
     });
     await handleUpdate(textUpdate("/start"), CHAT, deps);
 
@@ -183,9 +257,7 @@ describe("/start", () => {
   });
 
   it("без сред говорит, что проектов нет", async () => {
-    const { deps, sendMessage } = makeDeps({
-      getActiveEnvironment: vi.fn().mockResolvedValue(null),
-    });
+    const { deps, sendMessage } = makeDeps({ loadBoard: vi.fn().mockResolvedValue(null) });
     await handleUpdate(textUpdate("/start"), CHAT, deps);
 
     expect(sendMessage.mock.calls[0][0].text).toContain("Проектов пока нет");
@@ -196,10 +268,6 @@ describe("/start", () => {
     const result = await handleUpdate(textUpdate("/start@constance_bot"), CHAT, deps);
     expect(result).toEqual({ status: "processed", action: "start" });
   });
-});
-
-describe("остальные сообщения", () => {
-  beforeEach(() => vi.clearAllMocks());
 
   it("/help перечисляет команды", async () => {
     const { deps, sendMessage } = makeDeps();
@@ -210,39 +278,217 @@ describe("остальные сообщения", () => {
     expect(text).toContain("/start");
     expect(text).toContain("/help");
   });
+});
 
-  it("обычный текст пока не разбирается, но сохраняется", async () => {
-    // Запись сделал приём, до ответа 200: обработка только подтверждает её.
-    const { deps, sendMessage } = makeDeps();
-    const result = await handleUpdate(textUpdate("купить билеты"), CHAT, deps);
+describe("захват текста", () => {
+  beforeEach(() => vi.clearAllMocks());
 
-    expect(result).toEqual({ status: "processed", action: "unsupported" });
-    expect(sendMessage.mock.calls[0][0].text).toContain("Сообщение сохранено");
+  it("обычное сообщение становится задачей на доске", async () => {
+    const { deps, captureItems, createTask, sendMessage, markProcessed } = makeDeps();
+
+    const result = await handleUpdate(textUpdate("заполнить итмо"), CHAT, deps);
+
+    expect(result).toEqual({ status: "processed", action: "capture" });
+    expect(captureItems).toHaveBeenCalledWith("заполнить итмо", expect.objectContaining({
+      environmentName: "Работа",
+    }));
+    expect(createTask).toHaveBeenCalledWith(
+      expect.objectContaining({ title: "заполнить итмо", columnId: "col-backlog" })
+    );
+    expect(lastText(sendMessage)).toContain("заполнить итмо");
+    expect(markProcessed).toHaveBeenCalledWith(1);
   });
 
-  it("нажатие кнопки сначала гасит спиннер", async () => {
-    const { deps, answerCallbackQuery, sendMessage } = makeDeps();
+  it("команда не уходит в модель", async () => {
+    const { deps, captureItems, createTask } = makeDeps();
+    await handleUpdate(textUpdate("/help"), CHAT, deps);
+
+    expect(captureItems).not.toHaveBeenCalled();
+    expect(createTask).not.toHaveBeenCalled();
+  });
+
+  it("сбой модели: сообщение не теряется, в ответе кнопка повтора", async () => {
+    const { deps, sendMessage, createTask, markFailed } = makeDeps({
+      captureItems: vi.fn().mockRejectedValue(new Error("Модель groq: 429 Rate limit")),
+    });
+
+    const result = await handleUpdate(textUpdate("заполнить итмо"), CHAT, deps);
+
+    expect(result).toEqual({ status: "failed", error: "Модель groq: 429 Rate limit" });
+    expect(createTask).not.toHaveBeenCalled();
+
+    const [{ text, replyMarkup }] = sendMessage.mock.calls[0];
+    expect(text).toContain("не разобрал");
+    expect(replyMarkup.inline_keyboard.flat().map((b: { callback_data: string }) => b.callback_data)).toContain(
+      "cap:retry:1"
+    );
+    // В журнале сбой виден с причиной, а не как «обработано».
+    expect(markFailed).toHaveBeenCalledWith(1, "Модель groq: 429 Rate limit");
+  });
+
+  it("сообщение без текста и голоса честно называется неподдержанным", async () => {
+    const { deps, sendMessage, captureItems } = makeDeps();
     const update: TelegramUpdate = {
-      update_id: 9,
-      callback_query: {
-        id: "cb-9",
-        from: { id: CHAT, is_bot: false, first_name: "Денис" },
-        data: "noop",
-        message: {
-          message_id: 3,
-          date: 1_700_000_000,
-          chat: { id: CHAT, type: "private" },
-        },
-      },
+      update_id: 2,
+      message: { message_id: 12, date: 1, chat: { id: CHAT, type: "private" } },
     };
 
     const result = await handleUpdate(update, CHAT, deps);
 
+    expect(result).toEqual({ status: "processed", action: "unsupported" });
+    expect(captureItems).not.toHaveBeenCalled();
+    expect(lastText(sendMessage)).toContain("текст и голосовые");
+  });
+});
+
+describe("захват голосового", () => {
+  beforeEach(() => vi.clearAllMocks());
+
+  it("скачивает, расшифровывает и показывает расшифровку в ответе", async () => {
+    const { deps, getFile, downloadFile, transcribe, createTask, sendMessage } = makeDeps();
+
+    const result = await handleUpdate(voiceUpdate(), CHAT, deps);
+
+    expect(result).toEqual({ status: "processed", action: "voice" });
+    expect(getFile).toHaveBeenCalledWith("voice-file-1");
+    expect(downloadFile).toHaveBeenCalledWith("voice/file_1.oga");
+
+    // Whisper определяет формат по имени файла: безымянный Blob получает 400.
+    const [file] = transcribe.mock.calls[0] as [File];
+    expect(file).toBeInstanceOf(File);
+    expect(file.name).toBe("voice.ogg");
+    expect(file.type).toBe("audio/ogg");
+    expect(file.size).toBe(1024);
+
+    expect(createTask).toHaveBeenCalledWith(
+      expect.objectContaining({ title: "заполнить итмо" })
+    );
+    expect(lastText(sendMessage)).toContain("🎤");
+    expect(lastText(sendMessage)).toContain("заполнить итмо");
+  });
+
+  it("расшифровка уходит в модель как обычный текст", async () => {
+    const { deps, captureItems } = makeDeps({
+      transcribe: vi.fn().mockResolvedValue("Сходить к суровцеву"),
+    });
+
+    await handleUpdate(voiceUpdate(), CHAT, deps);
+
+    expect(captureItems).toHaveBeenCalledWith("Сходить к суровцеву", expect.anything());
+  });
+
+  it("голосовое больше лимита Telegram даже не качается", async () => {
+    const { deps, getFile, downloadFile, sendMessage, markFailed } = makeDeps();
+
+    const result = await handleUpdate(voiceUpdate(6, 21 * 1024 * 1024), CHAT, deps);
+
+    expect(getFile).not.toHaveBeenCalled();
+    expect(downloadFile).not.toHaveBeenCalled();
+    expect(result.status).toBe("failed");
+    expect(lastText(sendMessage)).toContain("20 МБ");
+    expect(markFailed).toHaveBeenCalled();
+  });
+
+  it("сбой расшифровки не молчит: причина и кнопка повтора", async () => {
+    const { deps, sendMessage, createTask } = makeDeps({
+      transcribe: vi.fn().mockRejectedValue(new Error("Модель groq: 429 Rate limit")),
+    });
+
+    const result = await handleUpdate(voiceUpdate(), CHAT, deps);
+
+    expect(result.status).toBe("failed");
+    expect(createTask).not.toHaveBeenCalled();
+    const [{ text, replyMarkup }] = sendMessage.mock.calls[0];
+    expect(text).toContain("429");
+    expect(replyMarkup.inline_keyboard.flat()[0].callback_data).toBe("cap:retry:5");
+  });
+
+  it("пустая расшифровка не создаёт задачу без названия", async () => {
+    const { deps, createTask, sendMessage } = makeDeps({
+      transcribe: vi.fn().mockResolvedValue("   "),
+    });
+
+    await handleUpdate(voiceUpdate(), CHAT, deps);
+
+    expect(createTask).not.toHaveBeenCalled();
+    expect(lastText(sendMessage)).toContain("не разобрал");
+  });
+});
+
+describe("кнопки", () => {
+  beforeEach(() => vi.clearAllMocks());
+
+  it("сначала гасит спиннер, потом отвечает", async () => {
+    const { deps, answerCallbackQuery, sendMessage } = makeDeps();
+
+    const result = await handleUpdate(callbackUpdate("noop"), CHAT, deps);
+
     expect(result).toEqual({ status: "processed", action: "callback" });
-    expect(answerCallbackQuery).toHaveBeenCalledWith({ callbackQueryId: "cb-9" });
+    expect(answerCallbackQuery).toHaveBeenCalledWith({ callbackQueryId: "cb-1" });
     expect(answerCallbackQuery.mock.invocationCallOrder[0]).toBeLessThan(
       sendMessage.mock.invocationCallOrder[0]
     );
+  });
+
+  it("«разобрать заново» берёт исходное сообщение из журнала и повторяет разбор", async () => {
+    const { deps, loadUpdate, captureItems, createTask, sendMessage } = makeDeps({
+      loadUpdate: vi.fn().mockResolvedValue(textUpdate("заполнить итмо", CHAT, 42)),
+    });
+
+    const result = await handleUpdate(callbackUpdate("cap:retry:42"), CHAT, deps);
+
+    expect(loadUpdate).toHaveBeenCalledWith(42);
+    expect(captureItems).toHaveBeenCalledWith("заполнить итмо", expect.anything());
+    expect(createTask).toHaveBeenCalledTimes(1);
+    expect(lastText(sendMessage)).toContain("заполнить итмо");
+    expect(result).toEqual({ status: "processed", action: "callback" });
+  });
+
+  it("«разобрать заново» на голосовом расшифровывает его снова", async () => {
+    const { deps, transcribe, captureItems } = makeDeps({
+      loadUpdate: vi.fn().mockResolvedValue(voiceUpdate(42)),
+    });
+
+    await handleUpdate(callbackUpdate("cap:retry:42"), CHAT, deps);
+
+    expect(transcribe).toHaveBeenCalledTimes(1);
+    expect(captureItems).toHaveBeenCalledWith("заполнить итмо", expect.anything());
+  });
+
+  it("«задачей как есть» заводит задачу мимо модели", async () => {
+    const { deps, captureItems, createTask, sendMessage } = makeDeps({
+      loadUpdate: vi.fn().mockResolvedValue(textUpdate("Надо купить билеты", CHAT, 42)),
+    });
+
+    const result = await handleUpdate(callbackUpdate("cap:astask:42"), CHAT, deps);
+
+    expect(captureItems).not.toHaveBeenCalled();
+    expect(createTask).toHaveBeenCalledWith({
+      title: "купить билеты",
+      columnId: "col-backlog",
+      priority: "normal",
+    });
+    expect(lastText(sendMessage)).toContain("купить билеты");
+    expect(result).toEqual({ status: "processed", action: "callback" });
+  });
+
+  it("апдейта нет в журнале — просим прислать сообщение заново", async () => {
+    const { deps, captureItems, createTask, sendMessage } = makeDeps();
+
+    await handleUpdate(callbackUpdate("cap:retry:404"), CHAT, deps);
+
+    expect(captureItems).not.toHaveBeenCalled();
+    expect(createTask).not.toHaveBeenCalled();
+    expect(lastText(sendMessage)).toContain("журнале");
+  });
+
+  it("незнакомая кнопка не притворяется рабочей", async () => {
+    const { deps, loadUpdate, sendMessage } = makeDeps();
+
+    await handleUpdate(callbackUpdate("task:done:xyz"), CHAT, deps);
+
+    expect(loadUpdate).not.toHaveBeenCalled();
+    expect(lastText(sendMessage)).toContain("кнопка мне незнакома");
   });
 });
 

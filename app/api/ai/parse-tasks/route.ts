@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { withApiAuth } from "@/lib/api-auth";
-import { parseTasks } from "@/lib/services/groq";
+import { parseTasks } from "@/lib/llm/parse-tasks";
 
 export async function POST(request: NextRequest) {
   return withApiAuth(request, async () => {

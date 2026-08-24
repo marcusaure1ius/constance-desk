@@ -1,6 +1,13 @@
-const GROQ_API_URL = "https://api.groq.com/openai/v1";
-const GROQ_CHAT_MODEL = "openai/gpt-oss-20b";
-const GROQ_WHISPER_MODEL = "whisper-large-v3";
+import { chatJson, MODELS, type LlmProvider } from "@/lib/llm/client";
+
+/**
+ * Разбор текста на задачи для веб-формы SmartInput.
+ *
+ * Это НЕ путь телеграм-бота: там свой промпт (`lib/llm/capture.ts`), который
+ * не переписывает формулировки и возвращает элементы разных типов. Здесь
+ * пользователь видит результат в форме и правит его до сохранения, поэтому
+ * вольности модели ему не опасны — он их просто исправит.
+ */
 
 export type ParsedTask = {
   title: string;
@@ -41,7 +48,7 @@ const SYSTEM_PROMPT = `Ты — ассистент канбан-доски. Тв
 - Не объединяй разные задачи в одну
 - Если текст невозможно разобрать на задачи — верни { "tasks": [] }`;
 
-export function buildParseTasksPrompt(userText: string, today: string) {
+export function buildParseTasksPrompt(today: string) {
   return SYSTEM_PROMPT.replace("{today}", today);
 }
 
@@ -57,61 +64,19 @@ export function parseTasksResponse(raw: string): ParsedTask[] {
   }
 }
 
-function getApiKey(): string {
-  const key = process.env.GROQ_API_KEY;
-  if (!key) throw new Error("GROQ_API_KEY is not set");
-  return key;
-}
-
-export async function parseTasks(text: string): Promise<ParsedTask[]> {
+export async function parseTasks(
+  text: string,
+  options: { providers?: LlmProvider[]; fetchFn?: typeof fetch } = {}
+): Promise<ParsedTask[]> {
   const today = new Date().toISOString().split("T")[0];
-  const systemPrompt = buildParseTasksPrompt(text, today);
 
-  const res = await fetch(`${GROQ_API_URL}/chat/completions`, {
-    method: "POST",
-    headers: {
-      Authorization: `Bearer ${getApiKey()}`,
-      "Content-Type": "application/json",
-    },
-    body: JSON.stringify({
-      model: GROQ_CHAT_MODEL,
-      messages: [
-        { role: "system", content: systemPrompt },
-        { role: "user", content: text },
-      ],
-      response_format: { type: "json_object" },
-      temperature: 0.1,
-    }),
+  const { content } = await chatJson({
+    system: buildParseTasksPrompt(today),
+    user: text,
+    models: MODELS.smartInput,
+    providers: options.providers,
+    fetchFn: options.fetchFn,
   });
 
-  if (!res.ok) {
-    throw new Error(`Groq API error: ${res.status}`);
-  }
-
-  const data = await res.json();
-  const content = data.choices?.[0]?.message?.content ?? "";
   return parseTasksResponse(content);
-}
-
-export async function transcribeAudio(audioFile: File): Promise<string> {
-  const formData = new FormData();
-  formData.append("file", audioFile);
-  formData.append("model", GROQ_WHISPER_MODEL);
-  formData.append("language", "ru");
-  formData.append("response_format", "json");
-
-  const res = await fetch(`${GROQ_API_URL}/audio/transcriptions`, {
-    method: "POST",
-    headers: {
-      Authorization: `Bearer ${getApiKey()}`,
-    },
-    body: formData,
-  });
-
-  if (!res.ok) {
-    throw new Error(`Groq transcription error: ${res.status}`);
-  }
-
-  const data = await res.json();
-  return data.text ?? "";
 }

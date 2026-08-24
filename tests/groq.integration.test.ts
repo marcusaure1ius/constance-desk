@@ -1,5 +1,6 @@
 import { describe, it, expect } from "vitest";
-import { parseTasks } from "@/lib/services/groq";
+import { parseTasks } from "@/lib/llm/parse-tasks";
+import { captureItems, type CaptureBoard } from "@/lib/llm/capture";
 
 /*
  * Интеграционные тесты — реальные запросы к Groq API.
@@ -90,4 +91,71 @@ describe("parseTasks — реальные запросы к Groq", () => {
     const blocker = result.find((t) => t.priority === "urgent");
     expect(blocker).toBeDefined();
   }, 15000);
+});
+
+/*
+ * Захват (T-0005) на живой модели. Эти пять проверок — критерии приёмки,
+ * которые в принципе нельзя закрыть моками: качество разбора есть свойство
+ * модели и промпта, а не кода. Всё, что от кода зависит (защита формулировки,
+ * контекст доски, падение на OpenRouter), проверяется офлайн в
+ * tests/llm-capture.test.ts и tests/llm-client.test.ts.
+ *
+ * Квота Groq ограничена — гонять этот блок стоит осознанно:
+ *   npm run test:integration:groq -- -t "захват"
+ */
+describe("захват — реальные запросы к Groq", () => {
+  const BOARD: CaptureBoard = {
+    environmentName: "Работа",
+    environmentNames: ["Работа", "Личное"],
+    columnTitles: ["Бэклог", "В работе", "Готово"],
+    epicNames: ["Техдолг", "ВЭД"],
+  };
+
+  // Дата зафиксирована: иначе «до 25.08» разрешалось бы в разные годы
+  // в зависимости от дня прогона.
+  const TODAY = new Date("2026-08-24T09:00:00Z");
+
+  const capture = (text: string) => captureItems({ text, board: BOARD, today: TODAY });
+
+  it("жаргон «mcp» остаётся в заголовке посимвольно", async () => {
+    const items = await capture("Заполнить пилот по mcp");
+    const tasks = items.filter((i) => i.kind === "task");
+
+    expect(tasks).toHaveLength(1);
+    expect(tasks[0].text).toBe("Заполнить пилот по mcp");
+  }, 30000);
+
+  it("три действия через запятую — три задачи", async () => {
+    const items = await capture("Сходить к суровцеву, заполнить итмо, ответить по вэду");
+    const tasks = items.filter((i) => i.kind === "task");
+
+    expect(tasks).toHaveLength(3);
+    expect(tasks.map((t) => t.text.toLowerCase()).join(" ")).toContain("итмо");
+  }, 30000);
+
+  it("перечисление дополнений при одном действии — одна задача", async () => {
+    const items = await capture(
+      "Показать какие есть данные в датасете, в голограмме, во внешних данных"
+    );
+    const tasks = items.filter((i) => i.kind === "task");
+
+    expect(tasks).toHaveLength(1);
+  }, 30000);
+
+  it("«до 25.08» превращается в plannedDate 2026-08-25", async () => {
+    const items = await capture("Контроль за ВШЭ кейсы до 25.08");
+    const tasks = items.filter((i) => i.kind === "task");
+
+    expect(tasks).toHaveLength(1);
+    expect(tasks[0].plannedDate).toBe("2026-08-25");
+  }, 30000);
+
+  it("«физюрики» не превращаются в «физлиц» и не переводятся", async () => {
+    const items = await capture("Дать физюрикам продукты");
+    const tasks = items.filter((i) => i.kind === "task");
+
+    expect(tasks).toHaveLength(1);
+    expect(tasks[0].text.toLowerCase()).toContain("физюрик");
+    expect(tasks[0].text).not.toMatch(/[A-Za-z]/);
+  }, 30000);
 });

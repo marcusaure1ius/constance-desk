@@ -192,6 +192,22 @@ export function createTelegramClient(options: TelegramClientOptions = {}) {
     return call<TelegramFile>("getFile", { file_id: fileId });
   }
 
+  /**
+   * Содержимое файла по `file_path` из getFile.
+   *
+   * Отдельным методом, а не через `call`: файлы лежат на другом префиксе
+   * (`/file/bot<token>/…`) и приходят байтами, а не JSON с полем ok.
+   */
+  async function downloadFile(filePath: string): Promise<ArrayBuffer> {
+    if (!token) throw new Error("TELEGRAM_BOT_TOKEN не задан");
+
+    const response = await fetchFn(`${API_ORIGIN}/file/bot${token}/${filePath}`);
+    if (!response.ok) {
+      throw new TelegramApiError("downloadFile", response.status, `не скачался ${filePath}`);
+    }
+    return response.arrayBuffer();
+  }
+
   async function setMyCommands(commands: TelegramBotCommand[]): Promise<true> {
     return call<true>("setMyCommands", { commands });
   }
@@ -200,7 +216,16 @@ export function createTelegramClient(options: TelegramClientOptions = {}) {
     return call<TelegramBotCommand[]>("getMyCommands");
   }
 
-  return { call, sendMessage, editMessageText, answerCallbackQuery, getFile, setMyCommands, getMyCommands };
+  return {
+    call,
+    sendMessage,
+    editMessageText,
+    answerCallbackQuery,
+    getFile,
+    downloadFile,
+    setMyCommands,
+    getMyCommands,
+  };
 }
 
 export type TelegramClient = ReturnType<typeof createTelegramClient>;
