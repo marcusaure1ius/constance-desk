@@ -20,6 +20,7 @@ export const SEARCH_PAGE_SIZE = 20;
 export const SEARCH_MAX_LIMIT = 50;
 
 export type SearchOptions = {
+  /** Больше SEARCH_MAX_LIMIT срезается, меньше 1 — считается незаданным. */
   limit?: number;
   offset?: number;
   /** true — искать и по архиву (задачи, выполненные больше 30 дней назад). */
@@ -48,9 +49,23 @@ export function escapeLikePattern(value: string): string {
   return value.replace(/[\\%_]/g, (char) => `\\${char}`);
 }
 
-function clamp(value: number | undefined, fallback: number, max: number): number {
-  if (value === undefined || !Number.isFinite(value)) return fallback;
-  return Math.min(Math.max(Math.trunc(value), 0), max);
+/**
+ * Размер страницы. Лимит меньше единицы — не «страница на ноль результатов», а
+ * отсутствие осмысленного значения: пустая выдача в боте неотличима от «ничего
+ * не найдено», то есть ноль молча прятал бы находки. Поэтому `limit: 0`,
+ * отрицательные и мусор вроде NaN одинаково означают «лимит не задан».
+ */
+function clampLimit(value: number | undefined): number {
+  if (value === undefined || !Number.isFinite(value)) return SEARCH_PAGE_SIZE;
+  const limit = Math.trunc(value);
+  if (limit < 1) return SEARCH_PAGE_SIZE;
+  return Math.min(limit, SEARCH_MAX_LIMIT);
+}
+
+/** Смещение: неотрицательное целое, потолок — лишь бы не вылететь за bigint. */
+function clampOffset(value: number | undefined): number {
+  if (value === undefined || !Number.isFinite(value)) return 0;
+  return Math.min(Math.max(Math.trunc(value), 0), Number.MAX_SAFE_INTEGER);
 }
 
 export async function searchTasks(
@@ -87,8 +102,8 @@ export async function searchTasks(
     .where(and(...conditions))
     // Свежее выше; id — устойчивый разрыв ничьей, иначе страницы разъедутся.
     .orderBy(desc(tasks.updatedAt), asc(tasks.id))
-    .limit(clamp(options.limit, SEARCH_PAGE_SIZE, SEARCH_MAX_LIMIT))
-    .offset(clamp(options.offset, 0, Number.MAX_SAFE_INTEGER));
+    .limit(clampLimit(options.limit))
+    .offset(clampOffset(options.offset));
 }
 
 /**

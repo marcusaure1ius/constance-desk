@@ -130,10 +130,17 @@ describe("searchTasks — пагинация", () => {
 
   it("отрицательные и дробные значения нормализует", async () => {
     await searchTasks("вэду", { limit: -3, offset: -7 });
-    expect(page()).toEqual({ limit: 0, offset: 0 });
+    expect(page()).toEqual({ limit: SEARCH_PAGE_SIZE, offset: 0 });
 
     await searchTasks("вэду", { limit: 4.9, offset: 2.9 });
     expect(page()).toEqual({ limit: 4, offset: 2 });
+  });
+
+  // Ноль означает «лимит не задан», а не «отдай пустую страницу»: пустая
+  // выдача неотличима от «ничего не найдено» и молча прятала бы находки.
+  it("нулевой лимит читается как умолчание, а не как пустая страница", async () => {
+    await searchTasks("вэду", { limit: 0 });
+    expect(page().limit).toBe(SEARCH_PAGE_SIZE);
   });
 
   it("нечисловые значения заменяет умолчаниями", async () => {
