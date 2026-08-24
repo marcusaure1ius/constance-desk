@@ -205,10 +205,13 @@ async function respond(
   const message = updateMessage(update);
   const command = parseCommand(message?.text);
 
+  // Любая команда обрывает начатый вопрос: «/start» — это уже другое действие,
+  // и текст после него ушёл бы в название задачи вместо новой записи на доску.
+  // Проверка на все команды, а не на две известные: незнакомая команда — тем
+  // более не ответ на «пришлите новое название».
+  if (command) await deps.cancelAwaitInput(chatId);
+
   if (command === "start" || command === "help") {
-    // Команда обрывает начатый вопрос: иначе следующее сообщение ушло бы в
-    // название задачи вместо новой записи на доску.
-    await deps.cancelAwaitInput(chatId);
     const text = command === "start" ? await startText(deps) : helpText();
     await deps.client.sendMessage({ chatId, text });
     return { action: command };
@@ -235,7 +238,13 @@ async function respondToAwaitedInput(
   deps: HandleUpdateDeps
 ): Promise<RespondOutcome | null> {
   const text = message.text?.trim();
-  if (!text) return null;
+  if (!text) {
+    // Голосовое, картинка, пересылка — ответом на «пришлите новое название»
+    // они быть не могут, а вопрос при этом снимают: иначе ожидание досталось бы
+    // следующему тексту, который к той карточке уже никакого отношения не имеет.
+    await deps.cancelAwaitInput(chatId);
+    return null;
+  }
 
   const pending = await deps.takeAwaitInput(chatId);
   if (!pending) return null;

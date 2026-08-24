@@ -6,6 +6,7 @@ import {
   parseAwaitInput,
   runSearch,
   BUTTON_TTL_DAYS,
+  SEARCH_FETCH_LIMIT,
   type ManageDeps,
   type SearchHit,
   type TaskDetails,
@@ -553,6 +554,29 @@ describe("поиск", () => {
     expect(done).toHaveLength(3);
     expect(labels(result.card.replyMarkup)).toContain("✓ ответить по вэду");
     expect(labels(result.card.replyMarkup)).toContain("Ещё 2");
+  });
+
+  it("полная пачка результатов честно пишется «30+»", async () => {
+    const world = makeWorld();
+    // Поиск тянет ограниченную пачку: набралось ровно столько, сколько
+    // просили, — значит сотня совпадений от тридцати неотличима.
+    world.calls.searchTasks.mockResolvedValue(
+      Array.from({ length: SEARCH_FETCH_LIMIT }, (_, i) => hit(TASK_ID, `вэду ${i}`))
+    );
+
+    const result = await runSearch({ query: "вэду", chatId: CHAT }, world.deps);
+
+    expect(result.card.text).toContain(`Нашёл ${SEARCH_FETCH_LIMIT}+`);
+  });
+
+  it("неполная пачка считается точно, без «+»", async () => {
+    const world = makeWorld();
+    world.calls.searchTasks.mockResolvedValue(five);
+
+    const result = await runSearch({ query: "вэду", chatId: CHAT }, world.deps);
+
+    expect(result.card.text).toContain("Нашёл 5 ");
+    expect(result.card.text).not.toContain("+");
   });
 
   it("«Ещё» правит то же сообщение и показывает следующие", async () => {

@@ -232,10 +232,46 @@ describe("хендлы на настоящей базе", () => {
       kind: "search",
       payload: { query: "старое" },
       chatId: CHAT,
-      ttlDays: -1,
+      ttlMinutes: -1,
     });
 
     expect(await getHandle(id)).toBeNull();
+  });
+
+  it("через двадцать минут ожидание ввода протухло, а кнопка жива", async () => {
+    const awaited = await createHandle({
+      kind: "await_input",
+      payload: { taskId: "task-ttl", field: "title" },
+      chatId: CHAT,
+    });
+    const search = await createHandle({
+      kind: "search",
+      payload: { query: "вэду" },
+      chatId: CHAT,
+    });
+
+    // Оба хендла заведены сейчас и с умолчаниями — разница только в сроке
+    // годности. Двигаем часы, а не спим: срок отсекает запрос, ему всё равно,
+    // откуда взялось «сейчас». Подменяется только Date — таймеры драйвера pg
+    // трогать нельзя, иначе прогон повиснет на соединении.
+    vi.useFakeTimers({ toFake: ["Date"] });
+    try {
+      vi.setSystemTime(Date.now() + 20 * 60 * 1000);
+
+      // Забытый вопрос не перехватывает сообщение: для бота это «вопроса не
+      // задавали», и текст уходит обычным путём в захват.
+      expect(await takeAwaitInput(CHAT)).toBeNull();
+      // А карточка в чате живёт неделю: её кнопки через двадцать минут
+      // обязаны работать.
+      expect(await getHandle(search)).not.toBeNull();
+    } finally {
+      vi.useRealTimers();
+    }
+
+    // Пока часы не сдвинуты, то же самое ожидание забирается как обычно —
+    // иначе «протухло» ничем не отличалось бы от «не завелось».
+    expect((await takeAwaitInput(CHAT))?.id).toBe(awaited);
+    await useHandle(search);
   });
 
   it("ожидание ввода забирается ровно один раз", async () => {

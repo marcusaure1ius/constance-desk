@@ -318,6 +318,88 @@ describe("parseCaptureResponse — поля задачи", () => {
   });
 });
 
+describe("parseCaptureResponse — прошедшее время", () => {
+  /*
+   * Разбор поля done, а не подстановка готового объекта в мок.
+   *
+   * До этих тестов удаление строки разбора оставляло весь прогон зелёным:
+   * тест бота подавал элемент с done прямо в мок `captureItems`, минуя JSON.
+   * «ответил по вэду» при этом переставало быть рассказом о сделанном и
+   * превращалось в обычный поиск — молча.
+   */
+
+  it("done у вопроса переживает разбор JSON", () => {
+    const items = parseCaptureResponse(
+      response([{ kind: "question", text: "вэду", done: true, source: "ответил по вэду" }]),
+      { board: BOARD, sourceText: "ответил по вэду" }
+    );
+
+    expect(items).toEqual([{ kind: "question", text: "вэду", done: true }]);
+  });
+
+  it("вопрос без прошедшего времени остаётся обычным поиском", () => {
+    const items = parseCaptureResponse(
+      response([{ kind: "question", text: "итмо", source: "что там с итмо" }]),
+      { board: BOARD, sourceText: "что там с итмо" }
+    );
+
+    expect(items[0].kind).toBe("question");
+    expect(items[0].done).toBeUndefined();
+  });
+
+  it("done = false — это не прошедшее время", () => {
+    const items = parseCaptureResponse(
+      response([{ kind: "question", text: "вэду", done: false }]),
+      { board: BOARD, sourceText: "что там с вэду" }
+    );
+
+    expect(items[0].done).toBeUndefined();
+  });
+
+  it("done достаётся только вопросу: у задачи такого поля нет", () => {
+    const items = parseCaptureResponse(
+      response([
+        { kind: "task", text: "ответить по вэду", done: true },
+        { kind: "note", text: "вэду встал", done: true },
+      ]),
+      { board: BOARD, sourceText: "ответить по вэду. вэду встал" }
+    );
+
+    expect(items).toEqual([
+      { kind: "task", text: "ответить по вэду" },
+      { kind: "note", text: "вэду встал" },
+    ]);
+  });
+
+  it("строка «true» не считается прошедшим временем", () => {
+    // Модель отвечает JSON-ом, но за типы в нём никто не ручается: строка
+    // «true» и число 1 не должны молча закрывать задачу поиском.
+    const asString = parseCaptureResponse(
+      response([{ kind: "question", text: "вэду", done: "true" }]),
+      { board: BOARD, sourceText: "ответил по вэду" }
+    );
+    const asNumber = parseCaptureResponse(response([{ kind: "question", text: "вэду", done: 1 }]), {
+      board: BOARD,
+      sourceText: "ответил по вэду",
+    });
+
+    expect(asString[0].done).toBeUndefined();
+    expect(asNumber[0].done).toBeUndefined();
+  });
+
+  it("в смешанном сообщении прошедшее время достаётся своему элементу", () => {
+    const items = parseCaptureResponse(
+      response([
+        { kind: "question", text: "вэду", done: true, source: "ответил по вэду" },
+        { kind: "question", text: "итмо", source: "что там с итмо" },
+      ]),
+      { board: BOARD, sourceText: "ответил по вэду, что там с итмо" }
+    );
+
+    expect(items.map((item) => item.done)).toEqual([true, undefined]);
+  });
+});
+
 describe("parseCaptureResponse — устойчивость", () => {
   it("незнакомый тип не теряет текст, а становится raw", () => {
     const items = parseCaptureResponse(response([{ kind: "reminder", text: "что-то" }]), {

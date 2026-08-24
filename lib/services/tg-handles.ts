@@ -11,22 +11,43 @@ import { newHandleId } from "@/lib/telegram/ids";
  * Вторая: «Название» и «Описание» меняют задачу не сразу, бот ждёт следующего
  * сообщения — и это ожидание надо где-то держать между двумя апдейтами.
  *
- * Всё живёт неделю. Инлайн-кнопки не пропадают: без срока годности нажатие на
- * карточке месячной давности выполняло бы действие, о котором никто уже не
- * помнит.
+ * Сроки у этих двух ролей разные, и это главное здесь решение.
  */
 
-export const HANDLE_TTL_DAYS = 7;
+/**
+ * Хендл за кнопкой живёт неделю. Инлайн-клавиатура не исчезает сама: без срока
+ * годности нажатие на карточке месячной давности выполняло бы действие, о
+ * котором никто уже не помнит. Неделя — столько же, сколько живут сами кнопки
+ * (`BUTTON_TTL_DAYS`): за ними стоят как раз эти записи.
+ */
+export const HANDLE_TTL_MINUTES = 7 * 24 * 60;
+
+/**
+ * Ожидание ввода живёт минуты, а не дни.
+ *
+ * Между нажатием «Название» и следующим сообщением проходят секунды: человек
+ * читает вопрос и сразу отвечает. Недельный срок здесь оборачивался ловушкой —
+ * нажал кнопку, отвлёкся, назавтра написал боту обычную задачу, и она молча
+ * ушла в переименование старой. Пятнадцати минут хватает на «отвлекли на
+ * звонок», а через сутки текст уже уходит на доску новой задачей.
+ */
+export const AWAIT_INPUT_TTL_MINUTES = 15;
 
 /** Вид хендла. Строкой, а не enum: следующие задачи добавят свои. */
 export type HandleKind = "search" | "await_input";
+
+/** Срок годности по виду: ожидание ввода короткое, всё остальное — недельное. */
+export function ttlMinutesFor(kind: HandleKind): number {
+  return kind === "await_input" ? AWAIT_INPUT_TTL_MINUTES : HANDLE_TTL_MINUTES;
+}
 
 export type CreateHandleInput = {
   kind: HandleKind;
   payload: unknown;
   chatId?: number;
   messageId?: number;
-  ttlDays?: number;
+  /** Явный срок в минутах. Не задан — берётся по виду хендла. */
+  ttlMinutes?: number;
 };
 
 export type StoredHandle = {
@@ -37,10 +58,8 @@ export type StoredHandle = {
   messageId: number | null;
 };
 
-function expiryFrom(ttlDays: number): Date {
-  const expires = new Date();
-  expires.setDate(expires.getDate() + ttlDays);
-  return expires;
+function expiryFrom(ttlMinutes: number): Date {
+  return new Date(Date.now() + ttlMinutes * 60_000);
 }
 
 export async function createHandle(input: CreateHandleInput): Promise<string> {
@@ -51,7 +70,7 @@ export async function createHandle(input: CreateHandleInput): Promise<string> {
     payload: input.payload,
     chatId: input.chatId ?? null,
     messageId: input.messageId ?? null,
-    expiresAt: expiryFrom(input.ttlDays ?? HANDLE_TTL_DAYS),
+    expiresAt: expiryFrom(input.ttlMinutes ?? ttlMinutesFor(input.kind)),
   });
   return id;
 }
@@ -89,6 +108,10 @@ export async function useHandle(id: string): Promise<void> {
 /**
  * Забирает ожидание ввода для чата: следующее сообщение пользователя про
  * хендл ничего не знает, поэтому ищем по чату.
+ *
+ * Протухшее ожидание сюда не попадает — срок отсекает сам запрос. Для
+ * вызывающего это неотличимо от «вопроса не задавали»: текст уходит обычным
+ * путём в захват, то есть становится новой задачей, а не заголовком старой.
  *
  * Помечаем отработанным сразу и условно (`status = 'active'` в WHERE):
  * транзакций в neon-http нет, а два сообщения подряд обязаны разобрать
