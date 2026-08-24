@@ -440,7 +440,12 @@ function withTranscript(body: string, transcript: string | undefined): string {
 function details(task: CreatedTask): string {
   const parts = [
     PRIORITY_LABEL[task.priority],
-    task.plannedDate ? `до ${formatShortDate(task.plannedDate)}` : "",
+    // Срок доезжает сюда только через normalizeDate («lib/llm/capture.ts»):
+    // /^\d{4}-\d{2}-\d{2}$/ плюс сверка с Date — экранировать в нём нечего.
+    // Но карточка отвечает за разметку последней, а renderCaptureCard
+    // экспортирована: держать её целость на валидаторе тремя слоями выше
+    // дороже, чем прогнать дату через тот же field, что и всё остальное.
+    task.plannedDate ? `до ${field(formatShortDate(task.plannedDate), NAME_LIMIT)}` : "",
     task.epic ? `эпик «${field(task.epic, NAME_LIMIT)}»` : "",
   ].filter(Boolean);
 

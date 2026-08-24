@@ -213,6 +213,91 @@ describe("captureMessage — сбои", () => {
   });
 });
 
+/*
+ * Причина сбоя — единственное место, где режется сырой текст, а не готовый
+ * HTML: `reason` и `warning` уходят полями результата, а экранирует их уже
+ * карточка. Правило разреза при этом то же самое, и проверять его надо
+ * отдельно: слот «причина сбоя» в переборе ниже собирает строку карточки, до
+ * этой обрезки не доходя, — то есть регресс в ней прошёл бы молча.
+ *
+ * Через captureMessage, а не через экспорт: обрезка живёт внутри модуля, и
+ * бот пользуется именно этим путём.
+ */
+describe("причина сбоя обрезается по законному месту", () => {
+  /** REASON_LIMIT из capture.ts. Предел — часть договора, не деталь. */
+  const REASON_LIMIT = 160;
+
+  /** Модель упала тем, что передали. Возвращается причина из результата. */
+  const reasonOfFailure = async (error: unknown): Promise<string> => {
+    const { deps } = makeDeps([], { captureItems: vi.fn().mockRejectedValue(error) });
+    const result = await captureMessage("заполнить итмо", deps);
+    if (result.status !== "failed") throw new Error(`ожидался failed, получен ${result.status}`);
+    return result.reason;
+  };
+
+  it("короткая причина доезжает дословно, без многоточия", async () => {
+    expect(await reasonOfFailure(new Error("Модель groq: 429 Rate limit"))).toBe(
+      "Модель groq: 429 Rate limit"
+    );
+  });
+
+  it("многословная причина режется ровно до предела вместе с многоточием", async () => {
+    // Чужие сообщения об ошибках бывают на тысячу символов, а причина идёт в
+    // первую строку карточки — ту, что видно в списке чатов.
+    const message = "Модель groq упала на попытке разбора: ".repeat(50);
+    const reason = await reasonOfFailure(new Error(message));
+
+    // Ровно предел, а не «хоть сколько-то короче»: обрезка по limit вместо
+    // limit минус многоточие даёт 161 символ и тихо разъезжается с бюджетом
+    // карточки, а обрезка вдвое короче молча теряет текст.
+    expect(reason).toHaveLength(REASON_LIMIT);
+    expect(reason.endsWith("…")).toBe(true);
+    expect(message.startsWith(reason.slice(0, -1))).toBe(true);
+  });
+
+  it("причина длиной ровно в предел не трогается", async () => {
+    const message = "я".repeat(REASON_LIMIT);
+    expect(await reasonOfFailure(new Error(message))).toBe(message);
+  });
+
+  it("не-Error не превращается в «undefined» посреди карточки", async () => {
+    expect(await reasonOfFailure("строка вместо ошибки")).toBe("неизвестная ошибка");
+  });
+
+  it("эмодзи на месте разреза не разрубается пополам", async () => {
+    // Перебор по одному символу: суррогатная пара занимает две позиции, и в
+    // разрез она попадает ровно при одном смещении из двух сотен. Одинокая
+    // половинка — не UTF-8, Telegram отвечает на неё 400, а такую 400 клиент
+    // не ретраит и не понижает до plain text: пользователь не получит ничего.
+    for (let offset = 0; offset <= 200; offset++) {
+      const reason = await reasonOfFailure(new Error(`${"я".repeat(offset)}😀${"я".repeat(300)}`));
+      const where = `смещение ${offset}`;
+
+      expect(reason.length, where).toBeLessThanOrEqual(REASON_LIMIT);
+      expect(reason, where).not.toMatch(LONE_SURROGATE);
+    }
+  });
+
+  it("предупреждение о частичной записи режется тем же правилом", async () => {
+    const message = "база недоступна: ".repeat(40);
+    const createTask = vi
+      .fn()
+      .mockResolvedValueOnce({ id: "task-1" })
+      .mockRejectedValueOnce(new Error(message));
+    const { deps } = makeDeps(
+      [
+        { kind: "task", text: "первая" },
+        { kind: "task", text: "вторая" },
+      ],
+      { createTask }
+    );
+
+    const result = await captureMessage("первая, вторая", deps);
+
+    expect(result.status === "captured" && result.warning).toHaveLength(REASON_LIMIT);
+  });
+});
+
 describe("createTaskFromText", () => {
   it("заводит задачу из текста без разбора, сняв «Надо»", async () => {
     const { deps, createTask, captureItems } = makeDeps([]);
@@ -616,6 +701,169 @@ describe("карточка ответа — лимит 4096 при любых д
     expect(card.text).toMatch(/…и ещё \d+ задач\S* — все на доске/);
   });
 });
+
+/*
+ * Экранируемые символы при бюджете на исходе.
+ *
+ * Дыра, из-за которой мутант «экранировать после обрезки, а не до» когда-то
+ * проходил весь файл: перебор слотов выше гоняет амперсанды на пустой
+ * карточке, где до потолка ещё три тысячи символов, а тесты на потолок берут
+ * расшифровку из букв, которых escapeHtml не касается. Сочетание «текст,
+ * растущий впятеро» плюс «остаток бюджета в сотню символов» не проверял никто,
+ * а карточка вырастала на нём до 5023 символов при лимите 4096.
+ *
+ * Слабое место здесь ровно одно: расшифровка приписывается к готовому телу
+ * карточки, и её предел считается из остатка — то есть длину пятикратно
+ * выросшего текста никто уже не пересчитает.
+ */
+describe("карточка ответа — экранируемые символы при бюджете на исходе", () => {
+  /** Задачи, забивающие карточку почти до потолка. */
+  const bulk = (count: number, size: number) =>
+    Array.from({ length: count }, (_, i) => ({
+      title: `${i + 1} ${"я".repeat(size)}`,
+      priority: "normal" as const,
+    }));
+
+  it("расшифровка из амперсандов над заполненной карточкой остаётся в лимите", () => {
+    const card = renderCaptureCard(captured({ tasks: bulk(15, 200) }), {
+      updateId: 1,
+      transcript: "&".repeat(2000),
+    });
+
+    expect(card.text.length).toBeLessThanOrEqual(TELEGRAM_MESSAGE_LIMIT);
+    expect(card.text.startsWith("🎤 <i>")).toBe(true);
+    expect(card.text).toContain("✅ 15 задач · Работа · Бэклог");
+    expect(card.text).not.toMatch(BROKEN_ENTITY);
+  });
+
+  it("перебор длины расшифровки: экранируемый текст меряется в готовом HTML", () => {
+    // Шаг в один символ по обе стороны от предела расшифровки (600): окно,
+    // где сырой текст ещё влезает, а экранированный уже нет, — узкое, и
+    // прыжками его не поймать.
+    const tasks = bulk(12, 200);
+    const shapes = { амперсанды: "&", "открывающие скобки": "<", "закрывающие скобки": ">" };
+
+    for (const [shape, char] of Object.entries(shapes)) {
+      for (let size = 1; size <= 700; size++) {
+        const card = renderCaptureCard(captured({ tasks }), {
+          updateId: 1,
+          transcript: char.repeat(size),
+        });
+        const where = `${shape} · расшифровка в ${size} символов`;
+
+        expect(card.text.length, where).toBeLessThanOrEqual(TELEGRAM_MESSAGE_LIMIT);
+        expect(card.text, where).not.toMatch(BROKEN_ENTITY);
+        expect(card.text, where).not.toMatch(BROKEN_TAG);
+        // Подтверждение важнее цитаты: под нож идёт расшифровка, не оно.
+        expect(card.text, where).toContain("✅ 12 задач · Работа · Бэклог");
+      }
+    }
+  });
+
+  it("перебор объёма карточки: остаток бюджета под расшифровку считается после экранирования", () => {
+    // Здесь меняется не расшифровка, а то, сколько от лимита ей достаётся:
+    // остаток проходит через всё окно — от шести сотен символов до нуля.
+    for (let size = 1; size <= 260; size++) {
+      const card = renderCaptureCard(
+        captured({ tasks: bulk(20, size), warning: "база недоступна" }),
+        { updateId: 1, transcript: "&<>".repeat(300) }
+      );
+      const where = `заголовки по ${size} символов`;
+
+      expect(card.text.length, where).toBeLessThanOrEqual(TELEGRAM_MESSAGE_LIMIT);
+      expect(card.text, where).not.toMatch(BROKEN_ENTITY);
+      expect(card.text, where).not.toMatch(BROKEN_TAG);
+      expect(card.text, where).toContain("✅ 20 задач · Работа · Бэклог");
+      expect(card.text, where).toContain("Часть задач сохранить не удалось: база недоступна");
+    }
+  });
+
+  it("экранируемые заголовки у потолка не выдавливают карточку за лимит", () => {
+    // Тот же угол, но экранируемое стоит в заголовках, а не в расшифровке:
+    // двадцать пять названий из одних амперсандов и скобок при пределе в 200
+    // символов — это до двадцати пяти тысяч символов готового HTML.
+    for (const char of ["&", "<", ">"]) {
+      for (let size = 190; size <= 210; size++) {
+        const card = renderCaptureCard(
+          captured({
+            tasks: Array.from({ length: 25 }, (_, i) => ({
+              title: `${i + 1} ${char.repeat(size)}`,
+              priority: "urgent" as const,
+              plannedDate: "2026-08-25",
+              epic: "эпик с довольно длинным названием про вэд, итмо и физюриков",
+            })),
+            warning: "база недоступна",
+          }),
+          { updateId: 1, transcript: `${"&".repeat(300)}${"я".repeat(300)}` }
+        );
+        const where = `«${char}» × ${size} в заголовке`;
+
+        expect(card.text.length, where).toBeLessThanOrEqual(TELEGRAM_MESSAGE_LIMIT);
+        expect(card.text, where).not.toMatch(BROKEN_ENTITY);
+        expect(card.text, where).not.toMatch(BROKEN_TAG);
+        expect(card.text, where).toContain("✅ 25 задач · Работа · Бэклог");
+        expect(card.text, where).toMatch(/…и ещё \d+ задач\S* — все на доске/);
+      }
+    }
+  });
+});
+
+describe("карточка ответа — целость разметки", () => {
+  it("срок экранируется наравне с остальными подстановками", () => {
+    // Сегодня недостижимо: срок доезжает до карточки только через
+    // normalizeDate («lib/llm/capture.ts»), а тот пропускает лишь
+    // /^\d{4}-\d{2}-\d{2}$/. Но renderCaptureCard экспортирована, и целость
+    // разметки не должна держаться на валидаторе тремя слоями выше.
+    const card = renderCaptureCard(
+      captured({ tasks: [{ title: "итмо", priority: "normal", plannedDate: "9999-<b>-08" }] }),
+      { updateId: 1 }
+    );
+
+    expect(card.text).toContain("до 08.&lt;b&gt;.9999");
+    expect(card.text).not.toContain("до 08.<b>");
+  });
+
+  it("разметка карточки не вкладывается глубже двух тегов", () => {
+    // На это опирается запас под закрывающие теги в клиенте: обрезав текст, он
+    // дописывает их сам и отводит под них 32 символа. Двум тегам («</i></b>»)
+    // хватает восьми, пяти вложенным <code> — уже нет. Свой тег пользователь
+    // не вставит: его текст проходит escapeHtml, — так что глубину задаёт
+    // только карточка, и мерить её надо здесь.
+    const card = renderCaptureCard(
+      captured({
+        tasks: [
+          {
+            title: "заполнить <b>итмо</b> & <i>вэд</i>",
+            priority: "urgent",
+            plannedDate: "2026-08-25",
+            epic: "Тех<code>долг</code>",
+          },
+        ],
+        questions: [{ text: "что там с <pre>вэду</pre>" }],
+        others: [{ kind: "note", text: "нет <s>синергии</s>" }],
+        warning: "база <u>недоступна</u>",
+      }),
+      { updateId: 1, transcript: "надиктовал <b><i>это</i></b>" }
+    );
+
+    // Не ноль: иначе тест прошёл бы и на карточке вовсе без разметки.
+    expect(maxTagDepth(card.text)).toBeGreaterThanOrEqual(1);
+    expect(maxTagDepth(card.text)).toBeLessThanOrEqual(2);
+  });
+});
+
+/** Наибольшая вложенность тегов разметки в готовом тексте сообщения. */
+function maxTagDepth(text: string): number {
+  let depth = 0;
+  let max = 0;
+
+  for (const [, slash] of text.matchAll(/<(\/?)(?:b|i|u|s|code|pre)>/g)) {
+    depth += slash ? -1 : 1;
+    max = Math.max(max, depth);
+  }
+
+  return max;
+}
 
 describe("plural", () => {
   it("склоняет по-русски", () => {
