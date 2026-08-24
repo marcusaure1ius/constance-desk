@@ -2,7 +2,7 @@
 
 import { Pencil } from "lucide-react";
 import { cn } from "@/lib/utils";
-import type { ParsedTask } from "@/lib/services/groq";
+import type { ParsedTask } from "@/lib/llm/parse-tasks";
 
 const priorityLabels: Record<string, { label: string; color: string; bg: string }> = {
   urgent: { label: "Срочный", color: "text-red-300", bg: "bg-red-950" },

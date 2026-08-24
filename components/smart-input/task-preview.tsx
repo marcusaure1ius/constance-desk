@@ -5,7 +5,7 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { cn } from "@/lib/utils";
 import { TaskPreviewItem } from "./task-preview-item";
-import type { ParsedTask } from "@/lib/services/groq";
+import type { ParsedTask } from "@/lib/llm/parse-tasks";
 
 function pluralTasks(n: number): string {
   const mod10 = n % 10;
