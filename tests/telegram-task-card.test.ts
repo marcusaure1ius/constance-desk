@@ -275,6 +275,28 @@ describe("разбор нажатий", () => {
     expect(parseTaskCallback("s:pg:короткий:2")).toBeNull();
   });
 
+  it("месяц и дата разбираются по диапазону, а не по одной форме", () => {
+    const id = taskCallback.done(MAX_ID).slice(5);
+
+    // Тринадцатый месяц дал бы в шапке «undefined 2026», нулевой год — 1901.
+    expect(parseTaskCallback(`t:du:${id}:cal:2026-13`)).toBeNull();
+    expect(parseTaskCallback(`t:du:${id}:cal:2026-00`)).toBeNull();
+    expect(parseTaskCallback(`t:du:${id}:cal:0001-01`)).toBeNull();
+    expect(parseTaskCallback(`t:du:${id}:2026-13-01`)).toBeNull();
+    expect(parseTaskCallback(`t:du:${id}:2026-08-32`)).toBeNull();
+
+    // Настоящий месяц и настоящая дата разбираются по-прежнему: проверка
+    // диапазона не должна заодно отрезать рабочие кнопки.
+    expect(parseTaskCallback(`t:du:${id}:cal:2026-12`)).toMatchObject({
+      kind: "due-calendar",
+      month: "2026-12",
+    });
+    expect(parseTaskCallback(`t:du:${id}:2026-12-31`)).toMatchObject({
+      kind: "due-date",
+      date: "2026-12-31",
+    });
+  });
+
   it("заглушка календаря опознаётся и ничего не значит", () => {
     expect(parseTaskCallback(NOOP_CALLBACK)).toEqual({ kind: "noop" });
   });
@@ -468,6 +490,24 @@ describe("выдача поиска", () => {
     expect(labels).toContain("✓ ответить по вэду");
     expect(labels).toContain("✓ Заполнить пилот по вэду");
     expect(card.text).toContain("Нашёл 3");
+  });
+
+  it("упёршийся в потолок счётчик пишется «30+», а не точным числом", () => {
+    const card = renderSearchCard(three, {
+      query: "вэду",
+      total: 30,
+      capped: true,
+      page: 1,
+      now: TODAY,
+    });
+
+    expect(card.text).toContain("Нашёл 30+");
+
+    // Без потолка то же число остаётся точным: «30+» не должно появляться там,
+    // где мы действительно сосчитали всё.
+    const exact = renderSearchCard(three, { query: "вэду", total: 30, page: 1, now: TODAY });
+    expect(exact.text).toContain("Нашёл 30 ");
+    expect(exact.text).not.toContain("30+");
   });
 
   it("больше трёх не показывает и предлагает «Ещё N»", () => {

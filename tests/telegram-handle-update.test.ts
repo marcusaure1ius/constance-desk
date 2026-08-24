@@ -717,19 +717,62 @@ describe("управление задачами", () => {
   });
 
   it("без заданного вопроса сообщение идёт в захват как обычно", async () => {
-    const { deps, createTask, captureItems, takeAwaitInput } = makeDeps();
+    const { deps, createTask, captureItems, takeAwaitInput, updateTask } = makeDeps();
 
     await handleUpdate(textUpdate("заполнить итмо"), CHAT, deps);
 
     expect(takeAwaitInput).toHaveBeenCalledWith(CHAT);
     expect(captureItems).toHaveBeenCalled();
     expect(createTask).toHaveBeenCalled();
+    expect(updateTask).not.toHaveBeenCalled();
   });
+
+  /*
+   * Протухшее ожидание попадает сюда же: `takeAwaitInput` отсекает срок
+   * запросом и отдаёт null, а для обработчика null — это «вопроса не
+   * задавали». Что именно возвращает база через двадцать минут, проверяется
+   * на настоящей базе (`tests/task-control.integration.test.ts`).
+   */
 
   it("команда обрывает заданный вопрос", async () => {
     const { deps, cancelAwaitInput } = makeDeps();
     await handleUpdate(textUpdate("/start"), CHAT, deps);
     expect(cancelAwaitInput).toHaveBeenCalledWith(CHAT);
+  });
+
+  it("незнакомая команда снимает вопрос раньше, чем его успеют забрать", async () => {
+    const { deps, cancelAwaitInput, takeAwaitInput } = makeDeps({
+      takeAwaitInput: vi.fn().mockResolvedValue({
+        payload: { taskId: TASK_ID, field: "title" },
+        messageId: 42,
+      }),
+    });
+
+    await handleUpdate(textUpdate("/stop"), CHAT, deps);
+
+    // Порядок здесь и есть суть: отмена после чтения ожидания ничего бы не
+    // спасла — «/stop» уже ушёл бы в название задачи.
+    expect(cancelAwaitInput).toHaveBeenCalledWith(CHAT);
+    expect(cancelAwaitInput.mock.invocationCallOrder[0]).toBeLessThan(
+      takeAwaitInput.mock.invocationCallOrder[0] ?? Number.MAX_SAFE_INTEGER
+    );
+  });
+
+  it("голосовое снимает заданный вопрос, а не оставляет его следующему тексту", async () => {
+    const { deps, cancelAwaitInput, takeAwaitInput, updateTask, createTask } = makeDeps({
+      takeAwaitInput: vi.fn().mockResolvedValue({
+        payload: { taskId: TASK_ID, field: "title" },
+        messageId: 42,
+      }),
+    });
+
+    await handleUpdate(voiceUpdate(), CHAT, deps);
+
+    expect(cancelAwaitInput).toHaveBeenCalledWith(CHAT);
+    // Расшифровка — не ответ на «пришлите название»: голосовое идёт в захват.
+    expect(takeAwaitInput).not.toHaveBeenCalled();
+    expect(updateTask).not.toHaveBeenCalled();
+    expect(createTask).toHaveBeenCalled();
   });
 });
 

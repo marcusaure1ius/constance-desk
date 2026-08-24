@@ -85,8 +85,15 @@ export type TaskCallback =
   | { kind: "search-page"; handleId: string; page: number }
   | { kind: "noop" };
 
-const YEAR_MONTH = /^\d{4}-\d{2}$/;
-const ISO_DATE = /^\d{4}-\d{2}-\d{2}$/;
+/*
+ * Месяц и дата в кнопке — по диапазону, а не только по форме. «2026-13» дало бы
+ * в шапке календаря «undefined 2026», а «0001-01» — 1901 год: Date.UTC приводит
+ * года 0–99 к 1900-м. Ни того ни другого выдаваемыми кнопками не набрать, но
+ * callback_data приходит извне, и разбор чужой строки не должен держаться на
+ * том, что её никто не подделает.
+ */
+const YEAR_MONTH = /^[1-9]\d{3}-(?:0[1-9]|1[0-2])$/;
+const ISO_DATE = /^[1-9]\d{3}-(?:0[1-9]|1[0-2])-(?:0[1-9]|[12]\d|3[01])$/;
 
 export const taskCallback = {
   done: (taskId: string) => `t:dn:${packUuid(taskId)}`,
@@ -552,6 +559,12 @@ export type SearchCardOptions = {
   boardUrl?: string;
   /** true — сообщение написано прошедшим временем: похоже, дело уже сделано. */
   looksDone?: boolean;
+  /**
+   * Счётчик упёрся в потолок выборки: нашлось не «ровно 30», а «30 и, возможно,
+   * ещё». Поиск тянет ограниченную пачку, отдельного COUNT у него нет — писать
+   * «Нашёл 30» на сотне совпадений значит врать числом.
+   */
+  capped?: boolean;
   /** Кнопка «Нет, это новая задача»: код кнопки захвата из T-0005. */
   createAnywayCallback?: string;
   note?: string;
@@ -570,11 +583,12 @@ export function renderSearchCard(
   const now = options.now ?? new Date();
   const shown = items.slice(0, SEARCH_CARD_SIZE);
 
+  const found = options.capped ? `${options.total}+` : `${options.total}`;
   const head = options.looksDone
     ? "🔍 Похоже, задача уже сделана"
     : options.total > shown.length
-      ? `🔍 Нашёл ${options.total} — показываю ${shown.length}`
-      : `🔍 Нашёл ${options.total}`;
+      ? `🔍 Нашёл ${found} — показываю ${shown.length}`
+      : `🔍 Нашёл ${found}`;
 
   const lines = [head, ""];
   for (const item of shown) {
@@ -588,6 +602,14 @@ export function renderSearchCard(
     lines.push(`<i>${meta}</i>`);
   }
 
+  /*
+   * Нажатие «✓» заменяет весь список одной карточкой задачи, и остальные
+   * находки из сообщения пропадают. Это решение, а не недосмотр: правка уходит
+   * в то же сообщение (серия новых на каждый тап забивает чат), а чтобы после
+   * закрытия вернуть список, кнопка должна была бы нести в себе исходный
+   * запрос — в `callback_data` 64 байта, и они уже заняты идентификатором
+   * задачи. Список возвращается повторным вопросом, поэтому цена невелика.
+   */
   const rows: InlineButton[][] = [];
   for (const item of shown) {
     // Закрытой задаче кнопка «✓» не нужна: нажимать второй раз нечего.

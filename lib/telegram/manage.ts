@@ -118,7 +118,9 @@ export type ManageOutcome = {
 /**
  * Сколько живут кнопки. Инлайн-клавиатура не исчезает сама: без срока годности
  * нажатие на карточке месячной давности удалило бы задачу, о которой уже никто
- * не помнит. Неделя совпадает с TTL хендлов — за кнопками и так стоят они.
+ * не помнит. Неделя совпадает с `HANDLE_TTL_MINUTES` — за кнопками и так стоят
+ * хендлы. Ожидание ввода живёт отдельным, куда более коротким сроком: там между
+ * вопросом и ответом секунды, а не дни.
  */
 export const BUTTON_TTL_DAYS = 7;
 
@@ -453,7 +455,11 @@ export type SearchRequest = {
   createAnywayCallback?: string;
 };
 
-/** Сколько результатов тянем за раз: хватает и на страницы, и на счётчик. */
+/**
+ * Сколько результатов тянем за раз: хватает и на страницы, и на счётчик.
+ * Упёрлись в это число — счётчик в карточке становится «30+»: сколько там на
+ * самом деле, мы не знаем, а точное «30» на сотне совпадений было бы неправдой.
+ */
 export const SEARCH_FETCH_LIMIT = 30;
 
 /**
@@ -508,6 +514,7 @@ export async function runSearch(
     card: renderSearchCard(hits.map(toSearchItem), {
       query: request.query,
       total: hits.length,
+      capped: hits.length >= SEARCH_FETCH_LIMIT,
       page: 1,
       handleId,
       boardUrl: searchUrl(deps, request.query),
@@ -548,6 +555,7 @@ async function searchPage(
       card: renderSearchCard(hits.slice(0, SEARCH_CARD_SIZE).map(toSearchItem), {
         query,
         total: hits.length,
+        capped: hits.length >= SEARCH_FETCH_LIMIT,
         page: 1,
         handleId,
         boardUrl: searchUrl(deps, query),
@@ -562,6 +570,7 @@ async function searchPage(
     card: renderSearchCard(slice.map(toSearchItem), {
       query,
       total: hits.length,
+      capped: hits.length >= SEARCH_FETCH_LIMIT,
       page,
       handleId,
       boardUrl: searchUrl(deps, query),
