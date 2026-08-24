@@ -82,6 +82,16 @@ describe("вызовы Bot API", () => {
     expect(fetchFn).toHaveBeenCalledTimes(2);
   });
 
+  it("без дедлайна ждёт столько, сколько просит Telegram", async () => {
+    fetchFn
+      .mockResolvedValueOnce(fail(429, "Too Many Requests: retry after 300", 300))
+      .mockResolvedValueOnce(ok({ message_id: 1 }));
+
+    await client().sendMessage({ chatId: 42, text: "привет" });
+
+    expect(sleep).toHaveBeenCalledWith(300_000);
+  });
+
   it("на 5xx повторяет с паузой по умолчанию", async () => {
     fetchFn
       .mockResolvedValueOnce(fail(502, "Bad Gateway"))
@@ -202,5 +212,113 @@ describe("вызовы Bot API", () => {
 
     expect(fetchFn.mock.calls[0][0]).toBe("https://api.telegram.org/botenv-token/sendMessage");
     vi.unstubAllEnvs();
+  });
+});
+
+describe("дедлайн функции", () => {
+  /**
+   * Часы, которые двигает сам сон: в тестах sleep не спит, поэтому без такого
+   * счётчика остаток до дедлайна никогда бы не уменьшался — и проверка «второй
+   * раз ждать уже нечем» ничего бы не проверяла.
+   */
+  function fakeClock(startAt = 1_700_000_000_000) {
+    let current = startAt;
+    return {
+      now: () => current,
+      sleep: vi.fn(async (ms: number) => {
+        current += ms;
+      }),
+    };
+  }
+
+  const fetchFn = vi.fn();
+
+  function client(deadlineIn: number | undefined, clock: ReturnType<typeof fakeClock>) {
+    return createTelegramClient({
+      token: TOKEN,
+      fetchFn: fetchFn as unknown as typeof fetch,
+      sleep: clock.sleep as unknown as (ms: number) => Promise<void>,
+      now: clock.now,
+      deadlineAt: deadlineIn === undefined ? undefined : clock.now() + deadlineIn,
+    });
+  }
+
+  beforeEach(() => {
+    fetchFn.mockReset();
+  });
+
+  it("флуд-лимит длиннее остатка не усыпляет, а падает ошибкой с причиной", async () => {
+    const clock = fakeClock();
+    fetchFn.mockResolvedValue(fail(429, "Too Many Requests: retry after 300", 300));
+
+    const error = await client(20_000, clock)
+      .sendMessage({ chatId: 42, text: "привет" })
+      .catch((e: unknown) => e);
+
+    expect(error).toBeInstanceOf(TelegramApiError);
+    expect((error as TelegramApiError).status).toBe(429);
+    expect((error as TelegramApiError).retryAfter).toBe(300);
+    // Причина должна быть читаемой: сколько просили ждать и сколько оставалось.
+    expect((error as Error).message).toContain("300 с");
+    expect((error as Error).message).toContain("20 с");
+    expect(clock.sleep).not.toHaveBeenCalled();
+    // Ни одной лишней попытки: спать нечем, повторять бессмысленно.
+    expect(fetchFn).toHaveBeenCalledTimes(1);
+  });
+
+  it("флуд-лимит короче остатка ждётся как обычно", async () => {
+    const clock = fakeClock();
+    fetchFn
+      .mockResolvedValueOnce(fail(429, "Too Many Requests: retry after 7", 7))
+      .mockResolvedValueOnce(ok({ message_id: 1 }));
+
+    const result = await client(60_000, clock).sendMessage({ chatId: 42, text: "привет" });
+
+    expect(result).toEqual({ message_id: 1 });
+    expect(clock.sleep).toHaveBeenCalledWith(7000);
+    expect(fetchFn).toHaveBeenCalledTimes(2);
+  });
+
+  it("остаток считается от текущего момента: после сна ждать уже нечем", async () => {
+    const clock = fakeClock();
+    fetchFn
+      .mockResolvedValueOnce(fail(429, "Too Many Requests: retry after 12", 12))
+      .mockResolvedValueOnce(fail(429, "Too Many Requests: retry after 12", 12));
+
+    const error = await client(20_000, clock)
+      .sendMessage({ chatId: 42, text: "привет" })
+      .catch((e: unknown) => e);
+
+    // Первые 12 с в 20 с укладываются, вторые 12 — уже нет: сон съел остаток.
+    expect(clock.sleep).toHaveBeenCalledTimes(1);
+    expect(clock.sleep).toHaveBeenCalledWith(12_000);
+    expect(fetchFn).toHaveBeenCalledTimes(2);
+    expect((error as Error).message).toContain("8 с");
+  });
+
+  it("у самого дедлайна не спит даже секундную паузу после 5xx", async () => {
+    const clock = fakeClock();
+    fetchFn.mockResolvedValue(fail(502, "Bad Gateway"));
+
+    // Секунда паузы плюс запас на повторный запрос и отметку в журнале в 2,5 с
+    // не помещаются.
+    const error = await client(2500, clock)
+      .sendMessage({ chatId: 42, text: "привет" })
+      .catch((e: unknown) => e);
+
+    expect(error).toBeInstanceOf(TelegramApiError);
+    expect((error as TelegramApiError).status).toBe(502);
+    expect(clock.sleep).not.toHaveBeenCalled();
+    expect(fetchFn).toHaveBeenCalledTimes(1);
+  });
+
+  it("успешный запрос дедлайн не трогает", async () => {
+    const clock = fakeClock();
+    fetchFn.mockResolvedValue(ok({ message_id: 3 }));
+
+    const result = await client(1000, clock).sendMessage({ chatId: 42, text: "привет" });
+
+    expect(result).toEqual({ message_id: 3 });
+    expect(clock.sleep).not.toHaveBeenCalled();
   });
 });
