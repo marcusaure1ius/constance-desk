@@ -11,6 +11,7 @@
 - AI: Groq API (модель gpt-oss-20b) — парсинг задач через SmartInput
 - Auth: PIN-код через jose JWT, `proxy.ts` (Next.js 16) + проверка в API
 - Отчёты: @react-pdf/renderer (PDF), pptxgenjs (PPTX), recharts (графики)
+- Телеграм-бот: вебхук `app/api/telegram/webhook`, клиент Bot API `lib/telegram/client.ts` (разметка HTML, не MarkdownV2)
 
 ## Структура маршрутов
 - `app/(app)/(board)/page.tsx` — доска (route group для изоляции loading.tsx)
@@ -19,6 +20,7 @@
 - `app/(app)/settings/page.tsx` — настройки
 - `app/(auth)/login/page.tsx` — авторизация
 - `app/api/` — API routes: ai/{parse-tasks,transcribe}, auth, report, tasks/{,batch,[id]} (защита через `lib/api-auth.ts`)
+- `app/api/telegram/webhook` — вебхук бота: секрет в заголовке, вся логика в `lib/telegram/handle-update.ts` (в тестах `after()` не исполняется, поэтому роут — шим)
 
 ## Архитектура
 - **Server Actions** (`lib/actions/`) → **Services** (`lib/services/`) → **DB** (`lib/db/`)
@@ -42,6 +44,7 @@
 - `npm run db:generate` — сгенерировать миграции Drizzle
 - `npm run db:studio` — GUI Drizzle Studio
 - `npm run db:seed` — заполнить БД тестовыми данными
+- `npm run tg:webhook -- set <URL>` — поставить вебхук бота и команды меню; `info`, `commands`, `delete`
 
 ## Соглашения
 - Весь UI-текст и коммиты на русском

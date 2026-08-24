@@ -3,6 +3,8 @@ import {
   uuid,
   text,
   integer,
+  bigint,
+  jsonb,
   timestamp,
   date,
   pgEnum,
@@ -77,4 +79,29 @@ export const tasks = pgTable("tasks", {
   completedAt: timestamp("completed_at"),
   createdAt: timestamp("created_at").defaultNow().notNull(),
   updatedAt: timestamp("updated_at").defaultNow().notNull(),
+});
+
+/** Состояние обработки апдейта из Telegram. */
+export const tgUpdateStatusEnum = pgEnum("tg_update_status", [
+  "received",
+  "processed",
+  "failed",
+]);
+
+/**
+ * Входящие апдейты Telegram.
+ *
+ * Строка пишется ДО любой обработки: Telegram не повторит сообщение, если бот
+ * уже ответил 200, поэтому потерять сырой текст нельзя. update_id первичный
+ * ключ — на нём же держится дедуп повторной доставки.
+ */
+export const tgUpdates = pgTable("tg_updates", {
+  updateId: bigint("update_id", { mode: "number" }).primaryKey(),
+  chatId: bigint("chat_id", { mode: "number" }),
+  rawText: text("raw_text"),
+  payload: jsonb("payload").notNull(),
+  status: tgUpdateStatusEnum("status").notNull().default("received"),
+  error: text("error"),
+  createdAt: timestamp("created_at").defaultNow().notNull(),
+  processedAt: timestamp("processed_at"),
 });
