@@ -1,5 +1,5 @@
 import { db } from "@/lib/db";
-import { tasks, columns } from "@/lib/db/schema";
+import { tasks, columns, categories, environments } from "@/lib/db/schema";
 import { eq, and, or, asc, desc, max, inArray, isNull, gte, lt } from "drizzle-orm";
 
 export type CreateTaskInput = {
@@ -259,6 +259,114 @@ export async function moveTask(
       )
     );
   }
+}
+
+/**
+ * Закрыть задачу: последняя колонка своей среды и дата закрытия.
+ *
+ * Отдельной функцией, а не «поставить completedAt»: прогресс дорожки на доске
+ * считается по колонке, и задача с датой закрытия, оставшаяся в «Бэклоге»,
+ * выглядела бы невыполненной. Дату проставляет moveTask — там же, где она
+ * снимается при обратном переносе.
+ */
+export async function completeTask(id: string) {
+  const [current] = await db
+    .select({ columnId: tasks.columnId })
+    .from(tasks)
+    .where(eq(tasks.id, id));
+  if (!current) return null;
+
+  const envColumns = await environmentColumns(current.columnId);
+  const last = envColumns[envColumns.length - 1];
+  if (!last) return null;
+
+  if (last.id !== current.columnId) {
+    const [maxPos] = await db
+      .select({ max: max(tasks.position) })
+      .from(tasks)
+      .where(eq(tasks.columnId, last.id));
+    await moveTask(id, last.id, (maxPos?.max ?? -1) + 1);
+  } else {
+    // Задача уже в последней колонке, но без даты: так бывает у перенесённых
+    // руками. Двигать нечего, дату проставить всё равно надо.
+    await db
+      .update(tasks)
+      .set({ completedAt: new Date(), updatedAt: new Date() })
+      .where(eq(tasks.id, id));
+  }
+
+  const [task] = await db.select().from(tasks).where(eq(tasks.id, id));
+  return task ?? null;
+}
+
+/**
+ * Перенос задачи в другой проект.
+ *
+ * Задача попадает в ПЕРВУЮ колонку новой среды: колонки принадлежат среде, и
+ * «В работе» из одного проекта в другом не существует — сохранять положение
+ * не в чем. Эпик обнуляется по той же причине: `categories` тоже привязаны к
+ * среде, и ссылка на чужой эпик показывала бы на доске дорожку из другого
+ * проекта.
+ */
+export async function moveTaskToEnvironment(taskId: string, environmentId: string) {
+  const [first] = await db
+    .select({ id: columns.id })
+    .from(columns)
+    .where(eq(columns.environmentId, environmentId))
+    .orderBy(asc(columns.position))
+    .limit(1);
+  if (!first) return null;
+
+  await moveTaskToColumn(taskId, first.id);
+
+  const [task] = await db
+    .update(tasks)
+    .set({ categoryId: null, updatedAt: new Date() })
+    .where(eq(tasks.id, taskId))
+    .returning();
+  return task ?? null;
+}
+
+/**
+ * Перенос в колонку той же среды — в конец списка.
+ *
+ * Позицию вычисляем здесь, потому что у бота её взять негде: в приложении
+ * задачу тащат мышью в конкретное место, а из кнопки «Колонка» приходит
+ * только колонка.
+ */
+export async function moveTaskToColumn(taskId: string, columnId: string) {
+  const [maxPos] = await db
+    .select({ max: max(tasks.position) })
+    .from(tasks)
+    .where(eq(tasks.columnId, columnId));
+
+  await moveTask(taskId, columnId, (maxPos?.max ?? -1) + 1);
+
+  const [task] = await db.select().from(tasks).where(eq(tasks.id, taskId));
+  return task ?? null;
+}
+
+/**
+ * Задача вместе с колонкой, средой и эпиком — всё, что рисует карточка бота.
+ *
+ * Одним запросом, а не четырьмя: карточка перерисовывается на каждое нажатие
+ * кнопки, и лишние обращения к базе здесь стоят задержки на глазах у человека.
+ */
+export async function getTaskDetails(id: string) {
+  const [row] = await db
+    .select({
+      task: tasks,
+      column: { id: columns.id, title: columns.title },
+      environment: { id: environments.id, name: environments.name },
+      epic: { id: categories.id, name: categories.name },
+    })
+    .from(tasks)
+    .innerJoin(columns, eq(tasks.columnId, columns.id))
+    .innerJoin(environments, eq(columns.environmentId, environments.id))
+    .leftJoin(categories, eq(tasks.categoryId, categories.id))
+    .where(eq(tasks.id, id));
+
+  return row ?? null;
 }
 
 export async function createTasksBatch(inputs: CreateTaskInput[]): Promise<typeof tasks.$inferSelect[]> {

@@ -245,6 +245,7 @@ describe("карточка ответа", () => {
       environmentName: "Работа",
       columnTitle: "Бэклог",
       tasks: [{ title: "заполнить итмо", priority: "normal" as const }],
+      questions: [],
       others: [],
       ...over,
     }) satisfies CaptureResult;

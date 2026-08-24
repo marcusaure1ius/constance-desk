@@ -34,6 +34,9 @@ export type CreatedTask = {
   epic?: string;
 };
 
+/** Вопрос к доске: поисковый запрос и признак «дело уже сделано». */
+export type CaptureQuestion = { text: string; done?: boolean };
+
 export type CaptureDeps = {
   loadBoard: () => Promise<CaptureBoardData | null>;
   captureItems: (text: string, board: CaptureBoard) => Promise<CapturedItem[]>;
@@ -52,6 +55,12 @@ export type CaptureResult =
       environmentName: string;
       columnTitle: string;
       tasks: CreatedTask[];
+      /**
+       * Вопросы и рассказы о сделанном. Задачами они не становятся: их
+       * обрабатывает поиск — «ответил по вэду» обязано показать существующую
+       * задачу с кнопкой, а не завести вторую такую же.
+       */
+      questions: CaptureQuestion[];
       others: CapturedItem[];
       /** Часть задач не записалась: база отвалилась посреди списка. */
       warning?: string;
@@ -119,13 +128,19 @@ export async function captureMessage(
     warning = reasonOf(error);
   }
 
-  const others = items.filter((item) => item.kind !== "task");
+  const questions = items
+    .filter((item) => item.kind === "question")
+    .map((item) => ({ text: item.text, done: item.done }));
+  const others = items.filter(
+    (item) => item.kind !== "task" && item.kind !== "question"
+  );
 
   return {
     status: "captured",
     environmentName: board.environment.name,
     columnTitle: target.title,
     tasks,
+    questions,
     others,
     warning,
   };
@@ -156,6 +171,7 @@ export async function createTaskFromText(
     environmentName: board.environment.name,
     columnTitle: target.title,
     tasks: [{ title, priority: "normal" }],
+    questions: [],
     others: [],
   };
 }
@@ -301,6 +317,16 @@ export function renderCaptureCard(
 
   if (result.warning) {
     lines.push("", `⚠️ Часть задач сохранить не удалось: ${escapeHtml(result.warning)}`);
+  }
+
+  // Вопрос в сообщении с задачами: задачи созданы, а вопрос молча потерять
+  // нельзя — иначе человек решит, что бот его прочитал и что-то нашёл.
+  if (result.questions.length > 0 && tasks.length > 0) {
+    lines.push(
+      "",
+      `Про «${escapeHtml(truncate(result.questions[0].text, 80))}» ничего не менял — ` +
+        "спросите отдельным сообщением, покажу найденное с кнопками."
+    );
   }
 
   if (others.length > 0) {

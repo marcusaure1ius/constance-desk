@@ -31,6 +31,11 @@ export type TelegramVoice = {
 export type TelegramMessage = {
   message_id: number;
   date: number;
+  /**
+   * Момент последней правки. Карточка задачи живёт правками, поэтому срок
+   * годности кнопок считается по нему, а не только по дате отправки.
+   */
+  edit_date?: number;
   chat: TelegramChat;
   from?: TelegramUser;
   text?: string;
