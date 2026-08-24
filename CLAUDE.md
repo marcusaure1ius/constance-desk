@@ -35,8 +35,8 @@
 - Unit-тесты сервисов: `tests/{tasks,columns,categories,...}.test.ts`
 - **`npm test` — основной прогон: офлайн.** Файлы `*.integration.test.ts` исключены маской в `vitest.config.ts`, `fetch` заглушен через `tests/helpers/no-network.ts`, `GROQ_API_KEY` подменён пустым. Сетевой тест здесь падает с подсказкой: либо мокайте `fetch`, либо переносите файл в `*.integration.test.ts`. В CI — джоба `test`
 - **`npm run test:integration` — всё, что ходит наружу** (конфиг `vitest.integration.config.ts`, только `*.integration.test.ts`). Пропусков (`describe.skipIf`) там нет намеренно: без ключа или без базы прогон падает, а не зеленеет с нулём проверок
-  - `npm run test:integration:db` — тесты на настоящей БД (`tests/search.integration.test.ts`, `tests/tg-updates.integration.test.ts`). Берут `TEST_DATABASE_URL` (и только его, никогда `DATABASE_URL`), хост обязан быть локальным. В CI — шаг джобы `migrations`. Новый тест на настоящей БД дописывайте в этот скрипт
-  - `npm run test:integration:groq` — реальные запросы к Groq (`tests/groq.integration.test.ts`), нужен `GROQ_API_KEY`. В CI только вручную (джоба `groq-integration`, `workflow_dispatch`): у ключа квота, из-за неё `npm test` и падал по HTTP 429
+  - `npm run test:integration:db` — тесты на настоящей БД. Набор задан **вычитанием** (`--exclude` живого Groq), а не списком файлов: новый `*.integration.test.ts` попадает в CI сам, а переименование файла не сужает прогон молча. Берут `TEST_DATABASE_URL` (и только его, никогда `DATABASE_URL`), хост обязан быть локальным. В CI — шаг джобы `migrations`
+  - `npm run test:integration:groq` — реальные запросы к Groq (`tests/groq.integration.test.ts`), нужен `GROQ_API_KEY`. В CI только вручную (джоба `groq-integration`, `workflow_dispatch`): у ключа квота, из-за неё `npm test` и падал по HTTP 429. Появится ещё один тест с живой сетью — допишите его в `--exclude` скрипта `:db`, иначе он уедет в джобу с базой
 - `tests/test-isolation.test.ts` сторожит эту схему: сломается, если из конфига убрать заглушку сети или подмену ключа
 
 ## Команды

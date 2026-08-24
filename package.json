@@ -17,7 +17,7 @@
     "test": "vitest run",
     "test:watch": "vitest",
     "test:integration": "vitest run --config vitest.integration.config.ts",
-    "test:integration:db": "npm run test:integration -- tests/search.integration.test.ts tests/tg-updates.integration.test.ts",
+    "test:integration:db": "npm run test:integration -- --exclude tests/groq.integration.test.ts",
     "test:integration:groq": "npm run test:integration -- tests/groq.integration.test.ts",
     "tg:webhook": "npx tsx scripts/telegram-webhook.ts"
   },

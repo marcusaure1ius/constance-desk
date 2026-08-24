@@ -9,9 +9,9 @@ import { loadEnv } from "vite";
 /** Файлы, которым нужен внешний мир: живой Groq или настоящая PostgreSQL. */
 export const INTEGRATION_TESTS = "tests/**/*.integration.test.ts";
 
-/** Алиас "@" на корень репозитория — оба прогона запускаются из корня. */
+/** Алиас "@" на корень репозитория: рядом с этим файлом, а не от cwd. */
 export function rootAlias() {
-  return { "@": path.resolve(process.cwd()) };
+  return { "@": path.resolve(__dirname) };
 }
 
 /** Настройки, одинаковые для обоих прогонов. */
