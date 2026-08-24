@@ -339,4 +339,15 @@ describe("защита тестовой базы", () => {
       assertLocalDatabase("postgresql://postgres:postgres@localhost:55455/constance_ci")
     ).not.toThrow();
   });
+
+  it("локальный authority с нелокальным ?host= тоже отвергается", async () => {
+    // Драйвер считает хостом параметр, а не authority: без этого строка
+    // «localhost + ?host=» пускала интеграционные тесты в чужую базу.
+    const { assertLocalDatabase } = await import("./helpers/test-db");
+    expect(() =>
+      assertLocalDatabase(
+        "postgresql://postgres:postgres@localhost:55455/constance_ci?host=ep-cool-name.eu-central-1.aws.neon.tech"
+      )
+    ).toThrow(/нелокальный хост/);
+  });
 });

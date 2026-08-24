@@ -429,6 +429,51 @@ describe("clampMessageText", () => {
     }
   });
 
+  it("на всей вложенности, что даёт наша разметка, теги дописываются целиком", () => {
+    // Запас под дописанные закрывающие теги — 32 символа, и урезать его молча
+    // нельзя: обрезанный пополам «</cod» Telegram встречает той же «can't
+    // parse entities», ради которой запас и заводился.
+    //
+    // Потолок запаса — четыре вложенных <code> (28 символов); пять дали бы 35,
+    // и последний тег срезался бы. Такой вложенности в проекте нет и взяться
+    // ей неоткуда: карточки строят только <b> и <i> и глубже двух не
+    // вкладываются (это проверяет «разметка карточки не вкладывается глубже
+    // двух тегов» в telegram-capture), а текст пользователя проходит
+    // escapeHtml — свой <code> он не вставит. Перебор держит границу целиком,
+    // а не одну удачную глубину.
+    for (const tag of ["b", "i", "u", "s", "code", "pre"]) {
+      for (let depth = 1; depth <= 4; depth++) {
+        const open = `<${tag}>`.repeat(depth);
+        const text = `${open}${"я".repeat(TELEGRAM_MESSAGE_LIMIT)}`;
+        const clamped = clampMessageText(text);
+        const where = `${tag} × ${depth}`;
+
+        expect(clamped.length, where).toBeLessThanOrEqual(TELEGRAM_MESSAGE_LIMIT);
+        expect(clamped, where).not.toMatch(/<[^>]*$/);
+        expect(countOf(clamped, `<${tag}>`), where).toBe(countOf(clamped, `</${tag}>`));
+        expect(clamped.endsWith(`${`</${tag}>`.repeat(depth)}…`), where).toBe(true);
+      }
+    }
+  });
+
+  it("разные вложенные теги закрываются в обратном порядке", () => {
+    // Telegram читает разметку стеком: «</b></i>» вместо «</i></b>» — та же
+    // «can't parse entities», ради которой теги и дописываются.
+    for (const [outer, inner] of [
+      ["b", "i"],
+      ["i", "b"],
+      ["b", "code"],
+      ["pre", "s"],
+    ]) {
+      const clamped = clampMessageText(
+        `<${outer}><${inner}>${"я".repeat(TELEGRAM_MESSAGE_LIMIT)}`
+      );
+
+      expect(clamped.endsWith(`</${inner}></${outer}>…`), `${outer} → ${inner}`).toBe(true);
+      expect(clamped.length, `${outer} → ${inner}`).toBeLessThanOrEqual(TELEGRAM_MESSAGE_LIMIT);
+    }
+  });
+
   it("короткий текст возвращается как есть", () => {
     expect(clampMessageText("привет")).toBe("привет");
   });
