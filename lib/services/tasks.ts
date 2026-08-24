@@ -14,7 +14,11 @@ export type CreateTaskInput = {
 
 export const ARCHIVE_AFTER_DAYS = 30;
 
-function archiveCutoff(): Date {
+/**
+ * Граница архива: задачи, выполненные раньше неё, в обычные выдачи не попадают.
+ * Экспортируется, чтобы поиск считал архив по тому же порогу, что и доска.
+ */
+export function archiveCutoff(): Date {
   const d = new Date();
   d.setDate(d.getDate() - ARCHIVE_AFTER_DAYS);
   return d;

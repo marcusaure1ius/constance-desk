@@ -32,6 +32,7 @@
 - Расположение: `tests/` (не `__tests__/`)
 - Unit-тесты сервисов: `tests/{tasks,columns,categories,...}.test.ts`
 - Интеграционные тесты: `tests/groq.integration.test.ts` (реальные API-запросы)
+- Тесты на настоящей БД: `tests/search.integration.test.ts` — берут `TEST_DATABASE_URL` (и только его, никогда `DATABASE_URL`), хост обязан быть локальным. В CI гоняются в джобе `migrations`
 
 ## Команды
 - `npm run dev` — dev-сервер

@@ -126,6 +126,14 @@ jobs:
       - name: Проверить идемпотентность
         run: npm run db:migrate
 
+      # Поиск проверяется на настоящей базе: регистронезависимость, экранирование
+      # шаблона LIKE и порядок страниц выполняет PostgreSQL, а не наш код, —
+      # на моках drizzle такие тесты были бы бутафорией.
+      - name: Интеграционные тесты поиска
+        env:
+          TEST_DATABASE_URL: postgresql://postgres:postgres@localhost:5432/constance_ci
+        run: npm test -- tests/search.integration.test.ts
+
       # Схема не разошлась с миграциями: если schema.ts изменили без
       # db:generate, здесь появится новый файл и джоба упадёт.
       - name: Проверить, что схема покрыта миграциями
