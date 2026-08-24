@@ -11,10 +11,6 @@ import * as schema from "@/lib/db/schema";
  */
 const LOCAL_HOSTS = new Set(["localhost", "127.0.0.1", "::1", "postgres", "db"]);
 
-export function hasTestDatabase(): boolean {
-  return Boolean(process.env.TEST_DATABASE_URL);
-}
-
 export function assertLocalDatabase(url: string): void {
   const host = new URL(url).hostname.replace(/^\[|\]$/g, "");
   if (!LOCAL_HOSTS.has(host)) {
@@ -32,7 +28,12 @@ export function createTestDb() {
   if (testDb) return testDb;
 
   const url = process.env.TEST_DATABASE_URL;
-  if (!url) throw new Error("TEST_DATABASE_URL не задан");
+  if (!url) {
+    throw new Error(
+      "TEST_DATABASE_URL не задан — интеграционным тестам нужна настоящая локальная PostgreSQL. " +
+        "Запуск: TEST_DATABASE_URL=postgresql://... npm run test:integration:db"
+    );
+  }
   assertLocalDatabase(url);
 
   pool = new Pool({ connectionString: url });

@@ -1,20 +1,25 @@
 import { describe, it, expect, beforeAll, afterAll, vi } from "vitest";
 import { inArray } from "drizzle-orm";
-import { hasTestDatabase } from "./helpers/test-db";
 
 /*
  * Интеграционные тесты поиска — настоящие SQL-запросы к PostgreSQL.
  * На моках drizzle их проверить нельзя: регистронезависимость, экранирование
  * шаблона и порядок страниц выполняет сама база, а не наш код.
  *
+ * В основной прогон (npm test) не попадают: файлы *.integration.test.ts
+ * исключены маской в vitest.config.ts.
+ *
  * Запуск: TEST_DATABASE_URL=postgresql://postgres:postgres@localhost:55455/constance_ci \
- *   npm test -- tests/search.integration.test.ts
+ *   npm run test:integration:db
  * Схему в базу накатывает npm run db:migrate (в CI — джоба migrations).
  */
 
+// Пропуска (describe.skipIf) здесь намеренно нет: без базы прогон был бы зелёным,
+// не проверив ничего. Без TEST_DATABASE_URL createTestDb падает — и файл падает
+// вместе с ним, так что «зелёный» значит «проверено».
 vi.mock("@/lib/db", async () => {
-  const { createTestDb, hasTestDatabase: has } = await import("./helpers/test-db");
-  return { db: has() ? createTestDb() : ({} as never) };
+  const { createTestDb } = await import("./helpers/test-db");
+  return { db: createTestDb() };
 });
 
 import { searchAll, searchTasks } from "@/lib/services/search";
@@ -29,7 +34,7 @@ const daysAgo = (days: number) => {
 
 const ids: Record<string, string> = {};
 
-describe.skipIf(!hasTestDatabase())("поиск по настоящей базе", () => {
+describe("поиск по настоящей базе", () => {
   beforeAll(async () => {
     const db = createTestDb();
 
