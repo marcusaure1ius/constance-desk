@@ -8,7 +8,7 @@ import { useVoiceRecorder } from "./voice-recorder";
 import { TaskPreview } from "./task-preview";
 import { createTasksBatchAction } from "@/lib/actions/tasks";
 import { parseTasksAction } from "@/lib/actions/smart-input";
-import type { ParsedTask } from "@/lib/services/groq";
+import type { ParsedTask } from "@/lib/llm/parse-tasks";
 
 const WAVEFORM_BARS = Array.from({ length: 14 }, () => ({
   height: 8 + Math.random() * 20,

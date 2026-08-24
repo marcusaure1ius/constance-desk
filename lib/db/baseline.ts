@@ -12,6 +12,10 @@
  *   npm run db:baseline            — показать, что будет сделано (read-only)
  *   npm run db:baseline -- --apply — записать в журнал
  *
+ * Запись в нелокальную базу требует ещё и флага `--i-know-its-production`:
+ * отметка боевого журнала необратима, а `DATABASE_URL` из `.env.local` смотрит
+ * именно туда. Барьер срабатывает до подключения — см. `lib/db/db-host.ts`.
+ *
  * Хеш и метка времени считаются ровно так же, как в drizzle-orm
  * (node_modules/drizzle-orm/migrator.js): sha256 содержимого .sql-файла и
  * поле `when` из meta/_journal.json. Мигратор сравнивает по `created_at`,
@@ -24,6 +28,7 @@ import crypto from "node:crypto";
 import fs from "node:fs";
 import path from "node:path";
 import { Client } from "pg";
+import { REMOTE_CONFIRM_FLAG, assertWriteAllowed, databaseHost } from "./db-host";
 
 type JournalEntry = { idx: number; when: number; tag: string };
 
@@ -40,9 +45,24 @@ export function migrationHash(tag: string, dir: string = MIGRATIONS_DIR): string
   return crypto.createHash("sha256").update(sql).digest("hex");
 }
 
-export async function baseline(apply: boolean) {
+export async function baseline(apply: boolean, confirmed = false) {
   const url = process.env.DATABASE_URL;
   if (!url) throw new Error("DATABASE_URL не задан");
+
+  // Хост печатается до любого обращения к базе: «куда именно» должно быть
+  // видно раньше, чем туда что-то ушло.
+  console.log(`База: ${databaseHost(url)}`);
+
+  // Барьер тоже до подключения — иначе он не барьер, а отчёт о случившемся.
+  // Предпросмотра он не касается: тот строго read-only и по проду законен.
+  if (apply) {
+    assertWriteAllowed(url, {
+      confirmed,
+      command: "npm run db:baseline -- --apply",
+      // npm уже съел один `--`, второй в примере был бы лишним.
+      confirmExample: `npm run db:baseline -- --apply ${REMOTE_CONFIRM_FLAG}`,
+    });
+  }
 
   const entries = readJournal();
   const client = new Client({ connectionString: url });
@@ -107,7 +127,10 @@ export async function baseline(apply: boolean) {
 }
 
 if (process.argv[1]?.endsWith("baseline.ts")) {
-  baseline(process.argv.includes("--apply")).catch((e) => {
+  baseline(
+    process.argv.includes("--apply"),
+    process.argv.includes(REMOTE_CONFIRM_FLAG)
+  ).catch((e) => {
     console.error(e instanceof Error ? e.message : e);
     process.exit(1);
   });

@@ -1,8 +1,10 @@
 import { describe, it, expect, vi, beforeEach } from "vitest";
 import {
+  clampMessageText,
   createTelegramClient,
   escapeHtml,
   TelegramApiError,
+  TELEGRAM_MESSAGE_LIMIT,
 } from "@/lib/telegram/client";
 
 const TOKEN = "123:TEST";
@@ -322,3 +324,98 @@ describe("дедлайн функции", () => {
     expect(clock.sleep).not.toHaveBeenCalled();
   });
 });
+
+/**
+ * Страховка на длину. 400 «message is too long» клиент не ретраит (это не 429)
+ * и не понижает до plain text (это не «can't parse entities») — он выходил
+ * наружу исключением, и пользователь не получал ничего.
+ */
+describe("лимит длины сообщения", () => {
+  let fetchFn: ReturnType<typeof vi.fn>;
+
+  const client = () =>
+    createTelegramClient({
+      token: TOKEN,
+      fetchFn: fetchFn as unknown as typeof fetch,
+      sleep: vi.fn().mockResolvedValue(undefined) as unknown as (ms: number) => Promise<void>,
+    });
+
+  beforeEach(() => {
+    fetchFn = vi.fn().mockResolvedValue(ok({ message_id: 1 }));
+  });
+
+  it("текст длиннее лимита обрезается перед отправкой, а не роняет запрос", async () => {
+    const long = "сходить к суровцеву ".repeat(400);
+    expect(long.length).toBeGreaterThan(TELEGRAM_MESSAGE_LIMIT);
+
+    await client().sendMessage({ chatId: 42, text: long });
+
+    const sent = bodyOf(fetchFn.mock.calls[0]).text as string;
+    expect(sent.length).toBeLessThanOrEqual(TELEGRAM_MESSAGE_LIMIT);
+    expect(sent.endsWith("…")).toBe(true);
+    expect(sent.startsWith("сходить к суровцеву")).toBe(true);
+  });
+
+  it("editMessageText обрезается так же", async () => {
+    await client().editMessageText({
+      chatId: 42,
+      messageId: 7,
+      text: "и".repeat(TELEGRAM_MESSAGE_LIMIT + 500),
+    });
+
+    const sent = bodyOf(fetchFn.mock.calls[0]).text as string;
+    expect(sent.length).toBeLessThanOrEqual(TELEGRAM_MESSAGE_LIMIT);
+  });
+
+  it("текст в пределах лимита не трогается", async () => {
+    const exact = "я".repeat(TELEGRAM_MESSAGE_LIMIT);
+    await client().sendMessage({ chatId: 42, text: exact });
+
+    expect(bodyOf(fetchFn.mock.calls[0]).text).toBe(exact);
+  });
+});
+
+describe("clampMessageText", () => {
+  it("закрывает теги, оставшиеся открытыми после обрезки", () => {
+    const clamped = clampMessageText(`<b>${"я".repeat(TELEGRAM_MESSAGE_LIMIT)}</b>`);
+
+    expect(clamped.length).toBeLessThanOrEqual(TELEGRAM_MESSAGE_LIMIT);
+    expect(clamped.endsWith("</b>…")).toBe(true);
+    // Незакрытый <b> Telegram отвергает с «can't parse entities», и сообщение
+    // уходит без разметки — с тегами в виде текста.
+    expect(countOf(clamped, "<b>")).toBe(countOf(clamped, "</b>"));
+  });
+
+  it("не разрезает тег пополам — где бы ни пришлась граница", () => {
+    // Перебор смещений вместо одного «удачного»: так тест не зависит от того,
+    // сколько именно клиент резервирует под закрывающие теги, и обязательно
+    // накрывает случай, когда граница приходится внутрь «<b>».
+    const limit = 60;
+
+    for (let offset = 0; offset <= 40; offset++) {
+      const text = `${"a".repeat(offset)}<b>жирный</b>${"x".repeat(200)}`;
+      const clamped = clampMessageText(text, limit);
+
+      expect(clamped.length).toBeLessThanOrEqual(limit);
+      // Незакрытая «<» в конце — разрезанный пополам тег.
+      expect(clamped).not.toMatch(/<[^>]*$/);
+    }
+  });
+
+  it("не разрезает суррогатную пару пополам", () => {
+    const clamped = clampMessageText("😀".repeat(TELEGRAM_MESSAGE_LIMIT));
+
+    expect(clamped.length).toBeLessThanOrEqual(TELEGRAM_MESSAGE_LIMIT);
+    // Одинокая половинка пары — «битый» символ вместо эмодзи.
+    expect(clamped).not.toMatch(/[\uD800-\uDBFF](?![\uDC00-\uDFFF])/);
+    expect(clamped).not.toMatch(/(?<![\uD800-\uDBFF])[\uDC00-\uDFFF]/);
+  });
+
+  it("короткий текст возвращается как есть", () => {
+    expect(clampMessageText("привет")).toBe("привет");
+  });
+});
+
+function countOf(text: string, needle: string): number {
+  return text.split(needle).length - 1;
+}

@@ -8,10 +8,10 @@
 - DB: Drizzle ORM + Neon PostgreSQL
 - Тесты: vitest
 - DnD: @hello-pangea/dnd
-- AI: Groq API (модель gpt-oss-20b) — парсинг задач через SmartInput
+- AI: `lib/llm/` — общий OpenAI-совместимый клиент (`client.ts`), Groq первым и OpenRouter вторым при 429. Захват из телеграма — `capture.ts` (gpt-oss-120b), веб-форма SmartInput — `parse-tasks.ts` (gpt-oss-20b), голос — `transcribe.ts` (whisper, только Groq)
 - Auth: PIN-код через jose JWT, `proxy.ts` (Next.js 16) + проверка в API
 - Отчёты: @react-pdf/renderer (PDF), pptxgenjs (PPTX), recharts (графики)
-- Телеграм-бот: вебхук `app/api/telegram/webhook`, клиент Bot API `lib/telegram/client.ts` (разметка HTML, не MarkdownV2)
+- Телеграм-бот: вебхук `app/api/telegram/webhook`, клиент Bot API `lib/telegram/client.ts` (разметка HTML, не MarkdownV2). Захват сообщения в задачи — `lib/telegram/capture.ts`
 
 ## Структура маршрутов
 - `app/(app)/(board)/page.tsx` — доска (route group для изоляции loading.tsx)
@@ -29,6 +29,7 @@
 - Схема БД: `lib/db/schema.ts` — environments → columns → tasks, categories
 - Активная среда хранится в cookie (`lib/environment.ts`)
 - Инструменты агентов: единый реестр `lib/agent/tools.ts` (`defineTool` из `lib/agent/tool-registry.ts`, флаги `surfaces` и `mutation`). MCP-роут и бот перебирают реестр — инлайн-определений инструментов в роутах быть не должно
+- Захват из телеграма: сообщение → `lib/llm/capture.ts` (один вызов модели, список типизированных элементов) → `lib/telegram/capture.ts` (элементы `task` в первую колонку активной среды, карточка ответа). Формулировка автора не переписывается: снимаются только «Надо/Нужно» в начале и `@упоминания`, перевод на английский откатывается к словам автора
 
 ## Тесты
 - Расположение: `tests/` (не `__tests__/`)
@@ -44,11 +45,20 @@
 - `npm run build` — билд
 - `npm test` — vitest run (офлайн, без интеграционных)
 - `npm run test:integration` — интеграционные (`:db` — на настоящей БД, `:groq` — живой Groq)
-- `npm run db:push` — применить схему к БД
+- `npm run db:push` / `db:migrate` — применить схему / миграции к БД
 - `npm run db:generate` — сгенерировать миграции Drizzle
+- `npm run db:drift` — проверить, что схема покрыта миграциями (тот же шаг, что в CI)
 - `npm run db:studio` — GUI Drizzle Studio
 - `npm run db:seed` — заполнить БД тестовыми данными
 - `npm run tg:webhook -- set <URL>` — поставить вебхук бота и команды меню; `info`, `commands`, `delete`
+
+## Команды по базе целятся в прод по умолчанию
+`drizzle.config.ts` подтягивает `.env.local`, где боевой Neon-URL. Поэтому
+`db:migrate`, `db:push` и `db:baseline --apply` проходят через барьер
+`lib/db/db-host.ts`: нелокальный хост требует флага `--i-know-its-production`
+и печатается перед запуском. Локальность считается там же — не пишите вторую
+копию проверки (её уже приходилось чинить из-за `LOCALHOST` в верхнем регистре:
+для схемы `postgresql:` `new URL()` регистр хоста не понижает).
 
 ## Соглашения
 - Весь UI-текст и коммиты на русском

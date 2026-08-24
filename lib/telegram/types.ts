@@ -19,6 +19,15 @@ export type TelegramUser = {
   username?: string;
 };
 
+/** Голосовое сообщение. Bot API отдаёт ogg/opus, длительность — в секундах. */
+export type TelegramVoice = {
+  file_id: string;
+  file_unique_id: string;
+  duration: number;
+  mime_type?: string;
+  file_size?: number;
+};
+
 export type TelegramMessage = {
   message_id: number;
   date: number;
@@ -26,6 +35,7 @@ export type TelegramMessage = {
   from?: TelegramUser;
   text?: string;
   caption?: string;
+  voice?: TelegramVoice;
 };
 
 export type TelegramCallbackQuery = {
