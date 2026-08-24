@@ -28,7 +28,7 @@ import crypto from "node:crypto";
 import fs from "node:fs";
 import path from "node:path";
 import { Client } from "pg";
-import { REMOTE_CONFIRM_FLAG, assertWriteAllowed, databaseHost } from "./db-host";
+import { REMOTE_CONFIRM_FLAG, assertWriteAllowed, databaseEndpoint } from "./db-host";
 
 type JournalEntry = { idx: number; when: number; tag: string };
 
@@ -50,8 +50,9 @@ export async function baseline(apply: boolean, confirmed = false) {
   if (!url) throw new Error("DATABASE_URL не задан");
 
   // Хост печатается до любого обращения к базе: «куда именно» должно быть
-  // видно раньше, чем туда что-то ушло.
-  console.log(`База: ${databaseHost(url)}`);
+  // видно раньше, чем туда что-то ушло. Хост и порт — те, по которым пойдёт
+  // соединение: их может задавать не authority, а `?host=`/`?port=`.
+  console.log(`База: ${databaseEndpoint(url)}`);
 
   // Барьер тоже до подключения — иначе он не барьер, а отчёт о случившемся.
   // Предпросмотра он не касается: тот строго read-only и по проду законен.
