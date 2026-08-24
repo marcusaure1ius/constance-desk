@@ -1,5 +1,6 @@
 import { describe, it, expect, vi } from "vitest";
 import type { CapturedItem } from "@/lib/llm/capture";
+import { TELEGRAM_MESSAGE_LIMIT } from "@/lib/telegram/client";
 import {
   captureCallback,
   captureMessage,
@@ -318,6 +319,57 @@ describe("карточка ответа", () => {
   it("расшифровка голосового показывается над карточкой", () => {
     const card = renderCaptureCard(captured(), { updateId: 1, transcript: "заполнить итмо" });
     expect(card.text.startsWith("🎤 <i>заполнить итмо</i>")).toBe(true);
+  });
+
+  it("длинная расшифровка не выносит карточку за лимит Telegram", () => {
+    // Голосовое на 4-5 минут — штатный случай. Telegram на текст длиннее 4096
+    // отвечает 400 «message is too long»: это не 429 и не «can't parse
+    // entities», поэтому sendMessage бросал, и пользователь не получал ничего,
+    // хотя задачи уже лежали на доске.
+    const transcript = "сходить к суровцеву и заполнить итмо ".repeat(150);
+    expect(transcript.length).toBeGreaterThan(TELEGRAM_MESSAGE_LIMIT);
+
+    const card = renderCaptureCard(
+      captured({
+        tasks: [
+          { title: "Сходить к суровцеву", priority: "normal" },
+          { title: "заполнить итмо", priority: "normal" },
+          { title: "ответить по вэду", priority: "normal" },
+        ],
+      }),
+      { updateId: 1, transcript }
+    );
+
+    expect(card.text.length).toBeLessThanOrEqual(TELEGRAM_MESSAGE_LIMIT);
+    // Режется расшифровка, а не подтверждение: список созданных задач — то,
+    // ради чего пользователь на карточку и смотрит.
+    expect(card.text).toContain("3 задачи");
+    expect(card.text).toContain("ответить по вэду");
+    expect(card.text).toContain("…");
+  });
+
+  it("гигантский заголовок подрезается в карточке (в задаче он остаётся целым)", () => {
+    const title = "заполнить итмо ".repeat(400);
+    const card = renderCaptureCard(
+      captured({ tasks: [{ title, priority: "normal" }] }),
+      { updateId: 1 }
+    );
+
+    expect(card.text.length).toBeLessThanOrEqual(TELEGRAM_MESSAGE_LIMIT);
+    expect(card.text).toContain("заполнить итмо");
+  });
+
+  it("много задач: карточка в лимите и честно говорит, сколько не показала", () => {
+    const tasks = Array.from({ length: 40 }, (_, i) => ({
+      title: `задача номер ${i + 1} с довольно длинным названием про вэд и итмо`,
+      priority: "normal" as const,
+    }));
+
+    const card = renderCaptureCard(captured({ tasks }), { updateId: 1 });
+
+    expect(card.text.length).toBeLessThanOrEqual(TELEGRAM_MESSAGE_LIMIT);
+    expect(card.text).toContain("40 задач");
+    expect(card.text).toMatch(/ещё \d+/);
   });
 
   it("частичная запись честно помечается предупреждением", () => {

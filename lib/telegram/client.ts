@@ -15,6 +15,70 @@ import type {
 
 const API_ORIGIN = "https://api.telegram.org";
 
+/** Потолок Bot API на текст сообщения. Больше — 400 «message is too long». */
+export const TELEGRAM_MESSAGE_LIMIT = 4096;
+
+const ELLIPSIS = "…";
+
+/**
+ * Запас под закрывающие теги, дописанные после обрезки. Наша разметка глубже
+ * `<b><i>` не вкладывается, восьми символов хватает с большим избытком.
+ */
+const CLOSERS_RESERVE = 32;
+
+/** Теги, которыми пользуются карточки. Разметка у нас своя, чужой здесь нет. */
+const MARKUP_TAG = /<(\/?)(b|i|u|s|code|pre)>/g;
+
+/**
+ * Обрезает текст до лимита Telegram.
+ *
+ * Страховка на весь исходящий трафик, а не только на карточку захвата: 400
+ * «message is too long» — не 429 и не «can't parse entities», клиент его не
+ * ретраит и не понижает до plain text, поэтому наружу он выходил исключением, и
+ * пользователь не получал ничего. Обрезать текст лучше, чем промолчать.
+ *
+ * Осмысленная обрезка — дело вызывающего: только он знает, что в сообщении
+ * важнее (карточка захвата режет расшифровку, а не список созданных задач).
+ * Здесь же — тупой предел, чтобы отправка не падала никогда.
+ */
+export function clampMessageText(text: string, limit = TELEGRAM_MESSAGE_LIMIT): string {
+  if (text.length <= limit) return text;
+
+  let cut = limit - ELLIPSIS.length - CLOSERS_RESERVE;
+
+  // Тег, разрезанный пополам («<b» без «>»), Telegram не понимает.
+  const lastOpen = text.lastIndexOf("<", cut - 1);
+  const lastClose = text.lastIndexOf(">", cut - 1);
+  if (lastOpen > lastClose) cut = lastOpen;
+
+  // Половина суррогатной пары — битый символ вместо эмодзи.
+  const code = text.charCodeAt(cut - 1);
+  if (code >= 0xd800 && code <= 0xdbff) cut -= 1;
+
+  const head = text.slice(0, cut);
+  return head + danglingClosers(head).slice(0, CLOSERS_RESERVE) + ELLIPSIS;
+}
+
+/** Закрывающие теги для всех, что остались открытыми после обрезки. */
+function danglingClosers(text: string): string {
+  const open: string[] = [];
+
+  for (const match of text.matchAll(MARKUP_TAG)) {
+    const [, slash, tag] = match;
+    if (slash) {
+      const index = open.lastIndexOf(tag);
+      if (index !== -1) open.splice(index, 1);
+    } else {
+      open.push(tag);
+    }
+  }
+
+  return open
+    .reverse()
+    .map((tag) => `</${tag}>`)
+    .join("");
+}
+
 /** Ошибка Bot API: не-2xx или ok: false. */
 export class TelegramApiError extends Error {
   constructor(
@@ -136,7 +200,7 @@ export function createTelegramClient(options: TelegramClientOptions = {}) {
   async function sendMessage(input: SendMessageInput): Promise<TelegramMessage> {
     const payload = {
       chat_id: input.chatId,
-      text: input.text,
+      text: clampMessageText(input.text),
       reply_markup: input.replyMarkup,
       link_preview_options: input.disableWebPagePreview ? { is_disabled: true } : undefined,
     };
@@ -156,7 +220,7 @@ export function createTelegramClient(options: TelegramClientOptions = {}) {
     const payload = {
       chat_id: input.chatId,
       message_id: input.messageId,
-      text: input.text,
+      text: clampMessageText(input.text),
       reply_markup: input.replyMarkup,
     };
 

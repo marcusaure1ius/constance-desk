@@ -177,6 +177,31 @@ describe("sanitizeTitle", () => {
     expect(sanitizeTitle("Спросить @ivan_petrov про сроки")).toBe("Спросить про сроки");
   });
 
+  it("почта — не @упоминание: адрес остаётся целым", () => {
+    // Регулярка упоминаний без границы слева съедала домен и оставляла
+    // «Отправить отчёт на pochta .ru» — это порча данных пользователя.
+    expect(sanitizeTitle("Отправить отчёт на pochta@vshe.ru")).toBe(
+      "Отправить отчёт на pochta@vshe.ru"
+    );
+    expect(sanitizeTitle("написать ivan@company.com про кку")).toBe(
+      "написать ivan@company.com про кку"
+    );
+    expect(sanitizeTitle("счёт на ivan.petrov+vshe@mail.example.ru")).toBe(
+      "счёт на ivan.petrov+vshe@mail.example.ru"
+    );
+  });
+
+  it("упоминание рядом с почтой снимается, а адрес нет", () => {
+    expect(sanitizeTitle("Спросить @ivan_petrov про счёт на pochta@vshe.ru")).toBe(
+      "Спросить про счёт на pochta@vshe.ru"
+    );
+  });
+
+  it("упоминание снимается в любой позиции строки", () => {
+    expect(sanitizeTitle("@ivan_petrov просил слайды")).toBe("просил слайды");
+    expect(sanitizeTitle("слайды (@ivan_petrov) до среды")).toBe("слайды () до среды");
+  });
+
   it("жаргон и регистр остаются как есть", () => {
     expect(sanitizeTitle("заполнить итмо, вэду и mcp")).toBe("заполнить итмо, вэду и mcp");
   });

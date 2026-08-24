@@ -377,6 +377,22 @@ describe("захват голосового", () => {
     expect(captureItems).toHaveBeenCalledWith("Сходить к суровцеву", expect.anything());
   });
 
+  it("длинная расшифровка не мешает ответить: карточка уходит в лимите", async () => {
+    // Раньше карточка на 5000+ символов получала от Telegram 400 «too long»,
+    // sendMessage бросал, апдейт помечался failed — и пользователь не узнавал,
+    // что задачи уже созданы.
+    const { deps, sendMessage, createTask } = makeDeps({
+      transcribe: vi.fn().mockResolvedValue("сходить к суровцеву и заполнить итмо ".repeat(150)),
+    });
+
+    const result = await handleUpdate(voiceUpdate(), CHAT, deps);
+
+    expect(result).toEqual({ status: "processed", action: "voice" });
+    expect(createTask).toHaveBeenCalledTimes(1);
+    expect(lastText(sendMessage).length).toBeLessThanOrEqual(4096);
+    expect(lastText(sendMessage)).toContain("заполнить итмо");
+  });
+
   it("голосовое больше лимита Telegram даже не качается", async () => {
     const { deps, getFile, downloadFile, sendMessage, markFailed } = makeDeps();
 

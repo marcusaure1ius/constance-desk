@@ -213,6 +213,21 @@ const KIND_LABEL: Record<CapturedItem["kind"], string> = {
 
 export type CaptureCard = { text: string; replyMarkup?: InlineKeyboard };
 
+/*
+ * Пределы карточки. В сообщение Telegram влезает 4096 символов, и решать, чем
+ * жертвовать, обязана карточка: расшифровка стоит первой строкой, а
+ * подтверждение созданных задач — последней, поэтому слепая обрезка с хвоста
+ * (она есть в клиенте как страховка) выкинула бы ровно то, ради чего
+ * пользователь сообщение и слал.
+ */
+
+/** Расшифровка голосового: показываем начало, целиком она нужна редко. */
+const TRANSCRIPT_LIMIT = 600;
+/** Заголовок в карточке. В самой задаче он сохраняется целиком. */
+const TITLE_LIMIT = 200;
+/** Сколько задач перечислять поимённо; остальные считаются числом. */
+const MAX_LISTED_TASKS = 15;
+
 /**
  * Карточка ответа. Первая строка — подтверждение: её видно в списке чатов, не
  * открывая бота, и по ней сразу понятно, сработало или нет.
@@ -222,7 +237,7 @@ export function renderCaptureCard(
   options: { updateId: number; transcript?: string }
 ): CaptureCard {
   const prefix = options.transcript
-    ? `🎤 <i>${escapeHtml(options.transcript)}</i>\n\n`
+    ? `🎤 <i>${escapeHtml(truncate(options.transcript, TRANSCRIPT_LIMIT))}</i>\n\n`
     : "";
 
   if (result.status === "no_board") {
@@ -263,16 +278,25 @@ export function renderCaptureCard(
     lines.push(
       `✅ Задача · ${escapeHtml(result.environmentName)} · ${escapeHtml(result.columnTitle)}`,
       "",
-      `<b>${escapeHtml(tasks[0].title)}</b>${details(tasks[0])}`
+      `<b>${escapeHtml(truncate(tasks[0].title, TITLE_LIMIT))}</b>${details(tasks[0])}`
     );
   } else {
     lines.push(
       `✅ ${tasks.length} ${plural(tasks.length, ["задача", "задачи", "задач"])} · ${escapeHtml(result.environmentName)} · ${escapeHtml(result.columnTitle)}`,
       ""
     );
-    tasks.forEach((task, index) => {
-      lines.push(`${index + 1}. <b>${escapeHtml(task.title)}</b>${details(task)}`);
+    tasks.slice(0, MAX_LISTED_TASKS).forEach((task, index) => {
+      lines.push(
+        `${index + 1}. <b>${escapeHtml(truncate(task.title, TITLE_LIMIT))}</b>${details(task)}`
+      );
     });
+
+    // Задачи созданы все до одной, поэтому про скрытые говорим вслух: молчание
+    // выглядело бы как «остальные потерялись».
+    const hidden = tasks.length - MAX_LISTED_TASKS;
+    if (hidden > 0) {
+      lines.push(`…и ещё ${hidden} ${plural(hidden, ["задача", "задачи", "задач"])} — все на доске`);
+    }
   }
 
   if (result.warning) {
