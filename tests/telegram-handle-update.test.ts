@@ -3,13 +3,15 @@ import {
   allowedChatIdFromEnv,
   handleUpdate,
   parseCommand,
-  type HandleUpdateDeps,
+  receiveUpdate,
+  type TelegramDeps,
 } from "@/lib/telegram/handle-update";
+import { createTelegramClient } from "@/lib/telegram/client";
 import type { TelegramUpdate } from "@/lib/telegram/types";
 
 const CHAT = 555;
 
-function makeDeps(overrides: Partial<HandleUpdateDeps> = {}) {
+function makeDeps(overrides: Partial<TelegramDeps> = {}) {
   const sendMessage = vi.fn().mockResolvedValue({ message_id: 1 });
   const answerCallbackQuery = vi.fn().mockResolvedValue(true);
   const recordUpdate = vi.fn().mockResolvedValue(true);
@@ -17,7 +19,7 @@ function makeDeps(overrides: Partial<HandleUpdateDeps> = {}) {
   const markFailed = vi.fn().mockResolvedValue(undefined);
   const getActiveEnvironment = vi.fn().mockResolvedValue({ name: "Работа" });
 
-  const deps: HandleUpdateDeps = {
+  const deps: TelegramDeps = {
     client: { sendMessage, answerCallbackQuery },
     recordUpdate,
     markProcessed,
@@ -40,66 +42,70 @@ const textUpdate = (text: string, chatId = CHAT, updateId = 1): TelegramUpdate =
   },
 });
 
-describe("чужие и пустые апдейты", () => {
-  it("чужой чат: ни записи, ни ответа", async () => {
-    const { deps, recordUpdate, sendMessage } = makeDeps();
-    const result = await handleUpdate(textUpdate("/start", 999), deps);
+describe("приём апдейта", () => {
+  beforeEach(() => vi.clearAllMocks());
+
+  it("чужой чат: ни записи, ни обработки", async () => {
+    const { deps, recordUpdate } = makeDeps();
+    const result = await receiveUpdate(textUpdate("/start", 999), deps);
 
     expect(result).toEqual({ status: "ignored", reason: "foreign_chat" });
     expect(recordUpdate).not.toHaveBeenCalled();
-    expect(sendMessage).not.toHaveBeenCalled();
   });
 
   it("разрешённый чат не настроен — молчим для всех", async () => {
-    const { deps, recordUpdate, sendMessage } = makeDeps({ allowedChatId: undefined });
-    const result = await handleUpdate(textUpdate("/start"), deps);
+    const { deps, recordUpdate } = makeDeps({ allowedChatId: undefined });
+    const result = await receiveUpdate(textUpdate("/start"), deps);
 
     expect(result).toEqual({ status: "ignored", reason: "foreign_chat" });
     expect(recordUpdate).not.toHaveBeenCalled();
-    expect(sendMessage).not.toHaveBeenCalled();
   });
 
   it("апдейт без чата пропускается", async () => {
     const { deps, recordUpdate } = makeDeps();
-    const result = await handleUpdate({ update_id: 3 }, deps);
+    const result = await receiveUpdate({ update_id: 3 }, deps);
 
     expect(result).toEqual({ status: "ignored", reason: "no_chat" });
     expect(recordUpdate).not.toHaveBeenCalled();
   });
-});
 
-describe("журнал апдейтов", () => {
-  beforeEach(() => vi.clearAllMocks());
+  it("свой апдейт пишется в журнал целиком и отдаёт чат для обработки", async () => {
+    const { deps, recordUpdate } = makeDeps();
+    const result = await receiveUpdate(textUpdate("/start"), deps);
 
-  it("сырой текст пишется до отправки ответа", async () => {
-    const { deps, recordUpdate, sendMessage } = makeDeps();
-    await handleUpdate(textUpdate("/start"), deps);
-
+    expect(result).toEqual({ status: "accepted", chatId: CHAT });
     expect(recordUpdate).toHaveBeenCalledWith({
       updateId: 1,
       chatId: CHAT,
       rawText: "/start",
       payload: textUpdate("/start"),
     });
-    expect(recordUpdate.mock.invocationCallOrder[0]).toBeLessThan(
-      sendMessage.mock.invocationCallOrder[0]
-    );
   });
 
-  it("повторная доставка не обрабатывается второй раз", async () => {
-    const { deps, sendMessage, markProcessed } = makeDeps({
-      recordUpdate: vi.fn().mockResolvedValue(false),
+  it("повторная доставка отдаёт duplicate, а не accepted", async () => {
+    // Обработку по duplicate не запускает роут: сюда она даже не доходит.
+    const { deps } = makeDeps({ recordUpdate: vi.fn().mockResolvedValue(false) });
+    const result = await receiveUpdate(textUpdate("/start"), deps);
+
+    expect(result).toEqual({ status: "duplicate", chatId: CHAT });
+  });
+
+  it("сбой журнала пробрасывается наверх, а не проглатывается", async () => {
+    // Роут решает, что делать со сбоем записи; молча вернуть accepted нельзя.
+    const { deps } = makeDeps({
+      recordUpdate: vi.fn().mockRejectedValue(new Error("база недоступна")),
     });
-    const result = await handleUpdate(textUpdate("/start"), deps);
 
-    expect(result).toEqual({ status: "duplicate" });
-    expect(sendMessage).not.toHaveBeenCalled();
-    expect(markProcessed).not.toHaveBeenCalled();
+    await expect(receiveUpdate(textUpdate("/start"), deps)).rejects.toThrow("база недоступна");
   });
+});
+
+describe("отметки в журнале", () => {
+  beforeEach(() => vi.clearAllMocks());
 
   it("успешная обработка помечается в журнале", async () => {
     const { deps, markProcessed, markFailed } = makeDeps();
-    await handleUpdate(textUpdate("/help"), deps);
+    await handleUpdate(textUpdate("/help"), CHAT, deps);
 
     expect(markProcessed).toHaveBeenCalledWith(1);
     expect(markFailed).not.toHaveBeenCalled();
@@ -112,11 +118,42 @@ describe("журнал апдейтов", () => {
         answerCallbackQuery: vi.fn(),
       },
     });
-    const result = await handleUpdate(textUpdate("/start"), deps);
+    const result = await handleUpdate(textUpdate("/start"), CHAT, deps);
 
     expect(result).toEqual({ status: "failed", error: "Telegram недоступен" });
     expect(markFailed).toHaveBeenCalledWith(1, "Telegram недоступен");
     expect(markProcessed).not.toHaveBeenCalled();
+  });
+
+  it("флуд-лимит длиннее дедлайна помечает апдейт failed, а не оставляет received", async () => {
+    // Настоящий клиент с настоящим дедлайном: раньше он уснул бы на 300 секунд,
+    // функцию убили бы во сне, и апдейт навсегда остался бы в статусе received.
+    const fetchFn = vi.fn().mockResolvedValue(
+      new Response(
+        JSON.stringify({
+          ok: false,
+          description: "Too Many Requests: retry after 300",
+          parameters: { retry_after: 300 },
+        }),
+        { status: 429 }
+      )
+    );
+    const sleep = vi.fn().mockResolvedValue(undefined);
+    const { deps, markFailed, markProcessed } = makeDeps({
+      client: createTelegramClient({
+        token: "123:TEST",
+        fetchFn: fetchFn as unknown as typeof fetch,
+        sleep,
+        deadlineAt: Date.now() + 10_000,
+      }),
+    });
+
+    const result = await handleUpdate(textUpdate("/start"), CHAT, deps);
+
+    expect(result.status).toBe("failed");
+    expect(sleep).not.toHaveBeenCalled();
+    expect(markProcessed).not.toHaveBeenCalled();
+    expect(markFailed).toHaveBeenCalledWith(1, expect.stringContaining("300 с"));
   });
 });
 
@@ -125,7 +162,7 @@ describe("/start", () => {
 
   it("отвечает приветствием с активным проектом", async () => {
     const { deps, sendMessage } = makeDeps();
-    const result = await handleUpdate(textUpdate("/start"), deps);
+    const result = await handleUpdate(textUpdate("/start"), CHAT, deps);
 
     expect(result).toEqual({ status: "processed", action: "start" });
     const [{ chatId, text }] = sendMessage.mock.calls[0];
@@ -138,7 +175,7 @@ describe("/start", () => {
     const { deps, sendMessage } = makeDeps({
       getActiveEnvironment: vi.fn().mockResolvedValue({ name: "Цены & <ККУ>" }),
     });
-    await handleUpdate(textUpdate("/start"), deps);
+    await handleUpdate(textUpdate("/start"), CHAT, deps);
 
     const [{ text }] = sendMessage.mock.calls[0];
     expect(text).toContain("Цены &amp; &lt;ККУ&gt;");
@@ -149,14 +186,14 @@ describe("/start", () => {
     const { deps, sendMessage } = makeDeps({
       getActiveEnvironment: vi.fn().mockResolvedValue(null),
     });
-    await handleUpdate(textUpdate("/start"), deps);
+    await handleUpdate(textUpdate("/start"), CHAT, deps);
 
     expect(sendMessage.mock.calls[0][0].text).toContain("Проектов пока нет");
   });
 
   it("понимает команду с упоминанием бота", async () => {
     const { deps } = makeDeps();
-    const result = await handleUpdate(textUpdate("/start@constance_bot"), deps);
+    const result = await handleUpdate(textUpdate("/start@constance_bot"), CHAT, deps);
     expect(result).toEqual({ status: "processed", action: "start" });
   });
 });
@@ -166,7 +203,7 @@ describe("остальные сообщения", () => {
 
   it("/help перечисляет команды", async () => {
     const { deps, sendMessage } = makeDeps();
-    const result = await handleUpdate(textUpdate("/help"), deps);
+    const result = await handleUpdate(textUpdate("/help"), CHAT, deps);
 
     expect(result).toEqual({ status: "processed", action: "help" });
     const [{ text }] = sendMessage.mock.calls[0];
@@ -175,11 +212,11 @@ describe("остальные сообщения", () => {
   });
 
   it("обычный текст пока не разбирается, но сохраняется", async () => {
-    const { deps, sendMessage, recordUpdate } = makeDeps();
-    const result = await handleUpdate(textUpdate("купить билеты"), deps);
+    // Запись сделал приём, до ответа 200: обработка только подтверждает её.
+    const { deps, sendMessage } = makeDeps();
+    const result = await handleUpdate(textUpdate("купить билеты"), CHAT, deps);
 
     expect(result).toEqual({ status: "processed", action: "unsupported" });
-    expect(recordUpdate.mock.calls[0][0].rawText).toBe("купить билеты");
     expect(sendMessage.mock.calls[0][0].text).toContain("Сообщение сохранено");
   });
 
@@ -199,7 +236,7 @@ describe("остальные сообщения", () => {
       },
     };
 
-    const result = await handleUpdate(update, deps);
+    const result = await handleUpdate(update, CHAT, deps);
 
     expect(result).toEqual({ status: "processed", action: "callback" });
     expect(answerCallbackQuery).toHaveBeenCalledWith({ callbackQueryId: "cb-9" });

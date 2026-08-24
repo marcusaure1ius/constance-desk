@@ -1,4 +1,4 @@
-import { escapeHtml, getTelegramClient, type TelegramClient } from "@/lib/telegram/client";
+import { createTelegramClient, escapeHtml, type TelegramClient } from "@/lib/telegram/client";
 import { BOT_COMMANDS } from "@/lib/telegram/commands";
 import {
   updateChatId,
@@ -13,36 +13,58 @@ import {
 } from "@/lib/services/tg-updates";
 
 /**
- * Обработка апдейта. Живёт отдельно от роута намеренно: роут — шим вокруг
- * after(), который в тестах не исполняется, а вся логика должна быть проверяема.
+ * Приём и обработка апдейта. Живут отдельно от роута намеренно: роут — шим
+ * вокруг after(), который в тестах не исполняется, а логика должна быть
+ * проверяема.
+ *
+ * Приём (фильтр чужих чатов и запись в журнал) и обработка разведены не по
+ * вкусу, а по времени жизни: приём обязан завершиться ДО ответа 200, потому
+ * что с этого момента Telegram считает апдейт доставленным и не повторит его;
+ * обработка идёт после ответа, в after().
  */
 
-export type HandleUpdateDeps = {
-  client: Pick<TelegramClient, "sendMessage" | "answerCallbackQuery">;
+/** Зависимости приёма: журнал и белый список чатов. */
+export type ReceiveUpdateDeps = {
   recordUpdate: typeof recordUpdate;
-  markProcessed: typeof markUpdateProcessed;
-  markFailed: typeof markUpdateFailed;
-  /** Проект, в который бот складывает задачи. */
-  getActiveEnvironment: () => Promise<{ name: string } | null>;
   /** Единственный разрешённый чат. Не задан — бот молчит для всех. */
   allowedChatId?: number;
 };
 
-export type HandleUpdateResult =
+/** Зависимости обработки: Bot API, отметки в журнале, доска. */
+export type HandleUpdateDeps = {
+  client: Pick<TelegramClient, "sendMessage" | "answerCallbackQuery">;
+  markProcessed: typeof markUpdateProcessed;
+  markFailed: typeof markUpdateFailed;
+  /** Проект, в который бот складывает задачи. */
+  getActiveEnvironment: () => Promise<{ name: string } | null>;
+};
+
+export type TelegramDeps = ReceiveUpdateDeps & HandleUpdateDeps;
+
+export type ReceiveUpdateResult =
   | { status: "ignored"; reason: "no_chat" | "foreign_chat" }
-  | { status: "duplicate" }
+  | { status: "duplicate"; chatId: number }
+  | { status: "accepted"; chatId: number };
+
+export type HandleUpdateResult =
   | { status: "processed"; action: "start" | "help" | "callback" | "unsupported" }
   | { status: "failed"; error: string };
 
-export async function handleUpdate(
+/**
+ * Приём апдейта: зовётся из тела роута до ответа 200.
+ *
+ * accepted — апдейт наш и записан впервые, его нужно обработать; duplicate —
+ * Telegram доставил его повторно, работать по нему нельзя; ignored — чужой
+ * чат, ни записи, ни ответа (не-2xx здесь вызвал бы сутки ретраев, поэтому
+ * роут всё равно отвечает 200 — молчание и есть реакция).
+ */
+export async function receiveUpdate(
   update: TelegramUpdate,
-  deps: HandleUpdateDeps
-): Promise<HandleUpdateResult> {
+  deps: ReceiveUpdateDeps
+): Promise<ReceiveUpdateResult> {
   const chatId = updateChatId(update);
   if (chatId === undefined) return { status: "ignored", reason: "no_chat" };
 
-  // Чужой чат: ни записи, ни ответа. Не-2xx здесь вызвал бы сутки ретраев,
-  // поэтому роут всё равно отвечает 200 — молчание и есть реакция.
   if (deps.allowedChatId === undefined || chatId !== deps.allowedChatId) {
     return { status: "ignored", reason: "foreign_chat" };
   }
@@ -53,8 +75,19 @@ export async function handleUpdate(
     rawText: updateText(update),
     payload: update,
   });
-  if (!isNew) return { status: "duplicate" };
 
+  return isNew ? { status: "accepted", chatId } : { status: "duplicate", chatId };
+}
+
+/**
+ * Обработка принятого апдейта: ответ пользователю и отметка в журнале.
+ * chatId приходит из receiveUpdate — он уже проверен по белому списку.
+ */
+export async function handleUpdate(
+  update: TelegramUpdate,
+  chatId: number,
+  deps: HandleUpdateDeps
+): Promise<HandleUpdateResult> {
   try {
     const action = await respond(update, chatId, deps);
     await deps.markProcessed(update.update_id);
@@ -141,10 +174,16 @@ export function allowedChatIdFromEnv(): number | undefined {
   return Number.isSafeInteger(parsed) ? parsed : undefined;
 }
 
-/** Зависимости по умолчанию — настоящие клиент, база и настройки. */
-export function defaultDeps(): HandleUpdateDeps {
+/**
+ * Зависимости по умолчанию — настоящие клиент, база и настройки.
+ *
+ * deadlineAt — момент, когда платформа убьёт функцию: клиент Bot API не станет
+ * ждать флуд-лимит дольше, чем ей осталось жить. Клиент создаётся на запрос,
+ * а не берётся из синглтона, именно из-за этого: дедлайн у каждого свой.
+ */
+export function defaultDeps(options: { deadlineAt?: number } = {}): TelegramDeps {
   return {
-    client: getTelegramClient(),
+    client: createTelegramClient({ deadlineAt: options.deadlineAt }),
     recordUpdate,
     markProcessed: markUpdateProcessed,
     markFailed: markUpdateFailed,

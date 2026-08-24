@@ -27,10 +27,12 @@ import {
   markUpdateProcessed,
   recordUpdate,
 } from "@/lib/services/tg-updates";
+import { receiveUpdate } from "@/lib/telegram/handle-update";
+import type { TelegramUpdate } from "@/lib/telegram/types";
 import { tgUpdates } from "@/lib/db/schema";
 import { closeTestDb, createTestDb } from "./helpers/test-db";
 
-const IDS = [900001, 900002, 900003, 900004, 900005, 900006];
+const IDS = [900001, 900002, 900003, 900004, 900005, 900006, 900007, 900008];
 
 describe("журнал апдейтов на настоящей базе", () => {
   beforeAll(async () => {
@@ -106,6 +108,47 @@ describe("журнал апдейтов на настоящей базе", () =>
     const row = await getUpdate(900005);
     expect(row).toMatchObject({ status: "failed", error: "Telegram недоступен" });
     expect(row!.processedAt).toBeInstanceOf(Date);
+  });
+
+  it("приём отсекает повторную доставку до всякой работы", async () => {
+    // Дедуп — это ON CONFLICT DO NOTHING в PostgreSQL, поэтому приём проверяется
+    // с настоящим журналом, а не с моком recordUpdate.
+    const update: TelegramUpdate = {
+      update_id: 900007,
+      message: {
+        message_id: 1,
+        date: 1_700_000_000,
+        chat: { id: 555, type: "private" },
+        text: "купить билеты",
+      },
+    };
+    const deps = { recordUpdate, allowedChatId: 555 };
+
+    expect(await receiveUpdate(update, deps)).toEqual({ status: "accepted", chatId: 555 });
+    expect(await receiveUpdate(update, deps)).toEqual({ status: "duplicate", chatId: 555 });
+
+    const row = await getUpdate(900007);
+    expect(row).toMatchObject({ rawText: "купить билеты", status: "received" });
+  });
+
+  it("одновременная доставка одного апдейта принимается ровно один раз", async () => {
+    const update: TelegramUpdate = {
+      update_id: 900008,
+      message: {
+        message_id: 2,
+        date: 1_700_000_000,
+        chat: { id: 555, type: "private" },
+        text: "гонка приёма",
+      },
+    };
+    const deps = { recordUpdate, allowedChatId: 555 };
+
+    const results = await Promise.all(
+      Array.from({ length: 5 }, () => receiveUpdate(update, deps))
+    );
+
+    expect(results.filter((r) => r.status === "accepted")).toHaveLength(1);
+    expect(results.filter((r) => r.status === "duplicate")).toHaveLength(4);
   });
 
   it("хранит длинный chat_id канала без потери точности", async () => {

@@ -44,6 +44,17 @@ export type TelegramClientOptions = {
   sleep?: (ms: number) => Promise<void>;
   /** Сколько раз повторить запрос при 429 и 5xx. */
   maxRetries?: number;
+  /**
+   * Момент (epoch ms), после которого платформа убьёт функцию. Задаётся явно
+   * тем, кто этот дедлайн знает (роут вебхука — из maxDuration): угадывать его
+   * внутри клиента не из чего.
+   *
+   * Не задан — ждём столько, сколько просит Telegram: у скриптов из командной
+   * строки дедлайна нет.
+   */
+  deadlineAt?: number;
+  /** Часы; в тестах подменяются вместе со sleep, чтобы время «шло». */
+  now?: () => number;
 };
 
 export type SendMessageInput = {
@@ -57,11 +68,22 @@ export type EditMessageTextInput = SendMessageInput & { messageId: number };
 
 const defaultSleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
 
+/** Пауза перед повтором, когда Telegram не сказал retry_after. */
+const DEFAULT_RETRY_MS = 1000;
+
+/**
+ * Запас, который должен остаться после сна: проснуться мало — нужно ещё успеть
+ * сделать повторный запрос и дописать результат в журнал.
+ */
+const DEADLINE_RESERVE_MS = 2000;
+
 export function createTelegramClient(options: TelegramClientOptions = {}) {
   const token = options.token ?? process.env.TELEGRAM_BOT_TOKEN;
   const fetchFn = options.fetchFn ?? fetch;
   const sleep = options.sleep ?? defaultSleep;
   const maxRetries = options.maxRetries ?? 2;
+  const now = options.now ?? Date.now;
+  const deadlineAt = options.deadlineAt;
 
   async function call<T>(method: string, payload: Record<string, unknown> = {}): Promise<T> {
     if (!token) throw new Error("TELEGRAM_BOT_TOKEN не задан");
@@ -88,8 +110,23 @@ export function createTelegramClient(options: TelegramClientOptions = {}) {
 
       if (retriable && attempt < maxRetries) {
         // Telegram сам говорит, сколько ждать: свой бэкофф здесь только навредит.
-        await sleep(retryAfter != null ? retryAfter * 1000 : 1000);
-        continue;
+        const waitMs = retryAfter != null ? retryAfter * 1000 : DEFAULT_RETRY_MS;
+        const leftMs = deadlineAt === undefined ? undefined : deadlineAt - now();
+
+        if (leftMs === undefined || waitMs + DEADLINE_RESERVE_MS <= leftMs) {
+          await sleep(waitMs);
+          continue;
+        }
+
+        // Спать дольше, чем живёт функция, — молчаливая потеря: нас убьют во
+        // сне, апдейт останется в журнале со статусом received, и Telegram его
+        // не повторит. Лучше упасть сейчас: обработчик пометит failed.
+        throw new TelegramApiError(
+          method,
+          response.status,
+          `${description} — ждать ${Math.round(waitMs / 1000)} с, а функции жить ${Math.max(0, Math.round(leftMs / 1000))} с`,
+          retryAfter
+        );
       }
 
       throw new TelegramApiError(method, response.status, description, retryAfter);
@@ -174,12 +211,4 @@ function isParseError(error: unknown): boolean {
     error.status === 400 &&
     /can't parse entities/i.test(error.description)
   );
-}
-
-let client: TelegramClient | null = null;
-
-/** Клиент из переменных окружения. Создаётся лениво: на импорте токена может не быть. */
-export function getTelegramClient(): TelegramClient {
-  client ??= createTelegramClient();
-  return client;
 }
