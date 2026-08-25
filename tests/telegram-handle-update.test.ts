@@ -546,11 +546,11 @@ describe("кнопки", () => {
 
     expect(captureItems).not.toHaveBeenCalled();
     expect(createTask).toHaveBeenCalledWith({
-      title: "купить билеты",
+      title: "Купить билеты",
       columnId: "col-backlog",
       priority: "normal",
     });
-    expect(lastText(sendMessage)).toContain("купить билеты");
+    expect(lastText(sendMessage)).toContain("Купить билеты");
     expect(result).toEqual({ status: "processed", action: "callback" });
   });
 

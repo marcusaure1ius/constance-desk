@@ -290,9 +290,20 @@ const MENTION = / @[A-Za-z0-9_]{2,}(?=[,.;:!?])|(?<![\p{L}\p{N}._%+])@[A-Za-z0-9
 const LATIN = /[A-Za-z]/;
 const CYRILLIC = /[А-Яа-яЁё]/;
 
+/**
+ * Поднимает первую букву. Идёт по кодовым точкам, а не по индексу: у эмодзи
+ * в начале строки `charAt(0)` вернул бы половину суррогатной пары.
+ */
+function capitalizeFirst(text: string): string {
+  const [first] = text;
+  if (!first) return text;
+  const upper = first.toLocaleUpperCase("ru");
+  return upper === first ? text : upper + text.slice(first.length);
+}
+
 export function sanitizeTitle(title: string): string {
-  const cleaned = title
-    .replace(LEADING_DUTY, "")
+  const withoutDuty = title.replace(LEADING_DUTY, "");
+  const cleaned = withoutDuty
     // Пустой строкой, а не пробелом: иначе «слайды (@ivan) до среды»
     // превращалось в «слайды ( ) до среды».
     .replace(MENTION, "")
@@ -301,7 +312,13 @@ export function sanitizeTitle(title: string): string {
 
   // Сообщение целиком состояло из «Надо» или из одного упоминания: пусть лучше
   // останется как было, чем задача без названия.
-  return cleaned.length > 0 ? cleaned : title.trim();
+  if (cleaned.length === 0) return title.trim();
+
+  // «Надо написать комментарии» → «написать комментарии»: сняв служебное
+  // начало, мы обнажили строчную букву, и задача выглядит на доске обрывком.
+  // Поднимаем ровно в этом случае — если начало не трогали, регистр автора
+  // не наше дело.
+  return withoutDuty !== title ? capitalizeFirst(cleaned) : cleaned;
 }
 
 /**

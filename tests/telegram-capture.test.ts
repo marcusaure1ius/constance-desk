@@ -306,12 +306,14 @@ describe("createTaskFromText", () => {
     const result = await createTaskFromText("Надо купить билеты", deps);
 
     expect(captureItems).not.toHaveBeenCalled();
+    // Буква поднимается: сняв «Надо», мы обнажили строчную, и на доске
+    // задача выглядела бы обрывком.
     expect(createTask).toHaveBeenCalledWith({
-      title: "купить билеты",
+      title: "Купить билеты",
       columnId: "col-backlog",
       priority: "normal",
     });
-    expect(result.status === "captured" && result.tasks[0].title).toBe("купить билеты");
+    expect(result.status === "captured" && result.tasks[0].title).toBe("Купить билеты");
   });
 
   it("пустой текст задачей не становится", async () => {
