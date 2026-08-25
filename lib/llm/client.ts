@@ -40,6 +40,13 @@ const BASE_URLS: Record<ProviderName, string> = {
 /** Пара моделей под одну задачу: чем считаем у Groq и чем у OpenRouter. */
 export type ModelPair = { groq: string; openrouter: string };
 
+/**
+ * Модель OpenRouter для обеих задач. Берётся стабильный slug без даты и без
+ * тильды: `~…-latest` у OpenRouter указывает на плавающий вариант, и прод от
+ * него зависеть не должен — смена версии под ногами дороже свежести.
+ */
+const OPENROUTER_MODEL = "deepseek/deepseek-v4-flash";
+
 export const MODELS = {
   /**
    * Захват сообщения из телеграма. 120b, а не 20b: на 20b замерена порча
@@ -48,12 +55,12 @@ export const MODELS = {
    */
   capture: {
     groq: "openai/gpt-oss-120b",
-    openrouter: "deepseek/deepseek-chat",
+    openrouter: OPENROUTER_MODEL,
   },
   /** Разбор из веб-формы SmartInput: короткий вход, короткий ответ. */
   smartInput: {
     groq: "openai/gpt-oss-20b",
-    openrouter: "deepseek/deepseek-chat",
+    openrouter: OPENROUTER_MODEL,
   },
 } as const satisfies Record<string, ModelPair>;
 

@@ -1086,3 +1086,65 @@ describe("plural", () => {
     expect(plural(0, forms)).toBe("задач");
   });
 });
+
+describe("сухой прогон захвата", () => {
+  const ITEMS: CapturedItem[] = [
+    { kind: "task", text: "написать Юре по альфа таргету", priority: "high" },
+    { kind: "task", text: "заполнить итмо", plannedDate: "2026-08-30" },
+  ];
+
+  it("разбирает, но в доску ничего не пишет", async () => {
+    const { deps, createTask, captureItems } = makeDeps(ITEMS, { dryRun: true });
+
+    const result = await captureMessage("две задачи", deps);
+
+    // Модель зовём — иначе отлаживать нечего; базу не трогаем.
+    expect(captureItems).toHaveBeenCalledTimes(1);
+    expect(createTask).not.toHaveBeenCalled();
+
+    expect(result.status).toBe("captured");
+    if (result.status !== "captured") return;
+    expect(result.dryRun).toBe(true);
+    // Разбор показывается целиком: ради него режим и включают.
+    expect(result.tasks.map((t) => t.title)).toEqual([
+      "написать Юре по альфа таргету",
+      "заполнить итмо",
+    ]);
+    expect(result.tasks[0].priority).toBe("high");
+    expect(result.tasks[1].plannedDate).toBe("2026-08-30");
+  });
+
+  it("без флага пишет в доску как раньше", async () => {
+    const { deps, createTask } = makeDeps(ITEMS);
+
+    const result = await captureMessage("две задачи", deps);
+
+    expect(createTask).toHaveBeenCalledTimes(2);
+    expect(result.status === "captured" && result.dryRun).toBeUndefined();
+  });
+
+  it("карточка не выдаёт разбор за созданные задачи", async () => {
+    const { deps } = makeDeps(ITEMS, { dryRun: true });
+    const result = await captureMessage("две задачи", deps);
+
+    const card = renderCaptureCard(result, { updateId: 7 });
+
+    expect(card.text).toContain("Разбор");
+    expect(card.text).toContain("в доску не записано");
+    // «✅ 2 задачи» означало бы, что они на доске, — а их там нет.
+    expect(card.text).not.toContain("✅");
+  });
+
+  it("в сухом прогоне кнопка «как есть» есть даже при удачном разборе", async () => {
+    const { deps } = makeDeps(ITEMS, { dryRun: true });
+    const dry = renderCaptureCard(await captureMessage("две задачи", deps), { updateId: 7 });
+
+    // Иначе верный разбор некуда принять: на доске пусто, а кнопки нет.
+    expect(dry.replyMarkup).toBeDefined();
+    expect(dry.replyMarkup?.inline_keyboard.flat() ?? []).toHaveLength(1);
+
+    const { deps: liveDeps } = makeDeps(ITEMS);
+    const live = renderCaptureCard(await captureMessage("две задачи", liveDeps), { updateId: 7 });
+    expect(live.replyMarkup).toBeUndefined();
+  });
+});

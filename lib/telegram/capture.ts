@@ -41,6 +41,12 @@ export type CaptureDeps = {
   loadBoard: () => Promise<CaptureBoardData | null>;
   captureItems: (text: string, board: CaptureBoard) => Promise<CapturedItem[]>;
   createTask: (input: CreateTaskArgs) => Promise<unknown>;
+  /**
+   * Сухой прогон: разобрать и показать, но в доску не писать. Нужен, пока
+   * отлаживается качество разбора — боевая доска не должна набиваться
+   * задачами, которые модель поняла неправильно.
+   */
+  dryRun?: boolean;
 };
 
 export type CaptureResult =
@@ -55,6 +61,8 @@ export type CaptureResult =
       environmentName: string;
       columnTitle: string;
       tasks: CreatedTask[];
+      /** Разбор показан, но в доску ничего не записано. */
+      dryRun?: boolean;
       /**
        * Вопросы и рассказы о сделанном. Задачами они не становятся: их
        * обрабатывает поиск — «ответил по вэду» обязано показать существующую
@@ -107,13 +115,15 @@ export async function captureMessage(
       if (item.kind !== "task") continue;
 
       const epic = item.epic ? board.epics.find((e) => e.name === item.epic) : undefined;
-      await deps.createTask({
-        title: item.text,
-        columnId: target.id,
-        categoryId: epic?.id,
-        priority: item.priority ?? "normal",
-        plannedDate: item.plannedDate,
-      });
+      if (!deps.dryRun) {
+        await deps.createTask({
+          title: item.text,
+          columnId: target.id,
+          categoryId: epic?.id,
+          priority: item.priority ?? "normal",
+          plannedDate: item.plannedDate,
+        });
+      }
 
       tasks.push({
         title: item.text,
@@ -143,6 +153,7 @@ export async function captureMessage(
     questions,
     others,
     warning,
+    dryRun: deps.dryRun,
   };
 }
 
@@ -316,7 +327,9 @@ function renderBody(result: CaptureResult, updateId: number): CaptureCard {
   const card: CaptureCard = { text: renderCaptured(result) };
 
   // Кнопка нужна там, где задач не появилось: иначе повтор наплодит дубли.
-  if (result.tasks.length === 0) {
+  // В сухом прогоне на доске не появилось ничего, поэтому кнопка нужна всегда —
+  // иначе верный разбор некуда принять.
+  if (result.tasks.length === 0 || result.dryRun) {
     card.replyMarkup = {
       inline_keyboard: [
         [{ text: "→ Задачей как есть", callback_data: captureCallback("astask", updateId) }],
@@ -332,8 +345,13 @@ function renderCaptured(result: Extract<CaptureResult, { status: "captured" }>):
   const environment = field(result.environmentName, NAME_LIMIT);
   const column = field(result.columnTitle, NAME_LIMIT);
 
-  const head =
-    tasks.length === 0
+  // В сухом прогоне «✅ Задача» было бы враньём: на доске её нет. Говорим
+  // прямо, что это разбор, и куда бы он лёг.
+  const head = result.dryRun
+    ? tasks.length === 0
+      ? `🧪 Разбор · задач не нашёл · ${environment}`
+      : `🧪 Разбор · ${tasks.length} ${plural(tasks.length, TASK_FORMS)} · в доску не записано · ${environment} · ${column}`
+    : tasks.length === 0
       ? `Задач не нашёл · ${environment}`
       : tasks.length === 1
         ? `✅ Задача · ${environment} · ${column}`

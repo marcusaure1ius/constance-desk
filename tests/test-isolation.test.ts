@@ -7,8 +7,9 @@ import { describe, it, expect, vi } from "vitest";
  * заглушку сети или подстановку пустого GROQ_API_KEY.
  */
 describe("изоляция основного прогона", () => {
-  it("не видит GROQ_API_KEY из .env.local", () => {
+  it("не видит ключи провайдеров из .env.local", () => {
     expect(process.env.GROQ_API_KEY ?? "").toBe("");
+    expect(process.env.OPENROUTER_API_KEY ?? "").toBe("");
   });
 
   it("не пускает fetch наружу", () => {

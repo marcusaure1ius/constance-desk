@@ -562,6 +562,23 @@ function helpText(): string {
   ].join("\n");
 }
 
+/**
+ * Сухой прогон захвата: разбирать и показывать, но задач на доске не заводить.
+ *
+ * Включается, пока отлаживается качество разбора: боевая доска не должна
+ * набиваться задачами, которые модель поняла неправильно. На чтение доски,
+ * поиск и кнопки управления существующими задачами не влияет — только на
+ * создание новых.
+ *
+ * Значением считается всё, кроме пустой строки, «0», «false» и «off»: режим
+ * защитный, и при непонятном значении честнее не писать в доску, чем писать.
+ */
+export function captureDryRunFromEnv(): boolean {
+  const raw = process.env.TELEGRAM_CAPTURE_DRY_RUN?.trim().toLowerCase();
+  if (!raw) return false;
+  return !["0", "false", "off", "no"].includes(raw);
+}
+
 /** Разрешённый чат из окружения. Не задан или мусор — бот молчит для всех. */
 export function allowedChatIdFromEnv(): number | undefined {
   const raw = process.env.TELEGRAM_ALLOWED_CHAT_ID;
@@ -612,6 +629,7 @@ export function defaultDeps(options: { deadlineAt?: number } = {}): TelegramDeps
     loadBoard: loadCaptureBoard,
     captureItems: (text, board) => captureItemsWithModel({ text, board }),
     createTask: (input) => createTask(input),
+    dryRun: captureDryRunFromEnv(),
     transcribe: (file) => transcribeAudio(file),
     allowedChatId: allowedChatIdFromEnv(),
 

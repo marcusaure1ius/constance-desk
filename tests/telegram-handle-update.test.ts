@@ -1,6 +1,7 @@
 import { describe, it, expect, vi, beforeEach } from "vitest";
 import {
   allowedChatIdFromEnv,
+  captureDryRunFromEnv,
   handleUpdate,
   parseCommand,
   receiveUpdate,
@@ -805,6 +806,32 @@ describe("allowedChatIdFromEnv", () => {
     expect(allowedChatIdFromEnv()).toBeUndefined();
     vi.stubEnv("TELEGRAM_ALLOWED_CHAT_ID", "");
     expect(allowedChatIdFromEnv()).toBeUndefined();
+    vi.unstubAllEnvs();
+  });
+});
+
+describe("captureDryRunFromEnv", () => {
+  it("не задана — режим выключен, бот пишет в доску", () => {
+    vi.stubEnv("TELEGRAM_CAPTURE_DRY_RUN", "");
+    expect(captureDryRunFromEnv()).toBe(false);
+    vi.unstubAllEnvs();
+  });
+
+  it("явное выключение распознаётся", () => {
+    for (const value of ["0", "false", "off", "no", "FALSE", " Off "]) {
+      vi.stubEnv("TELEGRAM_CAPTURE_DRY_RUN", value);
+      expect(captureDryRunFromEnv(), value).toBe(false);
+    }
+    vi.unstubAllEnvs();
+  });
+
+  it("любое другое значение включает режим", () => {
+    // Режим защитный: при непонятном значении честнее не писать в доску,
+    // чем писать. «maybe» — это не «нет».
+    for (const value of ["1", "true", "on", "yes", "maybe"]) {
+      vi.stubEnv("TELEGRAM_CAPTURE_DRY_RUN", value);
+      expect(captureDryRunFromEnv(), value).toBe(true);
+    }
     vi.unstubAllEnvs();
   });
 });
