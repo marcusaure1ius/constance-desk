@@ -12,6 +12,8 @@
 - Auth: PIN-код через jose JWT, `proxy.ts` (Next.js 16) + проверка в API
 - Отчёты: @react-pdf/renderer (PDF), pptxgenjs (PPTX), recharts (графики)
 - Телеграм-бот: вебхук `app/api/telegram/webhook`, клиент Bot API `lib/telegram/client.ts` (разметка HTML, не MarkdownV2). Захват сообщения в задачи — `lib/telegram/capture.ts`
+- `TELEGRAM_CAPTURE_DRY_RUN=1` — бот разбирает сообщения и показывает разбор, но задач на доске НЕ создаёт. Чтение доски, поиск и кнопки управления существующими задачами работают как обычно
+- Модель OpenRouter — `deepseek/deepseek-v4-flash` (стабильный slug, без даты и без `~…-latest`)
 
 ## Структура маршрутов
 - `app/(app)/(board)/page.tsx` — доска (route group для изоляции loading.tsx)
