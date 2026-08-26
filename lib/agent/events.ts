@@ -5,12 +5,20 @@
  * (id, retry, именованные события) здесь не нужно, а разбор строк короче.
  */
 
+import type { DeferredCall } from "./apply";
+
 export type AgentEvent =
   | { type: "thinking" }
   | { type: "tool_start"; id: string; tool: string; args: unknown }
   | { type: "tool_end"; id: string; tool: string; result?: string; error?: string }
   | { type: "text"; text: string }
-  | { type: "proposal"; id: string; calls: { tool: string; args: unknown }[] }
+  | { type: "proposal"; id: string; calls: DeferredCall[] }
+  /**
+   * Мутирующий инструмент исполнился (например, move_task). Страница доски
+   * серверная: обычный fetch внутри цикла роутер-кэш не инвалидирует, поэтому
+   * клиент по этому событию сам зовёт `router.refresh()`.
+   */
+  | { type: "board_changed" }
   | { type: "error"; message: string };
 
 export function encodeEvent(event: AgentEvent): string {

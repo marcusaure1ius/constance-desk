@@ -1,7 +1,7 @@
 "use client";
 
 /**
- * ПРОТОТИП. След работы агента в духе ChatGPT и Codex.
+ * След работы агента в духе ChatGPT и Codex.
  *
  * Строка одна, серая, с тонким значком рода действия — и всё. Аргументы и
  * ответ инструмента прячутся под неё и открываются по клику: обычно они не
@@ -22,6 +22,8 @@ import {
 import { cn } from "@/lib/utils";
 
 export type TraceStep = {
+  /** id вызова из события tool_start/tool_end — по нему, а не по имени, сопоставляется результат. */
+  id?: string;
   tool: string;
   /** Аргументы вызова — показываются развёрнутыми, как в консоли. */
   args?: string;
@@ -46,15 +48,6 @@ const FALLBACK: Meta = { icon: LayoutGrid, run: "Работаю", done: "Гот�
 
 export function ThinkingLine() {
   return <div className="agent-shimmer flex h-5 items-center text-xs">Думаю</div>;
-}
-
-/** Сколько думал — строка остаётся в переписке, как «Thought for 4s». */
-export function ThoughtFor({ ms }: { ms: number }) {
-  return (
-    <div className="flex h-5 items-center text-xs text-muted-foreground/60">
-      Думал {(ms / 1000).toFixed(0)} с
-    </div>
-  );
 }
 
 function Step({ step, running }: { step: TraceStep; running: boolean }) {

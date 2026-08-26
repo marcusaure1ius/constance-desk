@@ -9,7 +9,16 @@ import { toolsFor } from "./tools";
  * предложения могла примениться, и об этом надо сказать честно.
  */
 
-export type DeferredCall = { tool: string; args: unknown };
+export type DeferredCall = {
+  tool: string;
+  args: unknown;
+  /**
+   * Человеческое описание вызова: «Удалить «Демка»», «Изменить «Демка»: срок».
+   * Заполняется в цикле (`lib/agent/loop.ts`) из уже прочитанных задач —
+   * подтверждение бесполезно, если не видно, что именно меняют или удаляют.
+   */
+  label?: string;
+};
 
 export async function applyAgentCalls(
   calls: DeferredCall[],
