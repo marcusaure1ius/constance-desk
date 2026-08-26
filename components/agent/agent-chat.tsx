@@ -18,6 +18,7 @@ import { useBoardView } from "@/hooks/use-board-view";
 import { useAgentChat, type ChatEntry } from "@/hooks/use-agent-chat";
 import { applyAgentCallsAction } from "@/lib/actions/agent";
 import type { DeferredCall } from "@/lib/agent/apply";
+import { parseRichText, type InlineNode } from "@/lib/agent/rich-text";
 
 const SUGGESTIONS = [
   "Что у меня горит?",
@@ -142,6 +143,62 @@ function ProposalCard({ calls }: { calls: DeferredCall[] }) {
   );
 }
 
+/** Один инлайн-фрагмент текста ответа: жирный/курсив/код или обычный текст. */
+function InlineSpan({ node }: { node: InlineNode }) {
+  if (node.type === "bold") return <span className="font-medium">{node.text}</span>;
+  if (node.type === "italic") return <em>{node.text}</em>;
+  if (node.type === "code")
+    return (
+      <code className="rounded bg-muted px-1 py-0.5 font-mono text-[0.85em]">{node.text}</code>
+    );
+  return <>{node.text}</>;
+}
+
+/**
+ * Текст ответа модели с тем немногим из Markdown, чем она реально пользуется:
+ * жирный, курсив, код, списки, заголовки как жирная строка. Разбор в
+ * `lib/agent/rich-text.ts`, здесь только отрисовка — тихая, в языке ленты.
+ */
+function RichText({ text }: { text: string }) {
+  const blocks = parseRichText(text);
+  return (
+    <div className="flex flex-col gap-2 text-sm leading-relaxed">
+      {blocks.map((block, i) => {
+        if (block.type === "heading")
+          return (
+            <p key={i} className="whitespace-pre-wrap font-medium">
+              {block.inline.map((node, j) => (
+                <InlineSpan key={j} node={node} />
+              ))}
+            </p>
+          );
+        if (block.type === "list")
+          return (
+            <ul key={i} className="flex flex-col gap-1">
+              {block.items.map((item, j) => (
+                <li key={j} className="flex items-start gap-2">
+                  <span className="mt-1.5 size-1.5 shrink-0 rounded-full bg-primary/60" />
+                  <span className="flex-1">
+                    {item.map((node, k) => (
+                      <InlineSpan key={k} node={node} />
+                    ))}
+                  </span>
+                </li>
+              ))}
+            </ul>
+          );
+        return (
+          <p key={i} className="whitespace-pre-wrap">
+            {block.inline.map((node, j) => (
+              <InlineSpan key={j} node={node} />
+            ))}
+          </p>
+        );
+      })}
+    </div>
+  );
+}
+
 function AgentEntryView({ entry }: { entry: Extract<ChatEntry, { role: "agent" }> }) {
   return (
     <div className="flex gap-2.5">
@@ -152,7 +209,7 @@ function AgentEntryView({ entry }: { entry: Extract<ChatEntry, { role: "agent" }
       <div className="flex min-w-0 flex-1 flex-col gap-2.5">
         {entry.thinking && entry.steps.length === 0 && <ThinkingLine />}
         {entry.steps.length > 0 && <ToolTrace steps={entry.steps} running={entry.thinking} />}
-        {entry.text && <p className="whitespace-pre-wrap text-sm leading-relaxed">{entry.text}</p>}
+        {entry.text && <RichText text={entry.text} />}
         {entry.proposal && entry.proposal.length > 0 && <ProposalCard calls={entry.proposal} />}
         {entry.error && <p className="text-xs text-destructive">{entry.error}</p>}
       </div>
