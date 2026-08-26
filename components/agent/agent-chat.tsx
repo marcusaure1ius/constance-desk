@@ -347,7 +347,9 @@ function Composer({
           target.style.height = `${target.scrollHeight}px`;
         }}
       />
-      <div className="flex items-center gap-2">
+      {/* justify-end держит кнопки справа и в покое, когда строки состояния
+          с её mr-auto в разметке нет. */}
+      <div className="flex items-center justify-end gap-2">
         {isRecording && (
           <span className="mr-auto flex items-center gap-1.5 text-xs text-muted-foreground">
             <span className="size-1.5 shrink-0 animate-pulse rounded-full bg-destructive" />
