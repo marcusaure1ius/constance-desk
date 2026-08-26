@@ -1,6 +1,6 @@
 import { cookies } from "next/headers";
 import { isSessionValid, SESSION_COOKIE } from "@/lib/session";
-import type { ChatMessage } from "@/lib/llm/chat-tools";
+import { parseHistory } from "./history";
 import { encodeEvent, type AgentEvent } from "./events";
 import { runAgent } from "./loop";
 
@@ -11,7 +11,8 @@ import { runAgent } from "./loop";
 
 export type AgentRequestBody = {
   message?: string;
-  history?: ChatMessage[];
+  /** Сырой JSON от клиента — доверять форме нельзя, разбирается `parseHistory`. */
+  history?: unknown;
   environmentId?: string;
 };
 
@@ -81,7 +82,7 @@ export async function handleAgentRequest(
   if (!message) return Response.json({ error: "Пустое сообщение" }, { status: 400 });
   if (!environmentId) return Response.json({ error: "Не указана среда" }, { status: 400 });
 
-  const events = run({ message, environmentId, history: body.history });
+  const events = run({ message, environmentId, history: parseHistory(body.history) });
 
   return new Response(ndjsonStream(events), {
     headers: {
