@@ -2,7 +2,9 @@
 
 import { revalidatePath } from "next/cache";
 import { applyAgentCalls, type DeferredCall } from "@/lib/agent/apply";
+import { getBoardSnapshot } from "@/lib/agent/board";
 import { draftDescription, improveTitle } from "@/lib/llm/task-help";
+import { suggestChips } from "@/lib/llm/suggest-chips";
 
 /**
  * `revalidatePath` здесь обязателен: инструменты реестра зовут сервисы напрямую
@@ -42,4 +44,24 @@ export async function draftTaskDescriptionAction(input: {
 }): Promise<string> {
   if (!input.title.trim()) return input.description;
   return draftDescription({ title: input.title.trim(), description: input.description });
+}
+
+/**
+ * Подсказки-чипсы для пустой ленты агента, собранные моделью по содержимому
+ * доски (`lib/llm/suggest-chips.ts`).
+ *
+ * Любая ошибка — среда не найдена, модель недоступна — тихо становится
+ * пустым списком, а не исключением: подсказки не та вещь, ради которой стоит
+ * показывать пользователю ошибку. Пустой список на клиенте — сигнал показать
+ * статичный откат (`components/agent/agent-chat.tsx`).
+ */
+export async function suggestChipsAction(environmentId: string): Promise<string[]> {
+  try {
+    const snapshot = await getBoardSnapshot(environmentId);
+    if (!snapshot) return [];
+    return await suggestChips(snapshot);
+  } catch (error) {
+    console.error("[agent] suggestChipsAction", error);
+    return [];
+  }
 }

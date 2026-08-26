@@ -17,11 +17,16 @@ import { ThinkingLine, ToolTrace } from "./tool-trace";
 import { useBoardView } from "@/hooks/use-board-view";
 import { useAgentChat, type ChatEntry } from "@/hooks/use-agent-chat";
 import { useVoiceRecorder } from "@/components/smart-input/voice-recorder";
-import { applyAgentCallsAction } from "@/lib/actions/agent";
+import { applyAgentCallsAction, suggestChipsAction } from "@/lib/actions/agent";
 import type { DeferredCall } from "@/lib/agent/apply";
 import { parseRichText, firstBlockPlainText, type InlineNode } from "@/lib/agent/rich-text";
 
-const SUGGESTIONS = [
+/**
+ * Откат, пока подсказки-чипсы ещё не собраны моделью по доске (первый рендер,
+ * запрос в процессе) или модель ничего дельного не предложила. Пользователь не
+ * должен видеть пустоту или спиннер вместо чипсов — см. `lib/llm/suggest-chips.ts`.
+ */
+const FALLBACK_SUGGESTIONS = [
   "Что у меня горит?",
   "Разбей «сделать демку» на шаги",
   "Почисти формулировки в бэклоге",
@@ -299,10 +304,13 @@ function Composer({
   onSend,
   busy,
   onFocusChange,
+  onFocus,
 }: {
   onSend: (text: string) => void;
   busy: boolean;
   onFocusChange?: (focused: boolean) => void;
+  /** Первый и любой следующий фокус в поле — триггер для сбора подсказок-чипсов. */
+  onFocus?: () => void;
 }) {
   const [text, setText] = useState("");
   const [focused, setFocused] = useState(false);
@@ -367,7 +375,10 @@ function Composer({
         ref={textareaRef}
         value={text}
         onChange={(e) => setText(e.target.value)}
-        onFocus={() => setFocused(true)}
+        onFocus={() => {
+          setFocused(true);
+          onFocus?.();
+        }}
         onBlur={() => setFocused(false)}
         onKeyDown={(e) => {
           if (e.key === "Enter" && !e.shiftKey) {
@@ -464,10 +475,15 @@ interface AgentChatProps {
 
 export function AgentChat({ environmentId }: AgentChatProps) {
   const { agentLayout } = useBoardView();
-  const { entries, send, clear, busy, markApplied } = useAgentChat(environmentId);
+  const { entries, send, clear, busy, markApplied, boardVersion } = useAgentChat(environmentId);
   const [collapsed, setCollapsed] = useState(false);
   // Курсор ушёл с панели — сворачиваем. Но не тогда, когда в неё печатают.
   const typing = useRef(false);
+
+  const [chips, setChips] = useState<string[]>(FALLBACK_SUGGESTIONS);
+  // Версия доски, под которую уже запрошены (или запрашиваются) чипсы — не
+  // даём фокусу дороже одного вызова модели на одну и ту же доску.
+  const chipsRequestedFor = useRef(-1);
 
   const empty = entries.length === 0;
 
@@ -476,9 +492,21 @@ export function AgentChat({ environmentId }: AgentChatProps) {
     send(text);
   }
 
+  // Первый фокус в пустой ленте — собрать подсказки по текущей доске. Пока
+  // ответа нет и если модель ничего не предложила — остаёмся на статичном
+  // откате, а не показываем пустоту.
+  function handleComposerFocus() {
+    if (!empty || chipsRequestedFor.current === boardVersion) return;
+    chipsRequestedFor.current = boardVersion;
+    setChips(FALLBACK_SUGGESTIONS);
+    suggestChipsAction(environmentId)
+      .then((result) => setChips(result.length > 0 ? result : FALLBACK_SUGGESTIONS))
+      .catch(() => setChips(FALLBACK_SUGGESTIONS));
+  }
+
   const suggestions = (
     <div className="flex flex-wrap gap-1.5">
-      {SUGGESTIONS.map((s) => (
+      {chips.map((s) => (
         <button
           key={s}
           type="button"
@@ -522,7 +550,7 @@ export function AgentChat({ environmentId }: AgentChatProps) {
           )}
         </div>
         <div className="p-3 pt-0">
-          <Composer onSend={handleSend} busy={busy} />
+          <Composer onSend={handleSend} busy={busy} onFocus={handleComposerFocus} />
         </div>
       </div>
     );
@@ -592,6 +620,7 @@ export function AgentChat({ environmentId }: AgentChatProps) {
             typing.current = focused;
             if (focused) setCollapsed(false);
           }}
+          onFocus={handleComposerFocus}
         />
       </div>
     </div>

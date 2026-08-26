@@ -43,6 +43,10 @@ export function useAgentChat(environmentId: string) {
   const [entries, setEntries] = useState<ChatEntry[]>([]);
   const [busy, setBusy] = useState(false);
   const answerId = useRef<string>("");
+  // Растёт на board_changed и на применении предложения — признак для
+  // components/agent/agent-chat.tsx, что подсказки-чипсы устарели и нужно
+  // собрать их заново при следующем фокусе в поле.
+  const [boardVersion, setBoardVersion] = useState(0);
 
   const patch = useCallback((update: (entry: Extract<ChatEntry, { role: "agent" }>) => void) => {
     setEntries((prev) =>
@@ -92,6 +96,7 @@ export function useAgentChat(environmentId: string) {
         // Инструменты реестра зовут сервисы напрямую и про Next.js не знают:
         // без этого доска простоит на месте до ручной перезагрузки страницы.
         router.refresh();
+        setBoardVersion((v) => v + 1);
         return;
       }
 
@@ -168,9 +173,10 @@ export function useAgentChat(environmentId: string) {
           entry.id === entryId && entry.role === "agent" ? { ...entry, applied: result } : entry
         )
       );
+      setBoardVersion((v) => v + 1);
     },
     []
   );
 
-  return { entries, send, clear, busy, markApplied };
+  return { entries, send, clear, busy, markApplied, boardVersion };
 }
