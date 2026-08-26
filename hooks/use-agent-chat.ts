@@ -1,8 +1,11 @@
 "use client";
 
 import { useCallback, useRef, useState } from "react";
+import { useRouter } from "next/navigation";
 import { createEventParser, type AgentEvent } from "@/lib/agent/events";
 import type { DeferredCall } from "@/lib/agent/apply";
+import { toHistoryMessages } from "@/lib/agent/history";
+import { AGENT_UNAVAILABLE_MESSAGE, fetchErrorMessage } from "@/lib/agent/friendly-error";
 import type { TraceStep } from "@/components/agent/tool-trace";
 
 /**
@@ -17,6 +20,8 @@ export type ChatEntry =
   | {
       id: string;
       role: "agent";
+      /** Вопрос пользователя, на который отвечает эта запись — нужен кнопке «Повторить». */
+      question: string;
       steps: TraceStep[];
       text?: string;
       proposal?: DeferredCall[];
@@ -28,6 +33,7 @@ let counter = 0;
 const nextId = () => `e${++counter}`;
 
 export function useAgentChat(environmentId: string) {
+  const router = useRouter();
   const [entries, setEntries] = useState<ChatEntry[]>([]);
   const [busy, setBusy] = useState(false);
   const answerId = useRef<string>("");
@@ -49,14 +55,14 @@ export function useAgentChat(environmentId: string) {
 
       if (event.type === "tool_start") {
         patch((entry) => {
-          entry.steps.push({ tool: event.tool, args: JSON.stringify(event.args) });
+          entry.steps.push({ id: event.id, tool: event.tool, args: JSON.stringify(event.args) });
         });
         return;
       }
 
       if (event.type === "tool_end") {
         patch((entry) => {
-          const step = entry.steps.find((s) => s.tool === event.tool && !s.result);
+          const step = entry.steps.find((s) => s.id === event.id);
           if (step) step.result = event.error ?? event.result;
         });
         return;
@@ -76,11 +82,21 @@ export function useAgentChat(environmentId: string) {
         return;
       }
 
+      if (event.type === "board_changed") {
+        // Инструменты реестра зовут сервисы напрямую и про Next.js не знают:
+        // без этого доска простоит на месте до ручной перезагрузки страницы.
+        router.refresh();
+        return;
+      }
+
+      // event.type === "error" — сырой текст провайдера остаётся в консоли,
+      // в ленте — человеческая формулировка с кнопкой «Повторить».
+      console.error("[agent]", event.message);
       patch((entry) => {
-        entry.error = event.message;
+        entry.error = AGENT_UNAVAILABLE_MESSAGE;
       });
     },
-    [patch]
+    [patch, router]
   );
 
   const send = useCallback(
@@ -88,21 +104,25 @@ export function useAgentChat(environmentId: string) {
       const id = nextId();
       answerId.current = id;
       setBusy(true);
+      const history = toHistoryMessages(entries);
       setEntries((prev) => [
         ...prev,
         { id: nextId(), role: "user", text },
-        { id, role: "agent", steps: [], thinking: true },
+        { id, role: "agent", question: text, steps: [], thinking: true },
       ]);
 
       try {
         const response = await fetch("/api/agent/chat", {
           method: "POST",
           headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ message: text, environmentId }),
+          body: JSON.stringify({ message: text, environmentId, history }),
         });
 
         if (!response.ok || !response.body) {
-          throw new Error("Агент недоступен");
+          patch((entry) => {
+            entry.error = fetchErrorMessage(response.status);
+          });
+          return;
         }
 
         const parse = createEventParser();
@@ -114,18 +134,23 @@ export function useAgentChat(environmentId: string) {
           for (const event of parse(value)) apply(event);
         }
       } catch (error) {
-        apply({
-          type: "error",
-          message: error instanceof Error ? error.message : "Агент недоступен",
+        console.error("[agent]", error);
+        patch((entry) => {
+          entry.error = AGENT_UNAVAILABLE_MESSAGE;
         });
       } finally {
         patch((entry) => {
           entry.thinking = false;
+          // Ход завершился без единого события (пустой ответ модели, обрыв по
+          // таймауту) — без этого в ленте остаётся пустой пузырь без объяснения.
+          if (!entry.text && !entry.proposal && !entry.error) {
+            entry.error = AGENT_UNAVAILABLE_MESSAGE;
+          }
         });
         setBusy(false);
       }
     },
-    [apply, environmentId, patch]
+    [apply, entries, environmentId, patch]
   );
 
   const clear = useCallback(() => setEntries([]), []);

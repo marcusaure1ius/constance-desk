@@ -34,8 +34,14 @@ function pluralActions(n: number): string {
   return "действий";
 }
 
-/** Читаемая строка предложения — берём то, что действительно есть в аргументах. */
+/**
+ * Читаемая строка предложения — берём то, что действительно есть в аргументах.
+ * `label` заполняется на сервере (`lib/agent/loop.ts`) из уже прочитанных
+ * задач и приоритетнее: он знает название задачи по id, здесь его нет.
+ */
 function describeCall(call: DeferredCall): string {
+  if (call.label) return call.label;
+
   const args = (call.args && typeof call.args === "object" ? call.args : {}) as Record<
     string,
     unknown
@@ -199,7 +205,13 @@ function RichText({ text }: { text: string }) {
   );
 }
 
-function AgentEntryView({ entry }: { entry: Extract<ChatEntry, { role: "agent" }> }) {
+function AgentEntryView({
+  entry,
+  onRetry,
+}: {
+  entry: Extract<ChatEntry, { role: "agent" }>;
+  onRetry: (text: string) => void;
+}) {
   return (
     <div className="flex gap-2.5">
       {/* Кружок ровно в высоту первой строки (20px) — искра встаёт по её середине. */}
@@ -211,13 +223,24 @@ function AgentEntryView({ entry }: { entry: Extract<ChatEntry, { role: "agent" }
         {entry.steps.length > 0 && <ToolTrace steps={entry.steps} running={entry.thinking} />}
         {entry.text && <RichText text={entry.text} />}
         {entry.proposal && entry.proposal.length > 0 && <ProposalCard calls={entry.proposal} />}
-        {entry.error && <p className="text-xs text-destructive">{entry.error}</p>}
+        {entry.error && (
+          <div className="flex items-center gap-2">
+            <p className="text-xs text-destructive">{entry.error}</p>
+            <button
+              type="button"
+              onClick={() => onRetry(entry.question)}
+              className="text-xs font-medium text-primary underline-offset-2 hover:underline"
+            >
+              Повторить
+            </button>
+          </div>
+        )}
       </div>
     </div>
   );
 }
 
-function Transcript({ entries }: { entries: ChatEntry[] }) {
+function Transcript({ entries, onRetry }: { entries: ChatEntry[]; onRetry: (text: string) => void }) {
   const end = useRef<HTMLDivElement>(null);
 
   // Лента растёт вниз, а смотрят всегда на последний ответ.
@@ -235,7 +258,7 @@ function Transcript({ entries }: { entries: ChatEntry[] }) {
             </div>
           </div>
         ) : (
-          <AgentEntryView key={entry.id} entry={entry} />
+          <AgentEntryView key={entry.id} entry={entry} onRetry={onRetry} />
         )
       )}
       <div ref={end} />
@@ -291,7 +314,13 @@ function Composer({
         }}
       />
       <div className="flex items-center justify-end gap-2">
-        <button type="button" className="text-muted-foreground hover:text-foreground">
+        <button
+          type="button"
+          disabled
+          title="Голосовой ввод появится позже"
+          aria-label="Голосовой ввод появится позже"
+          className="cursor-not-allowed text-muted-foreground/40"
+        >
           <Mic className="size-4" />
         </button>
         <button
@@ -385,7 +414,7 @@ export function AgentChat({ environmentId }: AgentChatProps) {
               {suggestions}
             </div>
           ) : (
-            <Transcript entries={entries} />
+            <Transcript entries={entries} onRetry={handleSend} />
           )}
         </div>
         <div className="p-3 pt-0">
@@ -445,7 +474,7 @@ export function AgentChat({ environmentId }: AgentChatProps) {
               </div>
             </div>
             <div className="min-h-0 flex-1 overflow-y-auto p-4">
-              <Transcript entries={entries} />
+              <Transcript entries={entries} onRetry={handleSend} />
             </div>
           </div>
         )}
