@@ -15,7 +15,7 @@ import { CreateTaskModal } from "@/components/modals/create-task-modal";
 import { MoveTaskModal } from "@/components/modals/move-task-modal";
 import { ArchiveModal } from "@/components/modals/archive-modal";
 import { TaskEditDialog } from "./task-edit-dialog";
-import { SmartInput } from "@/components/smart-input/smart-input";
+import { AgentChat } from "@/components/agent/agent-chat";
 import { SmartInputSheet } from "@/components/smart-input/smart-input-sheet";
 import { BoardFilter } from "@/components/board/board-filter";
 import { BoardViewToggle } from "@/components/board/board-view-toggle";
@@ -112,7 +112,10 @@ export function KanbanBoard({
   const searchQuery = searchParams.get("q")?.toLowerCase() ?? "";
   const { filterTask, config, hasFilters } = useBoardFilter();
   const filtersActive = config.active && hasFilters;
-  const { mode, toggleCollapsed, isCollapsed, showEmptyEpics } = useBoardView();
+  const { mode, toggleCollapsed, isCollapsed, showEmptyEpics, agentLayout } = useBoardView();
+  // Панель агента справа занимает 380px + отступ 24px: доска должна оставаться
+  // слева, а не тянуться под неё (спека «доска остаётся слева»).
+  const boardPad = agentLayout === "panel" ? "md:pr-[404px]" : "";
 
   useEffect(() => {
     if (searchParams.get("create") === "true") {
@@ -270,7 +273,7 @@ export function KanbanBoard({
       <DragDropContext onDragEnd={searchQuery || filtersActive ? () => {} : handleDragEnd}>
         {/* Desktop: вид колонок или дорожек-эпиков */}
         {mode === "epics" ? (
-          <div className="hidden md:block h-full">
+          <div className={cn("hidden md:block h-full", boardPad)}>
             <EpicsBoard
               columns={columns}
               tasks={Array.from(tasksByColumn.values()).flat()}
@@ -283,7 +286,12 @@ export function KanbanBoard({
             />
           </div>
         ) : (
-          <div className="hidden md:flex gap-4 overflow-x-auto container mx-auto px-4 py-4 pb-36 h-full">
+          <div
+            className={cn(
+              "hidden md:flex gap-4 overflow-x-auto container mx-auto px-4 py-4 pb-36 h-full",
+              boardPad
+            )}
+          >
             {columns.map((col) => (
               <BoardColumn
                 key={col.id}
@@ -301,10 +309,8 @@ export function KanbanBoard({
         )}
       </DragDropContext>
 
-      {/* Desktop: SmartInput fixed at bottom */}
-      <div className="hidden md:block fixed bottom-0 left-0 right-0 z-40 bg-background/80 backdrop-blur-sm pb-4 pt-2">
-        <SmartInput defaultColumnId={columns[0]?.id ?? ""} />
-      </div>
+      {/* Агент: лента снизу или панель справа — раскладка из настроек */}
+      <AgentChat environmentId={environmentId} />
 
       {/* Mobile: tabs portal into navbar */}
       <MobileColumnTabs

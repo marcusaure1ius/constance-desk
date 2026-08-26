@@ -3,7 +3,7 @@
 import { useState, useTransition } from "react";
 import { format } from "date-fns";
 import { ru } from "date-fns/locale";
-import { CalendarIcon, Trash2 } from "lucide-react";
+import { CalendarIcon, Loader2, Trash2 } from "lucide-react";
 import { toast } from "sonner";
 
 import {
@@ -40,7 +40,9 @@ import {
   AlertDialogTitle as AlertDialogTitleComponent,
 } from "@/components/ui/alert-dialog";
 import { updateTaskAction, deleteTaskAction } from "@/lib/actions/tasks";
+import { improveTaskTitleAction, draftTaskDescriptionAction } from "@/lib/actions/agent";
 import { cn } from "@/lib/utils";
+import { SparkleIcon } from "@/components/agent/sparkle-icon";
 
 type Task = {
   id: string;
@@ -81,6 +83,70 @@ export function TaskEditDialog({
     task.plannedDate ? new Date(task.plannedDate) : undefined
   );
   const [showDeleteConfirm, setShowDeleteConfirm] = useState(false);
+
+  type AiField = "title" | "description";
+  const [aiBusy, setAiBusy] = useState<AiField | null>(null);
+  const [aiPrev, setAiPrev] = useState<{ field: AiField; value: string } | null>(null);
+
+  async function improve(field: AiField) {
+    setAiBusy(field);
+    try {
+      if (field === "title") {
+        const next = await improveTaskTitleAction(title);
+        if (next !== title) {
+          setAiPrev({ field, value: title });
+          setTitle(next);
+        }
+      } else {
+        const next = await draftTaskDescriptionAction({ title, description });
+        if (next !== description) {
+          setAiPrev({ field, value: description });
+          setDescription(next);
+        }
+      }
+    } catch {
+      toast.error("Не удалось обратиться к модели");
+    } finally {
+      setAiBusy(null);
+    }
+  }
+
+  function revert() {
+    if (!aiPrev) return;
+    if (aiPrev.field === "title") setTitle(aiPrev.value);
+    else setDescription(aiPrev.value);
+    setAiPrev(null);
+  }
+
+  function aiButton(field: AiField, label: string) {
+    return (
+      <button
+        type="button"
+        onClick={() => improve(field)}
+        disabled={aiBusy !== null}
+        className="inline-flex items-center gap-1 text-xs text-primary transition-opacity disabled:opacity-50"
+      >
+        {aiBusy === field ? (
+          <Loader2 className="size-3 animate-spin" />
+        ) : (
+          <SparkleIcon className="size-3" />
+        )}
+        {label}
+      </button>
+    );
+  }
+
+  function aiHint(field: AiField) {
+    if (aiPrev?.field !== field) return null;
+    return (
+      <span className="text-xs text-muted-foreground">
+        Переписал агент ·{" "}
+        <button type="button" onClick={revert} className="underline">
+          вернуть
+        </button>
+      </span>
+    );
+  }
 
   function handleSave(e: React.FormEvent) {
     e.preventDefault();
@@ -127,7 +193,10 @@ export function TaskEditDialog({
         <form onSubmit={handleSave} className="flex flex-col gap-4">
           {/* Title */}
           <div className="flex flex-col gap-1.5">
-            <Label htmlFor="edit-task-title">Название *</Label>
+            <div className="flex items-center justify-between">
+              <Label htmlFor="edit-task-title">Название *</Label>
+              {aiButton("title", "Улучшить")}
+            </div>
             <Input
               id="edit-task-title"
               placeholder="Введите название задачи"
@@ -135,19 +204,24 @@ export function TaskEditDialog({
               onChange={(e) => setTitle(e.target.value)}
               required
             />
+            {aiHint("title")}
           </div>
 
           {/* Description */}
           <div className="flex flex-col gap-1.5">
-            <Label htmlFor="edit-task-description">Описание</Label>
+            <div className="flex items-center justify-between">
+              <Label htmlFor="edit-task-description">Описание</Label>
+              {aiButton("description", "Дописать")}
+            </div>
             <Textarea
               id="edit-task-description"
               placeholder="Описание задачи (необязательно)"
               value={description}
               onChange={(e) => setDescription(e.target.value)}
               className="resize-none"
-              rows={3}
+              rows={6}
             />
+            {aiHint("description")}
           </div>
 
           {/* Planned Date */}

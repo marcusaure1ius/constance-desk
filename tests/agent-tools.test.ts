@@ -27,7 +27,7 @@ vi.mock("@/lib/services/tasks", () => ({
 }));
 
 import { boardTools, findTool, toolsFor } from "@/lib/agent/tools";
-import { runTool, toFunctionSpec, toJsonSchema } from "@/lib/agent/tool-registry";
+import { isDeferred, runTool, toFunctionSpec, toJsonSchema } from "@/lib/agent/tool-registry";
 
 const READ_TOOLS = ["get_board", "list_environments", "list_tasks"];
 const MUTATION_TOOLS = [
@@ -176,5 +176,28 @@ describe("вызов инструментов реестра", () => {
     expect(outcome.ok).toBe(false);
     expect(outcome.ok === false && outcome.error).toContain("plannedDate");
     expect(mocks.updateTask).not.toHaveBeenCalled();
+  });
+});
+
+describe("impact инструментов доски", () => {
+  it("перехватываются ровно те инструменты, которые нельзя откатить глазами", () => {
+    const deferred = boardTools.filter(isDeferred).map((t) => t.name).sort();
+
+    expect(deferred).toEqual([
+      "create_epic",
+      "create_epic_task",
+      "create_task",
+      "delete_task",
+      "update_task",
+    ]);
+  });
+
+  it("перенос задачи исполняется без подтверждения", () => {
+    const move = boardTools.find((t) => t.name === "move_task");
+    expect(move?.impact).toBe("reversible");
+  });
+
+  it("у каждого инструмента задан impact", () => {
+    expect(boardTools.every((t) => t.impact)).toBe(true);
   });
 });

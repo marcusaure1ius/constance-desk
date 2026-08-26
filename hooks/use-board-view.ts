@@ -3,12 +3,22 @@
 import { useCallback, useSyncExternalStore } from "react";
 
 export type BoardViewMode = "columns" | "epics";
+/** Где живёт панель агента: лентой снизу над доской или колонкой справа. */
+export const AGENT_LAYOUTS = ["dock", "panel"] as const;
+export type AgentLayout = (typeof AGENT_LAYOUTS)[number];
+
+/** Значение из localStorage могло устареть или прийти вручную — проверяем перед использованием. */
+export function isAgentLayout(value: unknown): value is AgentLayout {
+  return typeof value === "string" && (AGENT_LAYOUTS as readonly string[]).includes(value);
+}
 
 type BoardViewState = {
   mode: BoardViewMode;
   collapsed: string[];
   /** Показывать ли в виде эпиков дорожки без видимых задач. Настройка «Доска». */
   showEmptyEpics: boolean;
+  /** Расположение панели агента. Настройка «Доска». */
+  agentLayout: AgentLayout;
 };
 
 const STORAGE_KEY = "board-view";
@@ -18,6 +28,7 @@ const defaultState: BoardViewState = {
   mode: "columns",
   collapsed: [],
   showEmptyEpics: false,
+  agentLayout: "dock",
 };
 
 let cachedRaw: string | null = null;
@@ -29,9 +40,11 @@ function getSnapshot(): BoardViewState {
     const raw = localStorage.getItem(STORAGE_KEY);
     if (raw === cachedRaw) return cachedState;
     cachedRaw = raw;
-    cachedState = raw
-      ? { ...defaultState, ...JSON.parse(raw) }
-      : defaultState;
+    const parsed = raw ? { ...defaultState, ...JSON.parse(raw) } : defaultState;
+    cachedState = {
+      ...parsed,
+      agentLayout: isAgentLayout(parsed.agentLayout) ? parsed.agentLayout : "dock",
+    };
     return cachedState;
   } catch {
     return defaultState;
@@ -70,6 +83,10 @@ export function useBoardView() {
     write({ ...getSnapshot(), showEmptyEpics });
   }, []);
 
+  const setAgentLayout = useCallback((agentLayout: AgentLayout) => {
+    write({ ...getSnapshot(), agentLayout });
+  }, []);
+
   const toggleCollapsed = useCallback((key: string) => {
     const cur = getSnapshot();
     const collapsed = cur.collapsed.includes(key)
@@ -88,6 +105,8 @@ export function useBoardView() {
     setMode,
     showEmptyEpics: state.showEmptyEpics,
     setShowEmptyEpics,
+    agentLayout: state.agentLayout,
+    setAgentLayout,
     toggleCollapsed,
     isCollapsed,
   };

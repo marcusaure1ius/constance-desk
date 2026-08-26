@@ -76,6 +76,26 @@ describe("resolveProviders", () => {
   });
 });
 
+describe("порядок провайдеров", () => {
+  const env = { GROQ_API_KEY: "groq-key", OPENROUTER_API_KEY: "or-key" };
+
+  it("по умолчанию Groq первым — он бесплатный", () => {
+    const providers = resolveProviders(MODELS.capture, env);
+    expect(providers.map((p) => p.name)).toEqual(["groq", "openrouter"]);
+  });
+
+  it("у агента порядок обратный: OpenRouter первым", () => {
+    const providers = resolveProviders(MODELS.agent, env);
+    expect(providers.map((p) => p.name)).toEqual(["openrouter", "groq"]);
+    expect(providers[0].model).toBe(MODELS.agent.openrouter);
+  });
+
+  it("провайдер без ключа выпадает, порядок остальных сохраняется", () => {
+    const providers = resolveProviders(MODELS.agent, { OPENROUTER_API_KEY: "or-key" });
+    expect(providers.map((p) => p.name)).toEqual(["openrouter"]);
+  });
+});
+
 describe("chatJson — падение к следующему провайдеру", () => {
   it("429 у Groq уводит тот же запрос в OpenRouter", async () => {
     const fetchFn = vi

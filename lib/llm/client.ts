@@ -38,7 +38,15 @@ const BASE_URLS: Record<ProviderName, string> = {
 };
 
 /** Пара моделей под одну задачу: чем считаем у Groq и чем у OpenRouter. */
-export type ModelPair = { groq: string; openrouter: string };
+export type ModelPair = {
+  groq: string;
+  openrouter: string;
+  /**
+   * Порядок обращения. Умолчание — Groq первым, он бесплатный. У агента
+   * порядок обратный: цикл с инструментами упирается в качество, а не в цену.
+   */
+  order?: readonly ProviderName[];
+};
 
 /**
  * Модель OpenRouter для обеих задач. Берётся стабильный slug без даты и без
@@ -62,9 +70,20 @@ export const MODELS = {
     groq: "openai/gpt-oss-20b",
     openrouter: OPENROUTER_MODEL,
   },
+  /**
+   * Цикл агента на доске. OpenRouter первым: здесь важнее не цена вызова, а
+   * то, что модель не путается в многошаговой цепочке инструментов.
+   */
+  agent: {
+    groq: "openai/gpt-oss-120b",
+    openrouter: OPENROUTER_MODEL,
+    order: ["openrouter", "groq"],
+  },
 } as const satisfies Record<string, ModelPair>;
 
 type Env = Record<string, string | undefined>;
+
+const DEFAULT_ORDER: readonly ProviderName[] = ["groq", "openrouter"];
 
 /**
  * Провайдеры, к которым есть ключи, в порядке обращения. Нет ключа — нет
@@ -72,29 +91,53 @@ type Env = Record<string, string | undefined>;
  * кода, хотя это просто ненастроенное окружение.
  */
 export function resolveProviders(models: ModelPair, env: Env = process.env): LlmProvider[] {
-  const providers: LlmProvider[] = [];
+  const keys: Record<ProviderName, string | undefined> = {
+    groq: env.GROQ_API_KEY?.trim(),
+    openrouter: env.OPENROUTER_API_KEY?.trim(),
+  };
+  const modelOf: Record<ProviderName, string> = {
+    groq: models.groq,
+    openrouter: models.openrouter,
+  };
 
-  const groqKey = env.GROQ_API_KEY?.trim();
-  if (groqKey) {
-    providers.push({
-      name: "groq",
-      baseUrl: BASE_URLS.groq,
-      apiKey: groqKey,
-      model: models.groq,
-    });
+  return (models.order ?? DEFAULT_ORDER).flatMap((name) => {
+    const apiKey = keys[name];
+    if (!apiKey) return [];
+    return [{ name, baseUrl: BASE_URLS[name], apiKey, model: modelOf[name] }];
+  });
+}
+
+/**
+ * Перебор провайдеров с падением на следующий при ошибках, виноватых в провайдере.
+ *
+ * Общий для всех клиентов, потому что логика переноса одна и та же: ошибки 429, 5xx
+ * и обрывы связи — повод попробовать другого. Но сам вызов у каждого клиента свой:
+ * `chatJson` просит JSON, `chatTools` просит function calling, `capture` контекст
+ * отправляет. Поэтому `attempt` — это колбэк, который каждый клиент определяет сам.
+ */
+export async function withFailover<T>(
+  providers: LlmProvider[],
+  attempt: (provider: LlmProvider) => Promise<T>
+): Promise<T> {
+  if (providers.length === 0) {
+    throw new Error(
+      "Не настроен ни один провайдер модели: задайте GROQ_API_KEY или OPENROUTER_API_KEY"
+    );
   }
 
-  const openrouterKey = env.OPENROUTER_API_KEY?.trim();
-  if (openrouterKey) {
-    providers.push({
-      name: "openrouter",
-      baseUrl: BASE_URLS.openrouter,
-      apiKey: openrouterKey,
-      model: models.openrouter,
-    });
+  for (let index = 0; index < providers.length; index++) {
+    const provider = providers[index];
+    const isLast = index === providers.length - 1;
+
+    try {
+      return await attempt(provider);
+    } catch (error) {
+      if (isLast || !shouldFailover(error)) throw error;
+    }
   }
 
-  return providers;
+  // Недостижимо: последний провайдер либо возвращает ответ, либо бросает.
+  throw new Error("Провайдеры модели закончились");
 }
 
 export type ChatJsonInput = {
@@ -125,29 +168,12 @@ export type ChatJsonResult = {
  */
 export async function chatJson(input: ChatJsonInput): Promise<ChatJsonResult> {
   const providers = input.providers ?? resolveProviders(input.models, input.env);
-
-  if (providers.length === 0) {
-    throw new Error(
-      "Не настроен ни один провайдер модели: задайте GROQ_API_KEY или OPENROUTER_API_KEY"
-    );
-  }
-
   const fetchFn = input.fetchFn ?? fetch;
 
-  for (let index = 0; index < providers.length; index++) {
-    const provider = providers[index];
-    const isLast = index === providers.length - 1;
-
-    try {
-      const content = await callProvider(provider, input, fetchFn);
-      return { content, provider: provider.name, model: provider.model };
-    } catch (error) {
-      if (isLast || !shouldFailover(error)) throw error;
-    }
-  }
-
-  // Недостижимо: последний провайдер либо возвращает ответ, либо бросает.
-  throw new Error("Провайдеры модели закончились");
+  return withFailover(providers, async (provider) => {
+    const content = await callProvider(provider, input, fetchFn);
+    return { content, provider: provider.name, model: provider.model };
+  });
 }
 
 /** Стоит ли пробовать следующего провайдера. */

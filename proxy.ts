@@ -1,13 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
-import { jwtVerify } from "jose";
-
-const secret = process.env.SESSION_SECRET;
-if (!secret && process.env.NODE_ENV === "production") {
-  throw new Error("SESSION_SECRET is required in production");
-}
-const SESSION_SECRET = new TextEncoder().encode(
-  secret || "constance-default-secret-change-me"
-);
+import { isSessionValid, SESSION_COOKIE } from "@/lib/session";
 
 export async function proxy(request: NextRequest) {
   const { pathname } = request.nextUrl;
@@ -28,17 +20,11 @@ export async function proxy(request: NextRequest) {
   }
 
   // Проверяем сессию для защищённых страниц
-  const token = request.cookies.get("constance-session")?.value;
-  if (!token) {
+  const token = request.cookies.get(SESSION_COOKIE)?.value;
+  if (!(await isSessionValid(token))) {
     return NextResponse.redirect(new URL("/login", request.url));
   }
-
-  try {
-    await jwtVerify(token, SESSION_SECRET);
-    return NextResponse.next();
-  } catch {
-    return NextResponse.redirect(new URL("/login", request.url));
-  }
+  return NextResponse.next();
 }
 
 export const config = {
