@@ -306,6 +306,16 @@ function Composer({
   const hasText = text.trim().length > 0;
   const canSend = hasText && !busy && !voiceBusy;
 
+  // Высота поля считается от значения, а не от события ввода: текст сюда
+  // попадает и мимо клавиатуры — очищается после отправки и дописывается
+  // распознанной речью, и в обоих случаях поле осталось бы прежней высоты.
+  useEffect(() => {
+    const field = textareaRef.current;
+    if (!field) return;
+    field.style.height = "24px";
+    field.style.height = `${field.scrollHeight}px`;
+  }, [text]);
+
   function send() {
     if (!canSend) return;
     onSend(text.trim());
@@ -341,11 +351,6 @@ function Composer({
         rows={1}
         className="w-full resize-none bg-transparent text-sm text-foreground placeholder:text-muted-foreground focus:outline-none"
         style={{ minHeight: "24px", maxHeight: "120px" }}
-        onInput={(e) => {
-          const target = e.target as HTMLTextAreaElement;
-          target.style.height = "24px";
-          target.style.height = `${target.scrollHeight}px`;
-        }}
       />
       {/* justify-end держит кнопки справа и в покое, когда строки состояния
           с её mr-auto в разметке нет. */}
