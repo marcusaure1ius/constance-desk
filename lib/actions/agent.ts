@@ -10,10 +10,19 @@ import { applyAgentCalls, type DeferredCall } from "@/lib/agent/apply";
  */
 export async function applyAgentCallsAction(
   calls: DeferredCall[]
-): Promise<{ ok: boolean; error?: string }> {
+): Promise<{ applied: number; failed: { tool: string; error: string }[] }> {
   const results = await applyAgentCalls(calls);
   revalidatePath("/");
 
-  const failed = results.find((r) => !r.ok);
-  return failed && !failed.ok ? { ok: false, error: failed.error } : { ok: true };
+  const applied = results.filter((r) => r.ok).length;
+  const failed: { tool: string; error: string }[] = [];
+
+  results.forEach((result, i) => {
+    if (!result.ok) {
+      const tool = calls[i]?.tool || "unknown";
+      failed.push({ tool, error: result.error });
+    }
+  });
+
+  return { applied, failed };
 }
