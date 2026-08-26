@@ -9,13 +9,14 @@
  */
 
 import { useEffect, useRef, useState } from "react";
-import { ArrowUp, ChevronDown, Mic, X } from "lucide-react";
+import { ArrowUp, ChevronDown, Loader2, Mic, Square, X } from "lucide-react";
 import { toast } from "sonner";
 import { cn } from "@/lib/utils";
 import { SparkleIcon } from "./sparkle-icon";
 import { ThinkingLine, ToolTrace } from "./tool-trace";
 import { useBoardView } from "@/hooks/use-board-view";
 import { useAgentChat, type ChatEntry } from "@/hooks/use-agent-chat";
+import { useVoiceRecorder } from "@/components/smart-input/voice-recorder";
 import { applyAgentCallsAction } from "@/lib/actions/agent";
 import type { DeferredCall } from "@/lib/agent/apply";
 import { parseRichText, firstBlockPlainText, type InlineNode } from "@/lib/agent/rich-text";
@@ -276,8 +277,34 @@ function Composer({
   onFocusChange?: (focused: boolean) => void;
 }) {
   const [text, setText] = useState("");
+  const [focused, setFocused] = useState(false);
+  const textareaRef = useRef<HTMLTextAreaElement>(null);
+
+  const recorder = useVoiceRecorder(
+    (transcription) => {
+      setText((prev) => {
+        const trimmed = prev.trim();
+        return trimmed ? `${trimmed} ${transcription}` : transcription;
+      });
+      // Распознанное — только черновик: пользователь должен прочитать и
+      // отправить сам, поэтому возвращаем фокус в поле, а не отправляем.
+      textareaRef.current?.focus();
+    },
+    (error) => toast.error(error)
+  );
+  const isRecording = recorder.state === "recording";
+  const isTranscribing = recorder.state === "transcribing";
+  const voiceBusy = isRecording || isTranscribing;
+
+  // Лента не должна сворачиваться по уходу курсора, пока идёт запись или
+  // распознавание — так же, как она не сворачивается при фокусе в поле.
+  const expanded = focused || voiceBusy;
+  useEffect(() => {
+    onFocusChange?.(expanded);
+  }, [expanded, onFocusChange]);
+
   const hasText = text.trim().length > 0;
-  const canSend = hasText && !busy;
+  const canSend = hasText && !busy && !voiceBusy;
 
   function send() {
     if (!canSend) return;
@@ -285,18 +312,25 @@ function Composer({
     setText("");
   }
 
+  function handleMicClick() {
+    if (isRecording) recorder.stop();
+    else if (!isTranscribing) recorder.start();
+  }
+
   return (
     <div
       className={cn(
         "rounded-2xl border bg-card/60 p-3 backdrop-blur-md transition-all",
-        hasText && "border-primary ring-[3px] ring-primary/10"
+        hasText && !voiceBusy && "border-primary ring-[3px] ring-primary/10",
+        isRecording && "border-destructive ring-[3px] ring-destructive/10"
       )}
     >
       <textarea
+        ref={textareaRef}
         value={text}
         onChange={(e) => setText(e.target.value)}
-        onFocus={() => onFocusChange?.(true)}
-        onBlur={() => onFocusChange?.(false)}
+        onFocus={() => setFocused(true)}
+        onBlur={() => setFocused(false)}
         onKeyDown={(e) => {
           if (e.key === "Enter" && !e.shiftKey) {
             e.preventDefault();
@@ -313,15 +347,50 @@ function Composer({
           target.style.height = `${target.scrollHeight}px`;
         }}
       />
-      <div className="flex items-center justify-end gap-2">
+      <div className="flex items-center gap-2">
+        {isRecording && (
+          <span className="mr-auto flex items-center gap-1.5 text-xs text-muted-foreground">
+            <span className="size-1.5 shrink-0 animate-pulse rounded-full bg-destructive" />
+            Запись… {recorder.formattedDuration}
+          </span>
+        )}
+        {isTranscribing && (
+          <span className="mr-auto flex items-center gap-1.5 text-xs text-muted-foreground">
+            <Loader2 className="size-3 shrink-0 animate-spin" />
+            Распознаю речь…
+          </span>
+        )}
         <button
           type="button"
-          disabled
-          title="Голосовой ввод появится позже"
-          aria-label="Голосовой ввод появится позже"
-          className="cursor-not-allowed text-muted-foreground/40"
+          onClick={handleMicClick}
+          disabled={isTranscribing}
+          title={
+            isRecording
+              ? "Остановить запись"
+              : isTranscribing
+                ? "Распознаю речь…"
+                : "Надиктовать текст"
+          }
+          aria-label={
+            isRecording
+              ? "Остановить запись"
+              : isTranscribing
+                ? "Распознаю речь"
+                : "Надиктовать текст"
+          }
+          className={cn(
+            "text-muted-foreground transition-colors",
+            !isTranscribing && "hover:text-foreground",
+            isTranscribing && "cursor-not-allowed opacity-60"
+          )}
         >
-          <Mic className="size-4" />
+          {isTranscribing ? (
+            <Loader2 className="size-4 animate-spin" />
+          ) : isRecording ? (
+            <Square className="size-4 fill-destructive text-destructive" />
+          ) : (
+            <Mic className="size-4" />
+          )}
         </button>
         <button
           type="button"
