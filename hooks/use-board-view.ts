@@ -4,12 +4,21 @@ import { useCallback, useSyncExternalStore } from "react";
 
 export type BoardViewMode = "columns" | "epics";
 
-type BoardViewState = { mode: BoardViewMode; collapsed: string[] };
+type BoardViewState = {
+  mode: BoardViewMode;
+  collapsed: string[];
+  /** Показывать ли в виде эпиков дорожки без видимых задач. Настройка «Доска». */
+  showEmptyEpics: boolean;
+};
 
 const STORAGE_KEY = "board-view";
 const CHANGE_EVENT = "board-view-change";
 
-const defaultState: BoardViewState = { mode: "columns", collapsed: [] };
+const defaultState: BoardViewState = {
+  mode: "columns",
+  collapsed: [],
+  showEmptyEpics: false,
+};
 
 let cachedRaw: string | null = null;
 let cachedState: BoardViewState = defaultState;
@@ -57,6 +66,10 @@ export function useBoardView() {
     write({ ...getSnapshot(), mode });
   }, []);
 
+  const setShowEmptyEpics = useCallback((showEmptyEpics: boolean) => {
+    write({ ...getSnapshot(), showEmptyEpics });
+  }, []);
+
   const toggleCollapsed = useCallback((key: string) => {
     const cur = getSnapshot();
     const collapsed = cur.collapsed.includes(key)
@@ -70,5 +83,12 @@ export function useBoardView() {
     [state.collapsed]
   );
 
-  return { mode: state.mode, setMode, toggleCollapsed, isCollapsed };
+  return {
+    mode: state.mode,
+    setMode,
+    showEmptyEpics: state.showEmptyEpics,
+    setShowEmptyEpics,
+    toggleCollapsed,
+    isCollapsed,
+  };
 }

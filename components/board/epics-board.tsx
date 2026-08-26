@@ -32,8 +32,8 @@ export function EpicsBoard({
   onTaskClick,
   onCreateTask,
 }: EpicsBoardProps) {
-  const { toggleCollapsed, isCollapsed } = useBoardView();
-  const lanes = buildLanes(categories, tasks);
+  const { toggleCollapsed, isCollapsed, showEmptyEpics } = useBoardView();
+  const lanes = buildLanes(categories, tasks, { showEmpty: showEmptyEpics });
   const lastColumnId = columns[columns.length - 1]?.id;
   const gridCols = {
     gridTemplateColumns: `repeat(${columns.length}, minmax(200px, 1fr))`,

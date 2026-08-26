@@ -8,6 +8,7 @@ import { EnvironmentsManager } from "@/components/settings/environments-manager"
 import { PinChangeForm } from "@/components/settings/pin-change-form";
 import { getNickname } from "@/lib/services/auth";
 import { NicknameForm } from "@/components/settings/nickname-form";
+import { BoardSettings } from "@/components/settings/board-settings";
 import { DangerZone } from "@/components/settings/danger-zone";
 
 export const dynamic = "force-dynamic";
@@ -29,6 +30,7 @@ export default async function SettingsPage() {
     <div className="container mx-auto max-w-2xl px-4 py-6 space-y-6">
       <h1 className="text-2xl font-bold">Настройки</h1>
       <NicknameForm currentNickname={nickname ?? ""} />
+      <BoardSettings />
       <EnvironmentsManager environments={envs} activeEnvironmentId={activeEnv.id} />
       <ColumnsManager columns={cols} environmentId={activeEnv.id} />
       <CategoriesManager categories={cats} environmentId={activeEnv.id} />

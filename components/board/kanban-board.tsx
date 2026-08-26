@@ -112,7 +112,7 @@ export function KanbanBoard({
   const searchQuery = searchParams.get("q")?.toLowerCase() ?? "";
   const { filterTask, config, hasFilters } = useBoardFilter();
   const filtersActive = config.active && hasFilters;
-  const { mode, toggleCollapsed, isCollapsed } = useBoardView();
+  const { mode, toggleCollapsed, isCollapsed, showEmptyEpics } = useBoardView();
 
   useEffect(() => {
     if (searchParams.get("create") === "true") {
@@ -342,12 +342,12 @@ export function KanbanBoard({
             ) : (
               buildLanes(
                 categories,
-                tasksByColumn.get(activeTab) ?? []
+                tasksByColumn.get(activeTab) ?? [],
+                { showEmpty: showEmptyEpics }
               ).map((lane) => {
                 const laneTasks = (tasksByColumn.get(activeTab) ?? []).filter(
                   (t) => catKey(t.categoryId) === lane.key
                 );
-                if (laneTasks.length === 0) return null;
                 const collapsed = isCollapsed(lane.key);
                 return (
                   <div key={lane.key} className="space-y-2">

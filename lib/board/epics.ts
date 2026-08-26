@@ -32,12 +32,26 @@ export function parseDroppableId(droppableId: string): {
   };
 }
 
-/** Порядок дорожек: категории как есть + «Без эпика» в конце, если такие задачи есть. */
+/**
+ * Порядок дорожек: категории как есть + «Без эпика» в конце, если такие задачи
+ * есть.
+ *
+ * `tasks` приходят уже после поиска и фильтров доски, поэтому «пустая» дорожка
+ * здесь — та, в которой нет ВИДИМЫХ задач: при поиске остаются только эпики с
+ * находками. `showEmpty` (настройка доски) возвращает пустые категории обратно;
+ * «Без эпика» дорожкой без задач не бывает в любом случае — это не эпик, а место
+ * для задач без категории.
+ */
 export function buildLanes(
   categories: EpicCategory[],
-  tasks: { categoryId: string | null }[]
+  tasks: { categoryId: string | null }[],
+  options: { showEmpty?: boolean } = {}
 ): Lane[] {
-  const lanes: Lane[] = categories.map((c) => ({ key: c.id, category: c }));
+  const lanes: Lane[] = categories
+    .filter(
+      (c) => options.showEmpty || tasks.some((t) => t.categoryId === c.id)
+    )
+    .map((c) => ({ key: c.id, category: c }));
   if (tasks.some((t) => t.categoryId == null)) {
     lanes.push({ key: NO_EPIC, category: null });
   }

@@ -36,16 +36,31 @@ describe("buildLanes", () => {
     { id: "b", name: "Beta", color: null },
   ];
   it("дорожка на каждую категорию в исходном порядке", () => {
+    const lanes = buildLanes(cats, [{ categoryId: "a" }, { categoryId: "b" }]);
+    expect(lanes.map((l) => l.key)).toEqual(["a", "b"]);
+  });
+  it("по умолчанию скрывает категории без задач", () => {
     const lanes = buildLanes(cats, [{ categoryId: "a" }]);
+    expect(lanes.map((l) => l.key)).toEqual(["a"]);
+  });
+  it("без задач вовсе не оставляет дорожек", () => {
+    expect(buildLanes(cats, [])).toEqual([]);
+  });
+  it("с showEmpty показывает все категории, включая пустые", () => {
+    const lanes = buildLanes(cats, [{ categoryId: "a" }], { showEmpty: true });
     expect(lanes.map((l) => l.key)).toEqual(["a", "b"]);
   });
   it("добавляет дорожку «Без эпика» в конец, если есть задачи без категории", () => {
-    const lanes = buildLanes(cats, [{ categoryId: null }]);
-    expect(lanes.map((l) => l.key)).toEqual(["a", "b", NO_EPIC]);
-    expect(lanes[2].category).toBeNull();
+    const lanes = buildLanes(cats, [{ categoryId: "a" }, { categoryId: null }]);
+    expect(lanes.map((l) => l.key)).toEqual(["a", NO_EPIC]);
+    expect(lanes[1].category).toBeNull();
   });
   it("не добавляет «Без эпика», если все задачи с категорией", () => {
     const lanes = buildLanes(cats, [{ categoryId: "a" }, { categoryId: "b" }]);
+    expect(lanes.map((l) => l.key)).toEqual(["a", "b"]);
+  });
+  it("не добавляет пустой «Без эпика» даже с showEmpty", () => {
+    const lanes = buildLanes(cats, [{ categoryId: "a" }], { showEmpty: true });
     expect(lanes.map((l) => l.key)).toEqual(["a", "b"]);
   });
 });
