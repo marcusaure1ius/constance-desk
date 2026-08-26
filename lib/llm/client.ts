@@ -107,6 +107,39 @@ export function resolveProviders(models: ModelPair, env: Env = process.env): Llm
   });
 }
 
+/**
+ * Перебор провайдеров с падением на следующий при ошибках, виноватых в провайдере.
+ *
+ * Общий для всех клиентов, потому что логика переноса одна и та же: ошибки 429, 5xx
+ * и обрывы связи — повод попробовать другого. Но сам вызов у каждого клиента свой:
+ * `chatJson` просит JSON, `chatTools` просит function calling, `capture` контекст
+ * отправляет. Поэтому `attempt` — это колбэк, который каждый клиент определяет сам.
+ */
+export async function withFailover<T>(
+  providers: LlmProvider[],
+  attempt: (provider: LlmProvider) => Promise<T>
+): Promise<T> {
+  if (providers.length === 0) {
+    throw new Error(
+      "Не настроен ни один провайдер модели: задайте GROQ_API_KEY или OPENROUTER_API_KEY"
+    );
+  }
+
+  for (let index = 0; index < providers.length; index++) {
+    const provider = providers[index];
+    const isLast = index === providers.length - 1;
+
+    try {
+      return await attempt(provider);
+    } catch (error) {
+      if (isLast || !shouldFailover(error)) throw error;
+    }
+  }
+
+  // Недостижимо: последний провайдер либо возвращает ответ, либо бросает.
+  throw new Error("Провайдеры модели закончились");
+}
+
 export type ChatJsonInput = {
   system: string;
   user: string;
@@ -135,33 +168,16 @@ export type ChatJsonResult = {
  */
 export async function chatJson(input: ChatJsonInput): Promise<ChatJsonResult> {
   const providers = input.providers ?? resolveProviders(input.models, input.env);
-
-  if (providers.length === 0) {
-    throw new Error(
-      "Не настроен ни один провайдер модели: задайте GROQ_API_KEY или OPENROUTER_API_KEY"
-    );
-  }
-
   const fetchFn = input.fetchFn ?? fetch;
 
-  for (let index = 0; index < providers.length; index++) {
-    const provider = providers[index];
-    const isLast = index === providers.length - 1;
-
-    try {
-      const content = await callProvider(provider, input, fetchFn);
-      return { content, provider: provider.name, model: provider.model };
-    } catch (error) {
-      if (isLast || !shouldFailover(error)) throw error;
-    }
-  }
-
-  // Недостижимо: последний провайдер либо возвращает ответ, либо бросает.
-  throw new Error("Провайдеры модели закончились");
+  return withFailover(providers, async (provider) => {
+    const content = await callProvider(provider, input, fetchFn);
+    return { content, provider: provider.name, model: provider.model };
+  });
 }
 
 /** Стоит ли пробовать следующего провайдера. */
-export function shouldFailover(error: unknown): boolean {
+function shouldFailover(error: unknown): boolean {
   // Не LlmError — значит fetch не дошёл (обрыв, таймаут, DNS). Это про
   // конкретного провайдера, а не про запрос: у следующего может получиться.
   if (!(error instanceof LlmError)) return true;

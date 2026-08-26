@@ -2,7 +2,7 @@ import type { FunctionSpec } from "@/lib/agent/tool-registry";
 import {
   LlmError,
   resolveProviders,
-  shouldFailover,
+  withFailover,
   type LlmProvider,
   type ModelPair,
   type ProviderName,
@@ -14,7 +14,7 @@ import {
  * Отдельно от `chatJson`, потому что задача другая: там ответ обязан быть
  * JSON-объектом (`response_format`), здесь модель сама решает — ответить
  * текстом или попросить инструмент. Общее у них только падение к следующему
- * провайдеру, и оно вынесено в `shouldFailover`.
+ * провайдеру, и оно вынесено в `withFailover`.
  */
 
 export type RawToolCall = {
@@ -51,27 +51,9 @@ export type ChatToolsInput = {
 
 export async function chatTools(input: ChatToolsInput): Promise<ChatToolsResult> {
   const providers = input.providers ?? resolveProviders(input.models, input.env);
-
-  if (providers.length === 0) {
-    throw new Error(
-      "Не настроен ни один провайдер модели: задайте OPENROUTER_API_KEY или GROQ_API_KEY"
-    );
-  }
-
   const fetchFn = input.fetchFn ?? fetch;
 
-  for (let index = 0; index < providers.length; index++) {
-    const provider = providers[index];
-    const isLast = index === providers.length - 1;
-
-    try {
-      return await callProvider(provider, input, fetchFn);
-    } catch (error) {
-      if (isLast || !shouldFailover(error)) throw error;
-    }
-  }
-
-  throw new Error("Провайдеры модели закончились");
+  return withFailover(providers, (provider) => callProvider(provider, input, fetchFn));
 }
 
 async function callProvider(
