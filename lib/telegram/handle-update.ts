@@ -58,6 +58,7 @@ import {
   markUpdateFailed,
   markUpdateProcessed,
   recordUpdate,
+  type ParsedSummary,
 } from "@/lib/services/tg-updates";
 
 /**
@@ -128,7 +129,33 @@ export type HandleUpdateResult =
   | { status: "failed"; error: string };
 
 /** Ответ обработчика: что сделали и что при этом не сложилось. */
-type RespondOutcome = { action: UpdateAction; error?: string };
+type RespondOutcome = {
+  action: UpdateAction;
+  error?: string;
+  /**
+   * Что бот понял из сообщения. Уходит в журнал рядом со статусом: иначе
+   * судить о качестве разбора можно только по карточкам в телефоне.
+   */
+  parsed?: ParsedSummary;
+};
+
+/** Разбор для журнала: элементы, которые вернула модель, и кто отвечал. */
+function parsedSummary(result: CaptureResult, transcript?: string): ParsedSummary {
+  if (result.status !== "captured") {
+    return { status: result.status, transcript };
+  }
+  return {
+    status: result.status,
+    dryRun: result.dryRun ?? false,
+    provider: result.provider,
+    model: result.model,
+    transcript,
+    tasks: result.tasks,
+    questions: result.questions,
+    others: result.others,
+    warning: result.warning,
+  };
+}
 
 /** Bot API не отдаёт файлы больше 20 МБ, сколько бы Whisper ни принимал. */
 const TELEGRAM_FILE_LIMIT = 20 * 1024 * 1024;
@@ -181,7 +208,7 @@ export async function handleUpdate(
       return { status: "failed", error: outcome.error };
     }
 
-    await deps.markProcessed(update.update_id);
+    await deps.markProcessed(update.update_id, outcome.parsed);
     return { status: "processed", action: outcome.action };
   } catch (error) {
     const message = error instanceof Error ? error.message : "Внутренняя ошибка";
@@ -310,7 +337,11 @@ async function capture(
         deps
       );
       await showCard(chatId, undefined, outcome.card, deps);
-      return { action: "search", error: failureReason(result) };
+      return {
+        action: "search",
+        error: failureReason(result),
+        parsed: parsedSummary(result, read.transcript),
+      };
     }
   }
 
@@ -324,6 +355,7 @@ async function capture(
   return {
     action: read.transcript ? "voice" : "capture",
     error: failureReason(result),
+    parsed: parsedSummary(result, read.transcript),
   };
 }
 

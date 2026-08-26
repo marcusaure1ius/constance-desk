@@ -50,7 +50,9 @@ const captured = (over: Partial<Extract<CaptureResult, { status: "captured" }>> 
 
 function makeDeps(items: CapturedItem[], overrides: Partial<CaptureDeps> = {}) {
   const loadBoard = vi.fn().mockResolvedValue(BOARD);
-  const captureItems = vi.fn().mockResolvedValue(items);
+  const captureItems = vi
+    .fn()
+    .mockResolvedValue({ items, provider: "groq", model: "openai/gpt-oss-120b" });
   const createTask = vi.fn().mockResolvedValue({ id: "task-1" });
 
   const deps: CaptureDeps = { loadBoard, captureItems, createTask, ...overrides };

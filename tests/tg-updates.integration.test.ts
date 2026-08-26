@@ -151,6 +151,36 @@ describe("журнал апдейтов на настоящей базе", () =>
     expect(results.filter((r) => r.status === "duplicate")).toHaveLength(4);
   });
 
+  it("сохраняет разбор рядом со статусом", async () => {
+    await recordUpdate({ updateId: 900007, chatId: 555, rawText: "заполнить итмо", payload: {} });
+    const parsed = {
+      status: "captured",
+      dryRun: true,
+      provider: "openrouter",
+      model: "deepseek/deepseek-v4-flash",
+      tasks: [{ title: "заполнить итмо", priority: "normal", plannedDate: "2026-08-30" }],
+      questions: [],
+      others: [{ kind: "note", text: "нет синергии" }],
+    };
+
+    await markUpdateProcessed(900007, parsed);
+
+    const row = await getUpdate(900007);
+    expect(row).toMatchObject({ status: "processed", error: null });
+    // jsonb возвращается разобранным объектом, а не строкой.
+    expect(row!.parsed).toEqual(parsed);
+  });
+
+  it("повторная отметка без разбора не затирает прежний", async () => {
+    await recordUpdate({ updateId: 900008, chatId: 555, rawText: "/help", payload: {} });
+    await markUpdateProcessed(900008, { status: "captured", tasks: [] });
+
+    await markUpdateProcessed(900008);
+
+    expect((await getUpdate(900008))!.parsed).toEqual({ status: "captured", tasks: [] });
+  });
+
+
   it("хранит длинный chat_id канала без потери точности", async () => {
     const chatId = -1001234567890;
     await recordUpdate({ updateId: 900006, chatId, payload: {} });

@@ -83,7 +83,9 @@ function makeDeps(overrides: Partial<TelegramDeps> = {}) {
     markFailed: vi.fn().mockResolvedValue(undefined),
     loadUpdate: vi.fn().mockResolvedValue(null),
     loadBoard: vi.fn().mockResolvedValue(BOARD),
-    captureItems: vi.fn().mockResolvedValue(ONE_TASK),
+    captureItems: vi
+      .fn()
+      .mockResolvedValue({ items: ONE_TASK, provider: "groq", model: "openai/gpt-oss-120b" }),
     createTask: vi.fn().mockResolvedValue({ id: "task-1" }),
     transcribe: vi.fn().mockResolvedValue("заполнить итмо"),
     allowedChatId: CHAT,
@@ -242,7 +244,7 @@ describe("отметки в журнале", () => {
     const { deps, markProcessed, markFailed } = makeDeps();
     await handleUpdate(textUpdate("/help"), CHAT, deps);
 
-    expect(markProcessed).toHaveBeenCalledWith(1);
+    expect(markProcessed).toHaveBeenCalledWith(1, undefined);
     expect(markFailed).not.toHaveBeenCalled();
   });
 
@@ -363,7 +365,7 @@ describe("захват текста", () => {
       expect.objectContaining({ title: "заполнить итмо", columnId: "col-backlog" })
     );
     expect(lastText(sendMessage)).toContain("заполнить итмо");
-    expect(markProcessed).toHaveBeenCalledWith(1);
+    expect(markProcessed).toHaveBeenCalledWith(1, expect.anything());
   });
 
   it("команда не уходит в модель", async () => {
@@ -587,7 +589,11 @@ describe("управление задачами", () => {
     const { deps, createTask, searchTasks, sendMessage } = makeDeps({
       captureItems: vi
         .fn()
-        .mockResolvedValue([{ kind: "question", text: "вэду", done: true }]),
+        .mockResolvedValue({
+          items: [{ kind: "question", text: "вэду", done: true }],
+          provider: "groq",
+          model: "openai/gpt-oss-120b",
+        }),
     });
 
     const result = await handleUpdate(textUpdate("ответил по вэду"), CHAT, deps);
@@ -612,7 +618,11 @@ describe("управление задачами", () => {
 
   it("«найди задачи по вэду» показывает найденное с кнопкой на каждой", async () => {
     const { deps, createTask, sendMessage } = makeDeps({
-      captureItems: vi.fn().mockResolvedValue([{ kind: "question", text: "вэду" }]),
+      captureItems: vi.fn().mockResolvedValue({
+        items: [{ kind: "question", text: "вэду" }],
+        provider: "groq",
+        model: "openai/gpt-oss-120b",
+      }),
       searchTasks: vi.fn().mockResolvedValue([
         HIT,
         { ...HIT, task: { ...HIT.task, id: OTHER_ID, title: "Заполнить пилот по вэду" } },
@@ -696,7 +706,7 @@ describe("управление задачами", () => {
     const result = await handleUpdate(taskButton(taskCallback.back(TASK_ID)), CHAT, deps);
 
     expect(result).toEqual({ status: "processed", action: "callback" });
-    expect(markProcessed).toHaveBeenCalledWith(9);
+    expect(markProcessed).toHaveBeenCalledWith(9, undefined);
   });
 
   it("ответ на «пришлите название» правит задачу, а не создаёт новую", async () => {
@@ -807,6 +817,41 @@ describe("allowedChatIdFromEnv", () => {
     vi.stubEnv("TELEGRAM_ALLOWED_CHAT_ID", "");
     expect(allowedChatIdFromEnv()).toBeUndefined();
     vi.unstubAllEnvs();
+  });
+});
+
+describe("разбор уходит в журнал", () => {
+  it("вместе с отметкой об обработке сохраняется, что бот понял", async () => {
+    const { deps, markProcessed } = makeDeps();
+
+    await handleUpdate(textUpdate("заполнить итмо"), CHAT, deps);
+
+    expect(markProcessed).toHaveBeenCalledTimes(1);
+    const [updateId, parsed] = markProcessed.mock.calls[0];
+    expect(updateId).toBe(1);
+    // Без этого качество разбора видно только в карточке на телефоне.
+    expect(parsed).toMatchObject({
+      status: "captured",
+      provider: "groq",
+      model: "openai/gpt-oss-120b",
+      tasks: [{ title: "заполнить итмо" }],
+    });
+  });
+
+  it("у команды разбора нет — журнал не затирается пустотой", async () => {
+    const { deps, markProcessed } = makeDeps();
+
+    await handleUpdate(textUpdate("/help"), CHAT, deps);
+
+    expect(markProcessed).toHaveBeenCalledWith(1, undefined);
+  });
+
+  it("сухой прогон помечается в журнале", async () => {
+    const { deps, markProcessed } = makeDeps({ dryRun: true });
+
+    await handleUpdate(textUpdate("заполнить итмо"), CHAT, deps);
+
+    expect(markProcessed.mock.calls[0][1]).toMatchObject({ dryRun: true });
   });
 });
 

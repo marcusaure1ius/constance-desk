@@ -33,10 +33,27 @@ export async function recordUpdate(input: RecordUpdateInput): Promise<boolean> {
   return rows.length > 0;
 }
 
-export async function markUpdateProcessed(updateId: number): Promise<void> {
+/**
+ * Разбор сообщения — то, что бот из него понял. Пишется рядом со статусом,
+ * чтобы качество разбора можно было смотреть пачкой, а не по одной карточке
+ * в телефоне.
+ */
+export type ParsedSummary = unknown;
+
+export async function markUpdateProcessed(
+  updateId: number,
+  parsed?: ParsedSummary
+): Promise<void> {
   await db
     .update(tgUpdates)
-    .set({ status: "processed", processedAt: new Date(), error: null })
+    .set({
+      status: "processed",
+      processedAt: new Date(),
+      error: null,
+      // undefined не затирает: у команд и нажатий кнопок разбора нет, и
+      // прошлый разбор при повторной обработке терять незачем.
+      ...(parsed === undefined ? {} : { parsed }),
+    })
     .where(eq(tgUpdates.updateId, updateId));
 }
 

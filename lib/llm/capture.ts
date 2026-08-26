@@ -1,4 +1,4 @@
-import { chatJson, MODELS, type LlmProvider } from "@/lib/llm/client";
+import { chatJson, MODELS, type LlmProvider, type ProviderName } from "@/lib/llm/client";
 
 /**
  * Захват: сообщение из телеграма → список типизированных элементов.
@@ -186,9 +186,22 @@ export type CaptureInput = {
   fetchFn?: typeof fetch;
 };
 
-/** Один вызов модели: сообщение → элементы. Бросает, если модель недоступна. */
-export async function captureItems(input: CaptureInput): Promise<CapturedItem[]> {
-  const { content } = await chatJson({
+/** Разбор вместе с тем, кто его сделал. Провайдер нужен для отладки качества. */
+export type CaptureOutcome = {
+  items: CapturedItem[];
+  provider: ProviderName;
+  model: string;
+};
+
+/**
+ * Один вызов модели: сообщение → элементы. Бросает, если модель недоступна.
+ *
+ * Возвращает и провайдера с моделью: падение с Groq на OpenRouter происходит
+ * незаметно, а разбор у разных моделей разный — без этой пометки нельзя
+ * понять, чей результат перед глазами.
+ */
+export async function captureItems(input: CaptureInput): Promise<CaptureOutcome> {
+  const { content, provider, model } = await chatJson({
     system: buildCapturePrompt(input.board, input.today ?? new Date()),
     user: input.text,
     models: MODELS.capture,
@@ -196,7 +209,11 @@ export async function captureItems(input: CaptureInput): Promise<CapturedItem[]>
     fetchFn: input.fetchFn,
   });
 
-  return parseCaptureResponse(content, { board: input.board, sourceText: input.text });
+  return {
+    items: parseCaptureResponse(content, { board: input.board, sourceText: input.text }),
+    provider,
+    model,
+  };
 }
 
 /* ── разбор полей ─────────────────────────────────────────────────────────── */

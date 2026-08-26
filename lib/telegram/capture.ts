@@ -1,4 +1,9 @@
-import type { CaptureBoard, CapturedItem, CapturePriority } from "@/lib/llm/capture";
+import type {
+  CaptureBoard,
+  CaptureOutcome,
+  CapturedItem,
+  CapturePriority,
+} from "@/lib/llm/capture";
 import { sanitizeTitle } from "@/lib/llm/capture";
 import { escapeHtml, safeCutIndex, TELEGRAM_MESSAGE_LIMIT } from "@/lib/telegram/client";
 
@@ -39,7 +44,7 @@ export type CaptureQuestion = { text: string; done?: boolean };
 
 export type CaptureDeps = {
   loadBoard: () => Promise<CaptureBoardData | null>;
-  captureItems: (text: string, board: CaptureBoard) => Promise<CapturedItem[]>;
+  captureItems: (text: string, board: CaptureBoard) => Promise<CaptureOutcome>;
   createTask: (input: CreateTaskArgs) => Promise<unknown>;
   /**
    * Сухой прогон: разобрать и показать, но в доску не писать. Нужен, пока
@@ -63,6 +68,9 @@ export type CaptureResult =
       tasks: CreatedTask[];
       /** Разбор показан, но в доску ничего не записано. */
       dryRun?: boolean;
+      /** Кто ответил: падение с Groq на OpenRouter происходит незаметно. */
+      provider?: CaptureOutcome["provider"];
+      model?: string;
       /**
        * Вопросы и рассказы о сделанном. Задачами они не становятся: их
        * обрабатывает поиск — «ответил по вэду» обязано показать существующую
@@ -94,8 +102,10 @@ export async function captureMessage(
   if (!board || board.columns.length === 0) return { status: "no_board" };
 
   let items: CapturedItem[];
+  let provider: CaptureOutcome["provider"] | undefined;
+  let model: string | undefined;
   try {
-    items = await deps.captureItems(text, toPromptBoard(board));
+    ({ items, provider, model } = await deps.captureItems(text, toPromptBoard(board)));
   } catch (error) {
     // Квота Groq, авария OpenRouter, обрыв связи. Сообщение не теряется: оно
     // записано в журнал до обработки, а в карточке будет кнопка повтора.
@@ -154,6 +164,8 @@ export async function captureMessage(
     others,
     warning,
     dryRun: deps.dryRun,
+    provider,
+    model,
   };
 }
 

@@ -463,7 +463,7 @@ describe("captureItems", () => {
       )
     );
 
-    const items = await captureItems({
+    const outcome = await captureItems({
       text: "заполнить итмо",
       board: BOARD,
       today: TODAY,
@@ -483,6 +483,10 @@ describe("captureItems", () => {
     };
     expect(body.messages[0].content).toContain("Бэклог");
     expect(body.messages[1]).toEqual({ role: "user", content: "заполнить итмо" });
-    expect(items).toEqual([{ kind: "task", text: "заполнить итмо" }]);
+    expect(outcome.items).toEqual([{ kind: "task", text: "заполнить итмо" }]);
+    // Кто ответил — часть результата: падение на второго провайдера незаметно,
+    // а разбор у разных моделей разный.
+    expect(outcome.provider).toBe("groq");
+    expect(outcome.model).toBe("openai/gpt-oss-120b");
   });
 });

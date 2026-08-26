@@ -94,11 +94,15 @@ describe("захват на настоящей базе", () => {
 
     const result = await captureMessage("не важно: модель подменена", {
       loadBoard: loadCaptureBoard,
-      captureItems: async () => [
-        { kind: "task", text: "ответить по вэду", priority: "urgent", plannedDate: "2026-08-25", epic: "ВЭД" },
-        { kind: "task", text: "заполнить итмо" },
-        { kind: "note", text: "нет синергии в продуктах" },
-      ],
+      captureItems: async () => ({
+        items: [
+          { kind: "task", text: "ответить по вэду", priority: "urgent", plannedDate: "2026-08-25", epic: "ВЭД" },
+          { kind: "task", text: "заполнить итмо" },
+          { kind: "note", text: "нет синергии в продуктах" },
+        ],
+        provider: "groq" as const,
+        model: "openai/gpt-oss-120b",
+      }),
       createTask,
     });
 

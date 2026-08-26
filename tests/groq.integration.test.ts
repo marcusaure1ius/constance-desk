@@ -115,7 +115,9 @@ describe("захват — реальные запросы к Groq", () => {
   // в зависимости от дня прогона.
   const TODAY = new Date("2026-08-24T09:00:00Z");
 
-  const capture = (text: string) => captureItems({ text, board: BOARD, today: TODAY });
+  // Провайдер и модель тут не проверяются — интересен сам разбор.
+  const capture = async (text: string) =>
+    (await captureItems({ text, board: BOARD, today: TODAY })).items;
 
   it("жаргон «mcp» остаётся в заголовке посимвольно", async () => {
     const items = await capture("Заполнить пилот по mcp");

@@ -1,0 +1,1 @@
+ALTER TABLE "tg_updates" ADD COLUMN "parsed" jsonb;

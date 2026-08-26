@@ -55,6 +55,7 @@
 - `npm run db:drift` — проверить, что схема покрыта миграциями (тот же шаг, что в CI)
 - `npm run db:studio` — GUI Drizzle Studio
 - `npm run db:seed` — заполнить БД тестовыми данными
+- `npm run tg:inspect -- 20` — показать последние апдейты бота и что он из них понял (нужен `DATABASE_URL`)
 - `npm run tg:webhook -- set <URL>` — поставить вебхук бота и команды меню; `info`, `commands`, `delete`
 
 ## Команды по базе целятся в прод по умолчанию

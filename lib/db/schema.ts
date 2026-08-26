@@ -103,6 +103,12 @@ export const tgUpdates = pgTable("tg_updates", {
   payload: jsonb("payload").notNull(),
   status: tgUpdateStatusEnum("status").notNull().default("received"),
   error: text("error"),
+  /**
+   * Что бот понял из сообщения: задачи, вопросы, прочие элементы, а также
+   * какой провайдер и модель ответили. Нужно для отладки качества разбора —
+   * без этого судить о нём можно только по карточкам в телефоне.
+   */
+  parsed: jsonb("parsed"),
   createdAt: timestamp("created_at").defaultNow().notNull(),
   processedAt: timestamp("processed_at"),
 });
