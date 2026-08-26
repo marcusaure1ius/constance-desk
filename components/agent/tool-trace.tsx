@@ -108,7 +108,7 @@ export function ToolTrace({
   return (
     <div className="flex flex-col gap-0.5">
       {steps.map((step, i) => (
-        <Step key={step.tool} step={step} running={running && i === steps.length - 1} />
+        <Step key={`${step.tool}-${i}`} step={step} running={running && i === steps.length - 1} />
       ))}
     </div>
   );
