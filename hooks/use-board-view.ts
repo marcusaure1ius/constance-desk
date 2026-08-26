@@ -4,7 +4,13 @@ import { useCallback, useSyncExternalStore } from "react";
 
 export type BoardViewMode = "columns" | "epics";
 /** Где живёт панель агента: лентой снизу над доской или колонкой справа. */
-export type AgentLayout = "dock" | "panel";
+export const AGENT_LAYOUTS = ["dock", "panel"] as const;
+export type AgentLayout = (typeof AGENT_LAYOUTS)[number];
+
+/** Значение из localStorage могло устареть или прийти вручную — проверяем перед использованием. */
+export function isAgentLayout(value: unknown): value is AgentLayout {
+  return typeof value === "string" && (AGENT_LAYOUTS as readonly string[]).includes(value);
+}
 
 type BoardViewState = {
   mode: BoardViewMode;
@@ -34,9 +40,11 @@ function getSnapshot(): BoardViewState {
     const raw = localStorage.getItem(STORAGE_KEY);
     if (raw === cachedRaw) return cachedState;
     cachedRaw = raw;
-    cachedState = raw
-      ? { ...defaultState, ...JSON.parse(raw) }
-      : defaultState;
+    const parsed = raw ? { ...defaultState, ...JSON.parse(raw) } : defaultState;
+    cachedState = {
+      ...parsed,
+      agentLayout: isAgentLayout(parsed.agentLayout) ? parsed.agentLayout : "dock",
+    };
     return cachedState;
   } catch {
     return defaultState;

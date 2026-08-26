@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { parseInline, parseRichText } from "@/lib/agent/rich-text";
+import { parseInline, parseRichText, toPlainText } from "@/lib/agent/rich-text";
 
 describe("parseInline", () => {
   it("разбирает жирный текст внутри строки", () => {
@@ -91,5 +91,27 @@ describe("parseRichText", () => {
   it("список между двумя абзацами не поглощает соседний текст", () => {
     const blocks = parseRichText("Вот что нашёл:\n- один\n- два\nИтого готово.");
     expect(blocks.map((b) => b.type)).toEqual(["paragraph", "list", "paragraph"]);
+  });
+});
+
+describe("toPlainText", () => {
+  it("снимает жирный и курсив", () => {
+    expect(toPlainText("**жирный** и *курсив*")).toBe("жирный и курсив");
+  });
+
+  it("снимает моноширинный текст", () => {
+    expect(toPlainText("используй `код`")).toBe("используй код");
+  });
+
+  it("снимает маркер списка", () => {
+    expect(toPlainText("- один\n- два")).toBe("один два");
+  });
+
+  it("снимает заголовок", () => {
+    expect(toPlainText("## Просрочено")).toBe("Просрочено");
+  });
+
+  it("текст без разметки не меняется", () => {
+    expect(toPlainText("Просто текст.")).toBe("Просто текст.");
   });
 });

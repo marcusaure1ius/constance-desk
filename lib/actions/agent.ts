@@ -7,13 +7,16 @@ import { draftDescription, improveTitle } from "@/lib/llm/task-help";
 /**
  * `revalidatePath` здесь обязателен: инструменты реестра зовут сервисы напрямую
  * и про Next.js ничего не знают. Без него доска не перерисуется, и пользователю
- * покажется, что подтверждение ничего не сделало.
+ * покажется, что подтверждение ничего не сделало. "/today" — по той же причине,
+ * что и в `lib/actions/tasks.ts`: `update_task` и `move_task` меняют плановую
+ * дату и позицию, которые видны на странице «План на день».
  */
 export async function applyAgentCallsAction(
   calls: DeferredCall[]
 ): Promise<{ applied: number; failed: { tool: string; error: string }[] }> {
   const results = await applyAgentCalls(calls);
   revalidatePath("/");
+  revalidatePath("/today");
 
   const applied = results.filter((r) => r.ok).length;
   const failed: { tool: string; error: string }[] = [];

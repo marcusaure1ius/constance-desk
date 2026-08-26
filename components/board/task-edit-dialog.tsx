@@ -40,9 +40,8 @@ import {
   AlertDialogTitle as AlertDialogTitleComponent,
 } from "@/components/ui/alert-dialog";
 import { updateTaskAction, deleteTaskAction } from "@/lib/actions/tasks";
+import { improveTaskTitleAction, draftTaskDescriptionAction } from "@/lib/actions/agent";
 import { cn } from "@/lib/utils";
-// ПРОТОТИП: точечная помощь агента по полям задачи. Мок, модель не зовётся.
-import { cleanTitle, draftDescription } from "@/components/agent/mock-engine";
 import { SparkleIcon } from "@/components/agent/sparkle-icon";
 
 type Task = {
@@ -89,18 +88,27 @@ export function TaskEditDialog({
   const [aiBusy, setAiBusy] = useState<AiField | null>(null);
   const [aiPrev, setAiPrev] = useState<{ field: AiField; value: string } | null>(null);
 
-  function improve(field: AiField) {
+  async function improve(field: AiField) {
     setAiBusy(field);
-    setTimeout(() => {
+    try {
       if (field === "title") {
-        setAiPrev({ field, value: title });
-        setTitle(cleanTitle(title));
+        const next = await improveTaskTitleAction(title);
+        if (next !== title) {
+          setAiPrev({ field, value: title });
+          setTitle(next);
+        }
       } else {
-        setAiPrev({ field, value: description });
-        setDescription(draftDescription(title));
+        const next = await draftTaskDescriptionAction({ title, description });
+        if (next !== description) {
+          setAiPrev({ field, value: description });
+          setDescription(next);
+        }
       }
+    } catch {
+      toast.error("Не удалось обратиться к модели");
+    } finally {
       setAiBusy(null);
-    }, 800);
+    }
   }
 
   function revert() {

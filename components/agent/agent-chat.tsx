@@ -18,7 +18,7 @@ import { useBoardView } from "@/hooks/use-board-view";
 import { useAgentChat, type ChatEntry } from "@/hooks/use-agent-chat";
 import { applyAgentCallsAction } from "@/lib/actions/agent";
 import type { DeferredCall } from "@/lib/agent/apply";
-import { parseRichText, type InlineNode } from "@/lib/agent/rich-text";
+import { parseRichText, toPlainText, type InlineNode } from "@/lib/agent/rich-text";
 
 const SUGGESTIONS = [
   "Что у меня горит?",
@@ -310,12 +310,15 @@ function Composer({
   );
 }
 
-/** Первая строка последнего ответа — она и остаётся видна в свёрнутом виде. */
+/**
+ * Последний ответ для свёрнутой плашки — без Markdown-разметки: там нет блоков
+ * для её отрисовки, только обрезанная в одну строку CSS-строка.
+ */
 function lastLine(entries: ChatEntry[]): string {
   for (let i = entries.length - 1; i >= 0; i--) {
     const entry = entries[i];
     if (entry.role === "user") return entry.text;
-    if (entry.text) return entry.text.split("\n")[0];
+    if (entry.text) return toPlainText(entry.text);
     if (entry.error) return entry.error;
   }
   return "";

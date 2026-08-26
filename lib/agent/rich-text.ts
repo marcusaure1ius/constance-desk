@@ -145,3 +145,20 @@ export function parseRichText(input: string): RichBlock[] {
   flush();
   return blocks;
 }
+
+/**
+ * Убирает Markdown-разметку, оставляя только текст — для мест вроде свёрнутой
+ * плашки ленты, где рисовать блоки некуда, но `**жирный**` в строке резать глаз.
+ * Абзацы и пункты списка склеиваются пробелом, разбор — тот же `parseRichText`.
+ */
+export function toPlainText(text: string): string {
+  return parseRichText(text)
+    .map((block) => {
+      if (block.type === "list") {
+        return block.items.map((item) => item.map((n) => n.text).join("")).join(" ");
+      }
+      return block.inline.map((n) => n.text).join("");
+    })
+    .join(" ")
+    .trim();
+}
