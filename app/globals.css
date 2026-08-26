@@ -148,3 +148,23 @@
     stroke-dashoffset: 0;
   }
 }
+/* ПРОТОТИП: мерцание строки «Думаю» у агента. */
+@keyframes agent-shimmer {
+  to {
+    background-position: -200% 0;
+  }
+}
+
+.agent-shimmer {
+  background: linear-gradient(
+    90deg,
+    var(--muted-foreground) 35%,
+    var(--foreground) 50%,
+    var(--muted-foreground) 65%
+  );
+  background-size: 200% 100%;
+  -webkit-background-clip: text;
+  background-clip: text;
+  color: transparent;
+  animation: agent-shimmer 1.8s linear infinite;
+}

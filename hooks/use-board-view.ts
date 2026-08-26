@@ -3,12 +3,16 @@
 import { useCallback, useSyncExternalStore } from "react";
 
 export type BoardViewMode = "columns" | "epics";
+/** Где живёт панель агента: лентой снизу над доской или колонкой справа. */
+export type AgentLayout = "dock" | "panel";
 
 type BoardViewState = {
   mode: BoardViewMode;
   collapsed: string[];
   /** Показывать ли в виде эпиков дорожки без видимых задач. Настройка «Доска». */
   showEmptyEpics: boolean;
+  /** Расположение панели агента. Настройка «Доска». */
+  agentLayout: AgentLayout;
 };
 
 const STORAGE_KEY = "board-view";
@@ -18,6 +22,7 @@ const defaultState: BoardViewState = {
   mode: "columns",
   collapsed: [],
   showEmptyEpics: false,
+  agentLayout: "dock",
 };
 
 let cachedRaw: string | null = null;
@@ -70,6 +75,10 @@ export function useBoardView() {
     write({ ...getSnapshot(), showEmptyEpics });
   }, []);
 
+  const setAgentLayout = useCallback((agentLayout: AgentLayout) => {
+    write({ ...getSnapshot(), agentLayout });
+  }, []);
+
   const toggleCollapsed = useCallback((key: string) => {
     const cur = getSnapshot();
     const collapsed = cur.collapsed.includes(key)
@@ -88,6 +97,8 @@ export function useBoardView() {
     setMode,
     showEmptyEpics: state.showEmptyEpics,
     setShowEmptyEpics,
+    agentLayout: state.agentLayout,
+    setAgentLayout,
     toggleCollapsed,
     isCollapsed,
   };
