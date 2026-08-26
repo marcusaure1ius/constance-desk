@@ -75,20 +75,32 @@ function describeCall(call: DeferredCall): string {
   }
 }
 
-type ApplyState =
-  | { kind: "idle" }
-  | { kind: "applying" }
-  | { kind: "done"; applied: number; failed: { tool: string; error: string }[] };
+type ApplyResult = { applied: number; failed: { tool: string; error: string }[] };
 
-/** Карточка предложения: показывает, что именно агент хочет создать или изменить. */
-function ProposalCard({ calls }: { calls: DeferredCall[] }) {
-  const [state, setState] = useState<ApplyState>({ kind: "idle" });
+/**
+ * Карточка предложения: показывает, что именно агент хочет создать или изменить.
+ *
+ * Итог применения хранит не карточка, а запись ленты: карточка пересоздаётся
+ * при перерисовке, и локальный флаг «уже применено» пропадал — кнопка снова
+ * предлагала создать то, что уже создано, а повторное нажатие делало дубль.
+ */
+function ProposalCard({
+  calls,
+  applied,
+  onApplied,
+}: {
+  calls: DeferredCall[];
+  applied?: ApplyResult;
+  onApplied: (result: ApplyResult) => void;
+}) {
+  const [applying, setApplying] = useState(false);
 
   async function apply() {
-    setState({ kind: "applying" });
+    if (applying || applied) return;
+    setApplying(true);
     try {
       const result = await applyAgentCallsAction(calls);
-      setState({ kind: "done", applied: result.applied, failed: result.failed });
+      onApplied(result);
       if (result.failed.length === 0) {
         toast.success(`Применено: ${result.applied} из ${calls.length}`);
       } else {
@@ -99,8 +111,9 @@ function ProposalCard({ calls }: { calls: DeferredCall[] }) {
         );
       }
     } catch (error) {
-      setState({ kind: "idle" });
       toast.error(error instanceof Error ? error.message : "Не удалось применить");
+    } finally {
+      setApplying(false);
     }
   }
 
@@ -120,7 +133,7 @@ function ProposalCard({ calls }: { calls: DeferredCall[] }) {
         ))}
       </ul>
       <div className="mt-3 flex items-center gap-2">
-        {state.kind === "idle" ? (
+        {!applied && !applying ? (
           <button
             type="button"
             onClick={apply}
@@ -134,15 +147,14 @@ function ProposalCard({ calls }: { calls: DeferredCall[] }) {
               {
                 tool: sameTool ? calls[0]?.tool ?? "" : "",
                 args: `×${calls.length}`,
-                result:
-                  state.kind === "done"
-                    ? `${state.applied} из ${calls.length}${
-                        state.failed.length > 0 ? `, ошибок: ${state.failed.length}` : ""
-                      }`
-                    : undefined,
+                result: applied
+                  ? `${applied.applied} из ${calls.length}${
+                      applied.failed.length > 0 ? `, ошибок: ${applied.failed.length}` : ""
+                    }`
+                  : undefined,
               },
             ]}
-            running={state.kind === "applying"}
+            running={applying}
           />
         )}
       </div>
@@ -209,9 +221,11 @@ function RichText({ text }: { text: string }) {
 function AgentEntryView({
   entry,
   onRetry,
+  onApplied,
 }: {
   entry: Extract<ChatEntry, { role: "agent" }>;
   onRetry: (text: string) => void;
+  onApplied: (entryId: string, result: ApplyResult) => void;
 }) {
   return (
     <div className="flex gap-2.5">
@@ -223,7 +237,13 @@ function AgentEntryView({
         {entry.thinking && entry.steps.length === 0 && <ThinkingLine />}
         {entry.steps.length > 0 && <ToolTrace steps={entry.steps} running={entry.thinking} />}
         {entry.text && <RichText text={entry.text} />}
-        {entry.proposal && entry.proposal.length > 0 && <ProposalCard calls={entry.proposal} />}
+        {entry.proposal && entry.proposal.length > 0 && (
+          <ProposalCard
+            calls={entry.proposal}
+            applied={entry.applied}
+            onApplied={(result) => onApplied(entry.id, result)}
+          />
+        )}
         {entry.error && (
           <div className="flex items-center gap-2">
             <p className="text-xs text-destructive">{entry.error}</p>
@@ -241,7 +261,15 @@ function AgentEntryView({
   );
 }
 
-function Transcript({ entries, onRetry }: { entries: ChatEntry[]; onRetry: (text: string) => void }) {
+function Transcript({
+  entries,
+  onRetry,
+  onApplied,
+}: {
+  entries: ChatEntry[];
+  onRetry: (text: string) => void;
+  onApplied: (entryId: string, result: ApplyResult) => void;
+}) {
   const end = useRef<HTMLDivElement>(null);
 
   // Лента растёт вниз, а смотрят всегда на последний ответ.
@@ -259,7 +287,7 @@ function Transcript({ entries, onRetry }: { entries: ChatEntry[]; onRetry: (text
             </div>
           </div>
         ) : (
-          <AgentEntryView key={entry.id} entry={entry} onRetry={onRetry} />
+          <AgentEntryView key={entry.id} entry={entry} onRetry={onRetry} onApplied={onApplied} />
         )
       )}
       <div ref={end} />
@@ -436,7 +464,7 @@ interface AgentChatProps {
 
 export function AgentChat({ environmentId }: AgentChatProps) {
   const { agentLayout } = useBoardView();
-  const { entries, send, clear, busy } = useAgentChat(environmentId);
+  const { entries, send, clear, busy, markApplied } = useAgentChat(environmentId);
   const [collapsed, setCollapsed] = useState(false);
   // Курсор ушёл с панели — сворачиваем. Но не тогда, когда в неё печатают.
   const typing = useRef(false);
@@ -490,7 +518,7 @@ export function AgentChat({ environmentId }: AgentChatProps) {
               {suggestions}
             </div>
           ) : (
-            <Transcript entries={entries} onRetry={handleSend} />
+            <Transcript entries={entries} onRetry={handleSend} onApplied={markApplied} />
           )}
         </div>
         <div className="p-3 pt-0">
@@ -550,7 +578,7 @@ export function AgentChat({ environmentId }: AgentChatProps) {
               </div>
             </div>
             <div className="min-h-0 flex-1 overflow-y-auto p-4">
-              <Transcript entries={entries} onRetry={handleSend} />
+              <Transcript entries={entries} onRetry={handleSend} onApplied={markApplied} />
             </div>
           </div>
         )}

@@ -25,6 +25,12 @@ export type ChatEntry =
       steps: TraceStep[];
       text?: string;
       proposal?: DeferredCall[];
+      /**
+       * Итог применения предложения. Живёт в записи, а не в состоянии карточки:
+       * карточка пересоздаётся при перерисовке ленты, и локальный флаг «уже
+       * применено» терялся — кнопка снова предлагала создать то, что создано.
+       */
+      applied?: { applied: number; failed: { tool: string; error: string }[] };
       thinking: boolean;
       error?: string;
     };
@@ -155,5 +161,16 @@ export function useAgentChat(environmentId: string) {
 
   const clear = useCallback(() => setEntries([]), []);
 
-  return { entries, send, clear, busy };
+  const markApplied = useCallback(
+    (entryId: string, result: { applied: number; failed: { tool: string; error: string }[] }) => {
+      setEntries((prev) =>
+        prev.map((entry) =>
+          entry.id === entryId && entry.role === "agent" ? { ...entry, applied: result } : entry
+        )
+      );
+    },
+    []
+  );
+
+  return { entries, send, clear, busy, markApplied };
 }

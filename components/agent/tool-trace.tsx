@@ -60,10 +60,18 @@ function Step({ step, running }: { step: TraceStep; running: boolean }) {
       <button
         type="button"
         onClick={() => setOpen((v) => !v)}
-        className="group -mx-1 flex w-full items-center gap-1.5 rounded px-1 py-0.5 text-left transition-colors hover:bg-muted/40"
+        className="group -mx-1 flex w-full min-w-0 items-center gap-1.5 rounded px-1 py-0.5 text-left transition-colors hover:bg-muted/40"
       >
         <Icon className="size-3.5 shrink-0 text-muted-foreground/60" />
-        <span className={cn("text-xs", running ? "agent-shimmer" : "text-muted-foreground")}>
+        {/* Строка следа живёт в одну строку: в узкой карточке предложения
+            «1 из 1» иначе переносилось по словам. Не влезло — обрезаем
+            многоточием, полный текст всё равно раскрывается по клику. */}
+        <span
+          className={cn(
+            "min-w-0 flex-1 truncate text-xs",
+            running ? "agent-shimmer" : "text-muted-foreground"
+          )}
+        >
           {running ? meta.run : meta.done}
           {!running && step.result && (
             <span className="text-muted-foreground/60"> · {step.result}</span>
@@ -99,7 +107,9 @@ export function ToolTrace({
   running: boolean;
 }) {
   return (
-    <div className="flex flex-col gap-0.5">
+    // w-full: внутри карточки предложения след — flex-элемент, и без явной
+    // ширины строка с truncate схлопывается до многоточия на ровном месте.
+    <div className="flex w-full min-w-0 flex-col gap-0.5">
       {steps.map((step, i) => (
         <Step key={`${step.tool}-${i}`} step={step} running={running && i === steps.length - 1} />
       ))}
