@@ -30,6 +30,7 @@ export const boardTools: readonly Tool[] = [
     inputSchema: {},
     surfaces: ["mcp", "chat"],
     mutation: false,
+    impact: "read",
     handler: () => getEnvironments(),
   }),
 
@@ -44,6 +45,7 @@ export const boardTools: readonly Tool[] = [
     },
     surfaces: ["mcp", "chat"],
     mutation: false,
+    impact: "read",
     handler: async ({ environmentId, includeArchived }) => {
       const snapshot = await getBoardSnapshot(environmentId, includeArchived);
       if (!snapshot) throw new ToolError("Среда не найдена");
@@ -62,6 +64,7 @@ export const boardTools: readonly Tool[] = [
     },
     surfaces: ["mcp", "chat"],
     mutation: false,
+    impact: "read",
     handler: ({ environmentId, includeArchived }) =>
       getTasks(environmentId, { includeArchived }),
   }),
@@ -80,6 +83,7 @@ export const boardTools: readonly Tool[] = [
     },
     surfaces: ["mcp", "chat"],
     mutation: true,
+    impact: "irreversible",
     handler: (args) => createTask(args),
   }),
 
@@ -94,6 +98,7 @@ export const boardTools: readonly Tool[] = [
     },
     surfaces: ["mcp", "chat"],
     mutation: true,
+    impact: "irreversible",
     handler: ({ name, color, environmentId }) =>
       createCategory(name, color, environmentId),
   }),
@@ -114,6 +119,7 @@ export const boardTools: readonly Tool[] = [
     },
     surfaces: ["mcp", "chat"],
     mutation: true,
+    impact: "irreversible",
     handler: async (args) => {
       const result = await createEpicTask(args);
       if (!result.ok) throw new ToolError(result.error);
@@ -139,6 +145,7 @@ export const boardTools: readonly Tool[] = [
     },
     surfaces: ["mcp", "chat"],
     mutation: true,
+    impact: "irreversible",
     handler: ({ id, ...data }) => updateTask(id, data),
   }),
 
@@ -153,6 +160,7 @@ export const boardTools: readonly Tool[] = [
     },
     surfaces: ["mcp", "chat"],
     mutation: true,
+    impact: "reversible",
     handler: async ({ taskId, targetColumnId, targetPosition }) => {
       await moveTask(taskId, targetColumnId, targetPosition);
       return { success: true };
@@ -166,6 +174,7 @@ export const boardTools: readonly Tool[] = [
     inputSchema: { id: z.string() },
     surfaces: ["mcp", "chat"],
     mutation: true,
+    impact: "irreversible",
     handler: async ({ id }) => {
       await deleteTask(id);
       return { success: true };

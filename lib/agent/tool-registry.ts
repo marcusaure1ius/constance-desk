@@ -11,6 +11,14 @@ import { z } from "zod";
 /** Где инструмент доступен: MCP-сервер для внешних агентов, chat — бот. */
 export type ToolSurface = "mcp" | "chat";
 
+/**
+ * Что вызов делает с доской. Отличается от `mutation`: тот отвечает на вопрос
+ * «пускать ли инструмент в фазу анализа», а `impact` — «спрашивать ли
+ * пользователя». Перенос задачи виден на доске и откатывается глазами,
+ * созданная задача и переписанное название — нет.
+ */
+export type ToolImpact = "read" | "reversible" | "irreversible";
+
 /** Схема входа: сырой shape, из него строятся и zod-объект, и JSON Schema. */
 export type ToolShape = Record<string, z.ZodType>;
 
@@ -30,6 +38,7 @@ type ToolSpec<Shape extends ToolShape> = {
   surfaces: readonly ToolSurface[];
   /** true — инструмент меняет данные. В фазе анализа агенту такие не отдаются. */
   mutation: boolean;
+  impact: ToolImpact;
   handler: (args: z.infer<z.ZodObject<Shape>>) => Promise<unknown>;
 };
 
@@ -44,6 +53,7 @@ export type Tool = {
   readonly inputSchema: ToolShape;
   readonly surfaces: readonly ToolSurface[];
   readonly mutation: boolean;
+  readonly impact: ToolImpact;
   /** Валидирует вход схемой инструмента и вызывает handler. Бросает при плохом входе. */
   readonly run: (rawArgs: unknown) => Promise<unknown>;
 };
@@ -61,6 +71,7 @@ export function defineTool<Shape extends ToolShape>(spec: ToolSpec<Shape>): Tool
     inputSchema: spec.inputSchema,
     surfaces: spec.surfaces,
     mutation: spec.mutation,
+    impact: spec.impact,
     run: async (rawArgs) => spec.handler(schema.parse(rawArgs ?? {})),
   };
 }
@@ -76,6 +87,11 @@ export function selectTools(tools: readonly Tool[], filter: ToolFilter): Tool[] 
   return tools.filter(
     (tool) => tool.surfaces.includes(surface) && (includeMutations || !tool.mutation)
   );
+}
+
+/** Вызов не исполняется в цикле, а уходит пользователю на подтверждение. */
+export function isDeferred(tool: Tool): boolean {
+  return tool.impact === "irreversible";
 }
 
 /** Результат вызова инструмента. Провал — значение, а не исключение. */

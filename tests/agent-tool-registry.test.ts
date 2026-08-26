@@ -2,6 +2,7 @@ import { describe, it, expect, vi } from "vitest";
 import { z } from "zod";
 import {
   defineTool,
+  isDeferred,
   runTool,
   selectTools,
   toFunctionSpec,
@@ -23,6 +24,7 @@ const tool = (
     inputSchema: { text: z.string(), times: z.number().int().optional() },
     surfaces: ["mcp", "chat"],
     mutation: false,
+    impact: "read",
     handler: async (args) => args,
     ...overrides,
   });
@@ -197,5 +199,17 @@ describe("toFunctionSpec", () => {
           parameters: { type: "object" },
         },
       });
+  });
+});
+
+describe("impact", () => {
+  it("сохраняет impact инструмента", () => {
+    expect(tool({ impact: "irreversible" }).impact).toBe("irreversible");
+  });
+
+  it("isDeferred верен только для irreversible", () => {
+    expect(isDeferred(tool({ impact: "irreversible" }))).toBe(true);
+    expect(isDeferred(tool({ impact: "reversible" }))).toBe(false);
+    expect(isDeferred(tool({ impact: "read" }))).toBe(false);
   });
 });
