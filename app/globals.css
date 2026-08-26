@@ -148,7 +148,7 @@
     stroke-dashoffset: 0;
   }
 }
-/* ПРОТОТИП: мерцание строки «Думаю» у агента. */
+/* Мерцание строки «Думаю» у агента. */
 @keyframes agent-shimmer {
   to {
     background-position: -200% 0;
