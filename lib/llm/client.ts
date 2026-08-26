@@ -38,7 +38,15 @@ const BASE_URLS: Record<ProviderName, string> = {
 };
 
 /** Пара моделей под одну задачу: чем считаем у Groq и чем у OpenRouter. */
-export type ModelPair = { groq: string; openrouter: string };
+export type ModelPair = {
+  groq: string;
+  openrouter: string;
+  /**
+   * Порядок обращения. Умолчание — Groq первым, он бесплатный. У агента
+   * порядок обратный: цикл с инструментами упирается в качество, а не в цену.
+   */
+  order?: readonly ProviderName[];
+};
 
 /**
  * Модель OpenRouter для обеих задач. Берётся стабильный slug без даты и без
@@ -62,9 +70,20 @@ export const MODELS = {
     groq: "openai/gpt-oss-20b",
     openrouter: OPENROUTER_MODEL,
   },
+  /**
+   * Цикл агента на доске. OpenRouter первым: здесь важнее не цена вызова, а
+   * то, что модель не путается в многошаговой цепочке инструментов.
+   */
+  agent: {
+    groq: "openai/gpt-oss-120b",
+    openrouter: OPENROUTER_MODEL,
+    order: ["openrouter", "groq"],
+  },
 } as const satisfies Record<string, ModelPair>;
 
 type Env = Record<string, string | undefined>;
+
+const DEFAULT_ORDER: readonly ProviderName[] = ["groq", "openrouter"];
 
 /**
  * Провайдеры, к которым есть ключи, в порядке обращения. Нет ключа — нет
@@ -72,29 +91,20 @@ type Env = Record<string, string | undefined>;
  * кода, хотя это просто ненастроенное окружение.
  */
 export function resolveProviders(models: ModelPair, env: Env = process.env): LlmProvider[] {
-  const providers: LlmProvider[] = [];
+  const keys: Record<ProviderName, string | undefined> = {
+    groq: env.GROQ_API_KEY?.trim(),
+    openrouter: env.OPENROUTER_API_KEY?.trim(),
+  };
+  const modelOf: Record<ProviderName, string> = {
+    groq: models.groq,
+    openrouter: models.openrouter,
+  };
 
-  const groqKey = env.GROQ_API_KEY?.trim();
-  if (groqKey) {
-    providers.push({
-      name: "groq",
-      baseUrl: BASE_URLS.groq,
-      apiKey: groqKey,
-      model: models.groq,
-    });
-  }
-
-  const openrouterKey = env.OPENROUTER_API_KEY?.trim();
-  if (openrouterKey) {
-    providers.push({
-      name: "openrouter",
-      baseUrl: BASE_URLS.openrouter,
-      apiKey: openrouterKey,
-      model: models.openrouter,
-    });
-  }
-
-  return providers;
+  return (models.order ?? DEFAULT_ORDER).flatMap((name) => {
+    const apiKey = keys[name];
+    if (!apiKey) return [];
+    return [{ name, baseUrl: BASE_URLS[name], apiKey, model: modelOf[name] }];
+  });
 }
 
 export type ChatJsonInput = {
@@ -151,7 +161,7 @@ export async function chatJson(input: ChatJsonInput): Promise<ChatJsonResult> {
 }
 
 /** Стоит ли пробовать следующего провайдера. */
-function shouldFailover(error: unknown): boolean {
+export function shouldFailover(error: unknown): boolean {
   // Не LlmError — значит fetch не дошёл (обрыв, таймаут, DNS). Это про
   // конкретного провайдера, а не про запрос: у следующего может получиться.
   if (!(error instanceof LlmError)) return true;
