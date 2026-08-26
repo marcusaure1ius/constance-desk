@@ -17,19 +17,40 @@ export type AgentRequestBody = {
 
 export function ndjsonStream(events: AsyncIterable<AgentEvent>): ReadableStream<Uint8Array> {
   const encoder = new TextEncoder();
+  // Итератор берём один раз: в start() крутим его вручную, а в cancel()
+  // зовём iterator.return() — это и есть единственный способ прервать
+  // for-await посередине. Без этого обрыв соединения (закрытая вкладка,
+  // отменённый fetch) не имеет колбэка, и generator runAgent продолжает
+  // тянуть шаги (а значит — звать модель и инструменты) вникуда.
+  const iterator = events[Symbol.asyncIterator]();
 
   return new ReadableStream({
     async start(controller) {
       try {
-        for await (const event of events) {
-          controller.enqueue(encoder.encode(encodeEvent(event)));
+        while (true) {
+          const { value, done } = await iterator.next();
+          if (done) break;
+          controller.enqueue(encoder.encode(encodeEvent(value)));
         }
       } catch (error) {
         const message = error instanceof Error ? error.message : "Сбой агента";
-        controller.enqueue(encoder.encode(encodeEvent({ type: "error", message })));
+        try {
+          controller.enqueue(encoder.encode(encodeEvent({ type: "error", message })));
+        } catch {
+          // Поток уже отменён (cancel() успел раньше) — класть событие некуда,
+          // это не повод ронять обработчик необработанным исключением.
+        }
       } finally {
-        controller.close();
+        try {
+          controller.close();
+        } catch {
+          // cancel() уже закрыл контроллер сам — повторный close() бросает,
+          // это ожидаемо и не является ошибкой.
+        }
       }
+    },
+    async cancel() {
+      await iterator.return?.();
     },
   });
 }

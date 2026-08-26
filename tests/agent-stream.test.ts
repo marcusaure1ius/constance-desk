@@ -72,3 +72,74 @@ describe("handleAgentRequest", () => {
     );
   });
 });
+
+describe("ndjsonStream — обрыв соединения", () => {
+  it("cancel() зовёт iterator.return() и не дожидается следующего шага генератора", async () => {
+    // Второй next() намеренно висит (как незавершённый вызов модели) —
+    // если бы cancel() ничего не делал, тест повис бы или увидел
+    // returnCalled === false после отмены. Промис второго шага решаем
+    // руками в конце, чтобы не оставлять висящих таймеров между тестами.
+    let returnCalled = false;
+    let nextCalls = 0;
+    let resolveSecondNext: (() => void) | undefined;
+
+    const events: AsyncIterable<AgentEvent> = {
+      [Symbol.asyncIterator]() {
+        return {
+          next: async () => {
+            nextCalls++;
+            if (nextCalls === 1) {
+              return { value: { type: "thinking" } as AgentEvent, done: false };
+            }
+            return new Promise((resolve) => {
+              resolveSecondNext = () =>
+                resolve({ value: { type: "text", text: "не должно дойти" } as AgentEvent, done: false });
+            });
+          },
+          return: async () => {
+            returnCalled = true;
+            return { value: undefined, done: true } as IteratorResult<AgentEvent>;
+          },
+        };
+      },
+    };
+
+    const stream = ndjsonStream(events);
+    const reader = stream.getReader();
+
+    await reader.read(); // первое событие дошло, второй next() уже запущен и завис
+    expect(returnCalled).toBe(false);
+
+    await reader.cancel();
+
+    expect(returnCalled).toBe(true);
+    resolveSecondNext?.();
+  });
+
+  it("после cancel() дальнейшие шаги генератора не производятся", async () => {
+    let finished = false;
+    let yielded = 0;
+
+    async function* infiniteRun(): AsyncGenerator<AgentEvent> {
+      try {
+        while (true) {
+          yielded++;
+          yield { type: "text", text: `шаг ${yielded}` };
+          await new Promise((resolve) => setTimeout(resolve, 5));
+        }
+      } finally {
+        finished = true;
+      }
+    }
+
+    const stream = ndjsonStream(infiniteRun());
+    const reader = stream.getReader();
+
+    await reader.read(); // первый чанк дошёл — генератор запущен и отдал шаг 1
+    await reader.cancel();
+    // Даём событийному циклу время долить события, если бы утечка была.
+    await new Promise((resolve) => setTimeout(resolve, 30));
+
+    expect(finished).toBe(true);
+  });
+});
