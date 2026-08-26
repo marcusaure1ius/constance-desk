@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { parseInline, parseRichText, toPlainText } from "@/lib/agent/rich-text";
+import { parseInline, parseRichText, firstBlockPlainText } from "@/lib/agent/rich-text";
 
 describe("parseInline", () => {
   it("разбирает жирный текст внутри строки", () => {
@@ -94,24 +94,36 @@ describe("parseRichText", () => {
   });
 });
 
-describe("toPlainText", () => {
-  it("снимает жирный и курсив", () => {
-    expect(toPlainText("**жирный** и *курсив*")).toBe("жирный и курсив");
+describe("firstBlockPlainText", () => {
+  it("снимает жирный и курсив в одноблочном тексте", () => {
+    expect(firstBlockPlainText("**жирный** и *курсив*")).toBe("жирный и курсив");
   });
 
-  it("снимает моноширинный текст", () => {
-    expect(toPlainText("используй `код`")).toBe("используй код");
+  it("снимает моноширинный текст в одноблочном тексте", () => {
+    expect(firstBlockPlainText("используй `код`")).toBe("используй код");
   });
 
-  it("снимает маркер списка", () => {
-    expect(toPlainText("- один\n- два")).toBe("один два");
+  it("из списка берёт только первый пункт, без маркера", () => {
+    expect(firstBlockPlainText("- один\n- два")).toBe("один");
   });
 
   it("снимает заголовок", () => {
-    expect(toPlainText("## Просрочено")).toBe("Просрочено");
+    expect(firstBlockPlainText("## Просрочено")).toBe("Просрочено");
   });
 
   it("текст без разметки не меняется", () => {
-    expect(toPlainText("Просто текст.")).toBe("Просто текст.");
+    expect(firstBlockPlainText("Просто текст.")).toBe("Просто текст.");
+  });
+
+  it("многоблочный ответ даёт только первый блок, а не весь текст", () => {
+    expect(firstBlockPlainText("Готово.\n\nВторой абзац с деталями.")).toBe("Готово.");
+  });
+
+  it("список после абзаца не примешивается к первому блоку", () => {
+    expect(firstBlockPlainText("Вот что нашёл:\n- один\n- два")).toBe("Вот что нашёл:");
+  });
+
+  it("пустой текст даёт пустую строку", () => {
+    expect(firstBlockPlainText("")).toBe("");
   });
 });

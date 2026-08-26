@@ -146,19 +146,23 @@ export function parseRichText(input: string): RichBlock[] {
   return blocks;
 }
 
+/** Плоский текст одного блока — без Markdown-разметки. Список отдаёт только первый пункт: это его аналог «первой строки» в раскладке снизу. */
+function blockToPlainText(block: RichBlock): string {
+  if (block.type === "list") {
+    return block.items[0]?.map((n) => n.text).join("") ?? "";
+  }
+  return block.inline.map((n) => n.text).join("");
+}
+
 /**
- * Убирает Markdown-разметку, оставляя только текст — для мест вроде свёрнутой
- * плашки ленты, где рисовать блоки некуда, но `**жирный**` в строке резать глаз.
- * Абзацы и пункты списка склеиваются пробелом, разбор — тот же `parseRichText`.
+ * Начало ответа без Markdown-разметки — только первый непустой блок (абзац,
+ * заголовок или первый пункт списка), а не весь ответ. Для мест вроде
+ * свёрнутой плашки ленты: там есть место на одну строку, а не на весь текст,
+ * и склеивать через неё все абзацы/пункты в одну фразу было бы неверно —
+ * в свёрнутом виде должно быть видно начало последнего ответа, а не его
+ * пересказ целиком.
  */
-export function toPlainText(text: string): string {
-  return parseRichText(text)
-    .map((block) => {
-      if (block.type === "list") {
-        return block.items.map((item) => item.map((n) => n.text).join("")).join(" ");
-      }
-      return block.inline.map((n) => n.text).join("");
-    })
-    .join(" ")
-    .trim();
+export function firstBlockPlainText(text: string): string {
+  const [block] = parseRichText(text);
+  return block ? blockToPlainText(block) : "";
 }
