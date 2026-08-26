@@ -15,7 +15,7 @@ import { CreateTaskModal } from "@/components/modals/create-task-modal";
 import { MoveTaskModal } from "@/components/modals/move-task-modal";
 import { ArchiveModal } from "@/components/modals/archive-modal";
 import { TaskEditDialog } from "./task-edit-dialog";
-import { AgentMock } from "@/components/agent/agent-mock";
+import { AgentChat } from "@/components/agent/agent-chat";
 import { SmartInputSheet } from "@/components/smart-input/smart-input-sheet";
 import { BoardFilter } from "@/components/board/board-filter";
 import { BoardViewToggle } from "@/components/board/board-view-toggle";
@@ -105,16 +105,6 @@ export function KanbanBoard({
   const [archiveOpen, setArchiveOpen] = useState(false);
   const [editingTaskId, setEditingTaskId] = useState<string | null>(null);
   const [movingTaskId, setMovingTaskId] = useState<string | null>(null);
-  const agentTasks = useMemo(
-    () =>
-      tasks.map((t) => ({
-        title: t.title,
-        plannedDate: t.plannedDate,
-        columnTitle: columns.find((c) => c.id === t.columnId)?.title ?? "",
-        priority: t.priority,
-      })),
-    [tasks, columns]
-  );
   const editingTask = editingTaskId ? tasks.find((t) => t.id === editingTaskId) : null;
   const movingTask = movingTaskId ? tasks.find((t) => t.id === movingTaskId) : null;
   const searchParams = useSearchParams();
@@ -311,8 +301,8 @@ export function KanbanBoard({
         )}
       </DragDropContext>
 
-      {/* ПРОТОТИП: агент вместо SmartInput на десктопе (мок, без модели) */}
-      <AgentMock tasks={agentTasks} />
+      {/* Агент: лента снизу или панель справа — раскладка из настроек */}
+      <AgentChat environmentId={environmentId} />
 
       {/* Mobile: tabs portal into navbar */}
       <MobileColumnTabs
