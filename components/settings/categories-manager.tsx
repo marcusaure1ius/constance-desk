@@ -82,9 +82,9 @@ export function CategoriesManager({ categories: initialCategories, environmentId
       <CardHeader>
         <CardTitle>Категории</CardTitle>
       </CardHeader>
-      <CardContent className="space-y-2">
+      <CardContent className="flex flex-1 flex-col gap-2">
         {categories.map((cat) => (
-          <div key={cat.id} className="flex items-center gap-2">
+          <div key={cat.id} className="flex items-center gap-2 p-1">
             {editingId === cat.id ? (
               <>
                 <Input
@@ -138,7 +138,7 @@ export function CategoriesManager({ categories: initialCategories, environmentId
           </div>
         ))}
 
-        <div className="flex items-center gap-2 pt-2">
+        <div className="mt-auto flex items-center gap-2 pt-2">
           <Input
             placeholder="Новая категория"
             value={newName}

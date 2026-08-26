@@ -107,7 +107,7 @@ export function ColumnsManager({ columns: initialColumns, environmentId }: Colum
       <CardHeader>
         <CardTitle>Колонки</CardTitle>
       </CardHeader>
-      <CardContent className="space-y-2">
+      <CardContent className="flex flex-1 flex-col gap-2">
         <DragDropContext onDragEnd={handleDragEnd}>
           <Droppable droppableId="columns">
             {(provided) => (
@@ -186,7 +186,7 @@ export function ColumnsManager({ columns: initialColumns, environmentId }: Colum
           </Droppable>
         </DragDropContext>
 
-        <div className="flex items-center gap-2 pt-2">
+        <div className="mt-auto flex items-center gap-2 pt-2">
           <Input
             placeholder="Новая колонка"
             value={newTitle}

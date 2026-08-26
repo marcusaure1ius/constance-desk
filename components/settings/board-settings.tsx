@@ -1,6 +1,6 @@
 "use client";
 
-import { Checkbox } from "@/components/ui/checkbox";
+import { Switch } from "@/components/ui/switch";
 import {
   Card,
   CardHeader,
@@ -19,15 +19,10 @@ export function BoardSettings() {
   return (
     <Card>
       <CardHeader>
-        <CardTitle>Доска</CardTitle>
+        <CardTitle>Отображение</CardTitle>
       </CardHeader>
       <CardContent>
-        <label className="flex items-start gap-3 cursor-pointer">
-          <Checkbox
-            className="mt-0.5"
-            checked={showEmptyEpics}
-            onCheckedChange={setShowEmptyEpics}
-          />
+        <label className="flex items-start justify-between gap-4 cursor-pointer">
           <div className="space-y-1">
             <div className="text-sm font-medium">
               Отображать пустые группировки эпиков
@@ -37,6 +32,11 @@ export function BoardSettings() {
               При поиске и фильтрах пустые дорожки тоже скрываются.
             </p>
           </div>
+          <Switch
+            className="mt-0.5 shrink-0"
+            checked={showEmptyEpics}
+            onCheckedChange={setShowEmptyEpics}
+          />
         </label>
       </CardContent>
     </Card>

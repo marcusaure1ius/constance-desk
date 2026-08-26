@@ -5,12 +5,7 @@ import { useRouter } from "next/navigation";
 import { AlertTriangle } from "lucide-react";
 import { toast } from "sonner";
 import { Button } from "@/components/ui/button";
-import {
-  Card,
-  CardHeader,
-  CardTitle,
-  CardContent,
-} from "@/components/ui/card";
+import { Card, CardContent } from "@/components/ui/card";
 import {
   Dialog,
   DialogContent,
@@ -48,19 +43,16 @@ export function DangerZone() {
   }
 
   return (
-    <Card className="border-destructive/50">
-      <CardHeader>
-        <CardTitle className="flex items-center gap-2 text-destructive">
-          <AlertTriangle className="h-5 w-5" />
-          Danger Zone
-        </CardTitle>
-      </CardHeader>
+    <Card className="ring-destructive/30">
       <CardContent>
-        <div className="flex items-center justify-between gap-4">
-          <div>
-            <p className="text-sm font-medium">Удалить все данные</p>
+        <div className="flex items-start justify-between gap-4">
+          <div className="space-y-1">
+            <p className="flex items-center gap-2 text-sm font-medium text-destructive">
+              <AlertTriangle className="size-4" />
+              Удалить все данные
+            </p>
             <p className="text-sm text-muted-foreground">
-              Все задачи, среды, колонки, категории и настройки будут удалены безвозвратно.
+              Задачи, среды, колонки, эпики и настройки исчезнут без возможности вернуть.
             </p>
           </div>
           <Button
