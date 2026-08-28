@@ -1,6 +1,6 @@
-import { and, asc, desc, eq, gte, ilike, isNull, or } from "drizzle-orm";
+import { and, asc, desc, eq, gte, ilike, inArray, isNull, or } from "drizzle-orm";
 import { db } from "@/lib/db";
-import { columns, environments, tasks } from "@/lib/db/schema";
+import { columns, environments, noteFolders, notes, tasks } from "@/lib/db/schema";
 import { archiveCutoff } from "@/lib/services/tasks";
 
 /**
@@ -33,8 +33,18 @@ export type TaskSearchHit = {
   environment: { id: string; name: string; color: string };
 };
 
-/** Заметки появятся вместе с таблицей notes (S-01), сейчас поиск по ним пуст. */
-export type NoteSearchHit = never;
+export type NoteSearchHit = {
+  note: {
+    id: string;
+    title: string;
+    folderId: string | null;
+    environmentId: string;
+    updatedAt: Date;
+  };
+  /** Путь от корня среды: «Цены/Аномалии/Выбросы в ККУ». */
+  path: string;
+  environment: { id: string; name: string; color: string };
+};
 
 export type SearchAllResult = {
   tasks: TaskSearchHit[];
@@ -107,13 +117,86 @@ export async function searchTasks(
 }
 
 /**
- * Заглушка до появления таблицы notes (S-01 в спеке): searchAll уже сейчас
- * отдаёт итоговую форму ответа, а заметок пока не существует. Аргументов нет
- * намеренно — принимать запрос и делать вид, что ищешь, было бы враньём.
- * Вместе с таблицей функция получит ту же сигнатуру, что и searchTasks.
+ * Поиск по заметкам: заголовок и текст, по всем средам — как и поиск по
+ * задачам.
+ *
+ * Путь собирается вторым запросом, а не рекурсивным CTE в первом: папок в
+ * среде десятки, они целиком помещаются в память, а сырой SQL стоил бы
+ * привязки к драйверу ради одного лишнего запроса. Архива у заметок нет —
+ * `includeArchived` к ним неприменим, поэтому опция здесь не читается.
  */
-export async function searchNotes(): Promise<NoteSearchHit[]> {
-  return [];
+export async function searchNotes(
+  query: string,
+  options: SearchOptions = {}
+): Promise<NoteSearchHit[]> {
+  const trimmed = query.trim();
+  // Пустой запрос дал бы шаблон '%%' — то есть выдачу всех заметок.
+  if (!trimmed) return [];
+
+  const pattern = `%${escapeLikePattern(trimmed)}%`;
+
+  const found = await db
+    .select({
+      note: {
+        id: notes.id,
+        title: notes.title,
+        folderId: notes.folderId,
+        environmentId: notes.environmentId,
+        updatedAt: notes.updatedAt,
+      },
+      environment: {
+        id: environments.id,
+        name: environments.name,
+        color: environments.color,
+      },
+    })
+    .from(notes)
+    .innerJoin(environments, eq(notes.environmentId, environments.id))
+    .where(or(ilike(notes.title, pattern), ilike(notes.text, pattern)))
+    // Свежее выше; id — устойчивый разрыв ничьей, иначе страницы разъедутся.
+    .orderBy(desc(notes.updatedAt), asc(notes.id))
+    .limit(clampLimit(options.limit))
+    .offset(clampOffset(options.offset));
+
+  if (found.length === 0) return [];
+
+  // Все находки в корне — за путями идти незачем.
+  if (found.every((hit) => hit.note.folderId === null)) {
+    return found.map((hit) => ({ ...hit, path: hit.note.title }));
+  }
+
+  const envIds = [...new Set(found.map((hit) => hit.note.environmentId))];
+  const folders = await db
+    .select({
+      id: noteFolders.id,
+      name: noteFolders.name,
+      parentId: noteFolders.parentId,
+    })
+    .from(noteFolders)
+    .where(inArray(noteFolders.environmentId, envIds));
+
+  const byId = new Map(folders.map((folder) => [folder.id, folder]));
+
+  const pathOf = (folderId: string | null, title: string): string => {
+    const segments: string[] = [];
+    // Посещённые идентификаторы, а не имена: кольцо в данных надо ловить по
+    // папке, а тёзки в разных ветках — обычное дело и подъём не зацикливают.
+    const seen = new Set<string>();
+    let current = folderId;
+    while (current && !seen.has(current)) {
+      seen.add(current);
+      const folder = byId.get(current);
+      if (!folder) break;
+      segments.unshift(folder.name);
+      current = folder.parentId;
+    }
+    return [...segments, title].join("/");
+  };
+
+  return found.map((hit) => ({
+    ...hit,
+    path: pathOf(hit.note.folderId, hit.note.title),
+  }));
 }
 
 /** Общая точка входа для бота: задачи и заметки отдаются раздельно. */
@@ -123,7 +206,7 @@ export async function searchAll(
 ): Promise<SearchAllResult> {
   const [foundTasks, foundNotes] = await Promise.all([
     searchTasks(query, options),
-    searchNotes(),
+    searchNotes(query, options),
   ]);
   return { tasks: foundTasks, notes: foundNotes };
 }

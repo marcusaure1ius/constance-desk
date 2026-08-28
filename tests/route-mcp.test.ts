@@ -11,6 +11,14 @@ const mocks = vi.hoisted(() => ({
   deleteTask: vi.fn(),
   createCategory: vi.fn(),
   createEpicTask: vi.fn(),
+  listFoldersWithPaths: vi.fn(),
+  listNotesWithPaths: vi.fn(),
+  requireNoteByPath: vi.fn(),
+  createNoteByPath: vi.fn(),
+  appendToNote: vi.fn(),
+  updateNote: vi.fn(),
+  deleteNote: vi.fn(),
+  searchNotes: vi.fn(),
 }));
 
 vi.mock("@/lib/services/environments", () => ({ getEnvironments: mocks.getEnvironments }));
@@ -24,6 +32,16 @@ vi.mock("@/lib/services/tasks", () => ({
   moveTask: mocks.moveTask,
   deleteTask: mocks.deleteTask,
 }));
+vi.mock("@/lib/services/notes", () => ({
+  listFoldersWithPaths: mocks.listFoldersWithPaths,
+  listNotesWithPaths: mocks.listNotesWithPaths,
+  requireNoteByPath: mocks.requireNoteByPath,
+  createNoteByPath: mocks.createNoteByPath,
+  appendToNote: mocks.appendToNote,
+  updateNote: mocks.updateNote,
+  deleteNote: mocks.deleteNote,
+}));
+vi.mock("@/lib/services/search", () => ({ searchNotes: mocks.searchNotes }));
 
 import { POST } from "@/app/api/mcp/[transport]/route";
 
@@ -85,23 +103,29 @@ describe("MCP route /api/mcp/[transport]", () => {
   });
 
   describe("tools/list", () => {
-    it("регистрирует все 9 инструментов", async () => {
+    it("регистрирует все инструменты реестра", async () => {
       const res = await POST(rpc({ jsonrpc: "2.0", id: 1, method: "tools/list", params: {} }));
       const msg = parseSse(await res.text()) as unknown as { result: { tools: { name: string }[] } };
       const names = msg.result.tools.map((t) => t.name).sort();
-      expect(names).toEqual(
-        [
-          "create_epic",
-          "create_epic_task",
-          "create_task",
-          "delete_task",
-          "get_board",
-          "list_environments",
-          "list_tasks",
-          "move_task",
-          "update_task",
-        ]
-      );
+      expect(names).toEqual([
+        "append_note",
+        "create_epic",
+        "create_epic_task",
+        "create_note",
+        "create_task",
+        "delete_note",
+        "delete_task",
+        "get_board",
+        "list_environments",
+        "list_note_folders",
+        "list_notes",
+        "list_tasks",
+        "move_task",
+        "read_note",
+        "search_notes",
+        "update_note",
+        "update_task",
+      ]);
     });
   });
 

@@ -43,6 +43,13 @@
       "when": 1787735286516,
       "tag": "0005_tg_updates_parsed",
       "breakpoints": true
+    },
+    {
+      "idx": 6,
+      "version": "7",
+      "when": 1787924038729,
+      "tag": "0006_closed_junta",
+      "breakpoints": true
     }
   ]
 }

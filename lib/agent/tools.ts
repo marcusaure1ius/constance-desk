@@ -11,6 +11,16 @@ import {
 import { createCategory } from "@/lib/services/categories";
 import { getEnvironments } from "@/lib/services/environments";
 import {
+  appendToNote,
+  createNoteByPath,
+  deleteNote,
+  listFoldersWithPaths,
+  listNotesWithPaths,
+  requireNoteByPath,
+  updateNote,
+} from "@/lib/services/notes";
+import { searchNotes } from "@/lib/services/search";
+import {
   getTasks,
   createTask,
   updateTask,
@@ -177,6 +187,169 @@ export const boardTools: readonly Tool[] = [
     impact: "irreversible",
     handler: async ({ id }) => {
       await deleteTask(id);
+      return { success: true };
+    },
+  }),
+
+  /* ----------------------------- Заметки -----------------------------
+   *
+   * Инструменты адресуют заметки путём — «Цены/Аномалии/Выбросы в ККУ», как
+   * файл в Obsidian. Внутри всё живёт на идентификаторах, но модели путь
+   * писать естественно, а добывать uuid цепочкой вызовов — нет: каждый лишний
+   * шаг это ещё один повод ошибиться. Расширение `.md` принимается и
+   * отбрасывается.
+   */
+
+  defineTool({
+    name: "list_note_folders",
+    title: "Папки заметок",
+    description:
+      "Вернуть папки заметок среды с путями от корня. Пути — язык остальных инструментов заметок.",
+    inputSchema: { environmentId: z.string() },
+    surfaces: ["mcp", "chat"],
+    mutation: false,
+    impact: "read",
+    handler: async ({ environmentId }) => {
+      const folders = await listFoldersWithPaths(environmentId);
+      return folders.map((folder) => ({ id: folder.id, path: folder.path }));
+    },
+  }),
+
+  defineTool({
+    name: "list_notes",
+    title: "Список заметок",
+    description:
+      "Вернуть заметки среды с путями. Аргумент folder ограничивает выдачу папкой и всем, что внутри неё. Текст заметок не возвращается — он у read_note.",
+    inputSchema: {
+      environmentId: z.string(),
+      folder: z.string().optional(),
+    },
+    surfaces: ["mcp", "chat"],
+    mutation: false,
+    impact: "read",
+    handler: async ({ environmentId, folder }) => {
+      const found = await listNotesWithPaths(environmentId, folder);
+      return found.map((note) => ({
+        id: note.id,
+        path: note.path,
+        updatedAt: note.updatedAt,
+      }));
+    },
+  }),
+
+  defineTool({
+    name: "read_note",
+    title: "Прочитать заметку",
+    description: "Вернуть текст заметки по пути, например «Цены/Аномалии/Выбросы в ККУ».",
+    inputSchema: { environmentId: z.string(), path: z.string() },
+    surfaces: ["mcp", "chat"],
+    mutation: false,
+    impact: "read",
+    handler: async ({ environmentId, path }) => {
+      const note = await requireNoteByPath(environmentId, path);
+      return {
+        id: note.id,
+        title: note.title,
+        text: note.text,
+        updatedAt: note.updatedAt,
+      };
+    },
+  }),
+
+  defineTool({
+    name: "search_notes",
+    title: "Поиск по заметкам",
+    description:
+      "Найти заметки по подстроке в заголовке или тексте. Ищет по всем средам сразу и возвращает путь и проект каждой находки.",
+    inputSchema: {
+      query: z.string(),
+      limit: z.number().int().min(1).optional(),
+    },
+    surfaces: ["mcp", "chat"],
+    mutation: false,
+    impact: "read",
+    handler: async ({ query, limit }) => {
+      const found = await searchNotes(query, { limit });
+      return found.map((hit) => ({
+        id: hit.note.id,
+        path: hit.path,
+        environment: { id: hit.environment.id, name: hit.environment.name },
+        updatedAt: hit.note.updatedAt,
+      }));
+    },
+  }),
+
+  defineTool({
+    name: "create_note",
+    title: "Создать заметку",
+    description:
+      "Создать заметку по пути. Недостающие папки создаются сами. Заметка с таким путём уже есть — ошибка, а не перезапись.",
+    inputSchema: {
+      environmentId: z.string(),
+      path: z.string(),
+      text: z.string().optional(),
+    },
+    surfaces: ["mcp", "chat"],
+    mutation: true,
+    impact: "irreversible",
+    handler: async ({ environmentId, path, text }) => {
+      const note = await createNoteByPath(environmentId, path, text);
+      return { id: note.id, title: note.title };
+    },
+  }),
+
+  defineTool({
+    name: "append_note",
+    title: "Дописать в заметку",
+    description:
+      "Добавить текст в конец заметки, отделив пустой строкой. Уже написанное не трогает.",
+    inputSchema: {
+      environmentId: z.string(),
+      path: z.string(),
+      text: z.string(),
+    },
+    surfaces: ["mcp", "chat"],
+    mutation: true,
+    // Дописанное видно и удаляется глазами — в отличие от переписанного.
+    impact: "reversible",
+    handler: async ({ environmentId, path, text }) => {
+      const note = await requireNoteByPath(environmentId, path);
+      const updated = await appendToNote(note.id, text);
+      return { id: updated.id, title: updated.title };
+    },
+  }),
+
+  defineTool({
+    name: "update_note",
+    title: "Переписать заметку",
+    description:
+      "Заменить текст заметки целиком. Прежний текст теряется — чтобы добавить, используйте append_note.",
+    inputSchema: {
+      environmentId: z.string(),
+      path: z.string(),
+      text: z.string(),
+    },
+    surfaces: ["mcp", "chat"],
+    mutation: true,
+    impact: "irreversible",
+    handler: async ({ environmentId, path, text }) => {
+      const note = await requireNoteByPath(environmentId, path);
+      const updated = await updateNote(note.id, { text });
+      return { id: updated.id, title: updated.title };
+    },
+  }),
+
+  defineTool({
+    name: "delete_note",
+    title: "Удалить заметку",
+    description: "Удалить заметку по пути. Восстановить нельзя.",
+    inputSchema: { environmentId: z.string(), path: z.string() },
+    surfaces: ["mcp", "chat"],
+    mutation: true,
+    impact: "irreversible",
+    handler: async ({ environmentId, path }) => {
+      const note = await requireNoteByPath(environmentId, path);
+      await deleteNote(note.id);
       return { success: true };
     },
   }),

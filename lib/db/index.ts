@@ -1,5 +1,8 @@
 import { neon } from "@neondatabase/serverless";
-import { drizzle } from "drizzle-orm/neon-http";
+import { drizzle as drizzleNeon, type NeonHttpDatabase } from "drizzle-orm/neon-http";
+import { drizzle as drizzlePg } from "drizzle-orm/node-postgres";
+import { Pool } from "pg";
+import { isLocalDatabaseUrl } from "./db-host";
 import * as schema from "./schema";
 
 /**
@@ -13,9 +16,26 @@ import * as schema from "./schema";
  * импортировать модуль теперь можно где угодно, переменная нужна только тому,
  * кто действительно идёт в базу.
  */
-type Database = ReturnType<typeof connect>;
+/**
+ * Тип берётся от neon-http — драйвера боевой среды. Локальное подключение
+ * приводится к нему приведением: у драйверов различаются края (транзакции,
+ * `$client`), а тот набор запросов, которым пользуются сервисы, у них общий.
+ * Объединение двух типов вместо этого сломало бы вызовы во всех сервисах
+ * сразу, ничего не дав взамен.
+ */
+type Database = NeonHttpDatabase<typeof schema>;
 
-function connect() {
+/**
+ * Драйвер выбирается по хосту.
+ *
+ * neon-http ходит не в Postgres, а в HTTP-эндпоинт Neon, поэтому с обычной
+ * локальной базой он не разговаривает вообще. Без этой развилки локальной
+ * разработки не существует: `npm run dev` идёт только в боевую базу, и любую
+ * новую таблицу приходится сначала создавать в проде.
+ *
+ * Локальность считается общей функцией — той же, что стережёт миграции.
+ */
+function connect(): Database {
   const url = process.env.DATABASE_URL;
   if (!url) {
     throw new Error(
@@ -23,7 +43,14 @@ function connect() {
         "Переменная нужна только на запросе к базе, импорт lib/db её не требует."
     );
   }
-  return drizzle(neon(url), { schema });
+
+  if (isLocalDatabaseUrl(url)) {
+    return drizzlePg(new Pool({ connectionString: url }), {
+      schema,
+    }) as unknown as Database;
+  }
+
+  return drizzleNeon(neon(url), { schema });
 }
 
 let connection: Database | null = null;

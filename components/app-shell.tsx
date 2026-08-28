@@ -4,7 +4,7 @@ import * as React from "react";
 import Link from "next/link";
 import { LogoIcon } from "@/components/logo-icon";
 import { useRouter, useSearchParams, usePathname } from "next/navigation";
-import { Search, LayoutDashboard, Sun, Plus, BarChart3, Settings } from "lucide-react";
+import { Search, LayoutDashboard, Sun, Plus, BarChart3, Settings, NotebookPen } from "lucide-react";
 import { Input } from "@/components/ui/input";
 import { FilterBottomSheet } from "@/components/board/filter-bottom-sheet";
 import { useBoardFilter } from "@/hooks/use-board-filter";
@@ -162,6 +162,16 @@ export function AppShell({ children, activeEnvironment, environments, nickname }
                 Сегодня
               </Link>
               <Link
+                href="/notes"
+                className={`px-3 py-1 text-sm font-medium rounded-full transition-colors ${
+                  pathname.startsWith("/notes")
+                    ? "bg-background text-foreground shadow-sm"
+                    : "text-muted-foreground hover:text-foreground"
+                }`}
+              >
+                Заметки
+              </Link>
+              <Link
                 href="/report"
                 prefetch={false}
                 className={`px-3 py-1 text-sm font-medium rounded-full transition-colors ${
@@ -189,7 +199,17 @@ export function AppShell({ children, activeEnvironment, environments, nickname }
           <div id="navbar-tabs-slot" className="md:hidden" />
         </div>
       </header>
-      <main className="flex-1 pb-16 md:pb-0" style={{ paddingTop: headerHeight }}>{children}</main>
+      <main
+        className="flex-1 pb-16 md:pb-0"
+        style={
+          {
+            paddingTop: headerHeight,
+            "--app-header-height": `${headerHeight}px`,
+          } as React.CSSProperties
+        }
+      >
+        {children}
+      </main>
 
       <nav className="fixed bottom-0 left-0 right-0 z-50 border-t bg-background md:hidden">
         <div className="flex h-14 items-center justify-around px-2">
@@ -244,6 +264,14 @@ export function AppShell({ children, activeEnvironment, environments, nickname }
               />
             )}
           </button>
+          <Link
+            href="/notes"
+            className={`flex flex-col items-center justify-center p-2 rounded-lg transition-colors ${
+              pathname.startsWith("/notes") ? "text-foreground" : "text-muted-foreground"
+            }`}
+          >
+            <NotebookPen className="h-5 w-5" />
+          </Link>
           <button
             onTouchStart={handleFabTouchStart}
             onTouchEnd={handleFabTouchEnd}

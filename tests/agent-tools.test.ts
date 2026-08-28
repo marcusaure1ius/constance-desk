@@ -12,6 +12,14 @@ const mocks = vi.hoisted(() => ({
   deleteTask: vi.fn(),
   createCategory: vi.fn(),
   createEpicTask: vi.fn(),
+  listFoldersWithPaths: vi.fn(),
+  listNotesWithPaths: vi.fn(),
+  requireNoteByPath: vi.fn(),
+  createNoteByPath: vi.fn(),
+  appendToNote: vi.fn(),
+  updateNote: vi.fn(),
+  deleteNote: vi.fn(),
+  searchNotes: vi.fn(),
 }));
 
 vi.mock("@/lib/services/environments", () => ({ getEnvironments: mocks.getEnvironments }));
@@ -25,11 +33,29 @@ vi.mock("@/lib/services/tasks", () => ({
   moveTask: mocks.moveTask,
   deleteTask: mocks.deleteTask,
 }));
+vi.mock("@/lib/services/notes", () => ({
+  listFoldersWithPaths: mocks.listFoldersWithPaths,
+  listNotesWithPaths: mocks.listNotesWithPaths,
+  requireNoteByPath: mocks.requireNoteByPath,
+  createNoteByPath: mocks.createNoteByPath,
+  appendToNote: mocks.appendToNote,
+  updateNote: mocks.updateNote,
+  deleteNote: mocks.deleteNote,
+}));
+vi.mock("@/lib/services/search", () => ({ searchNotes: mocks.searchNotes }));
 
 import { boardTools, findTool, toolsFor } from "@/lib/agent/tools";
 import { isDeferred, runTool, toFunctionSpec, toJsonSchema } from "@/lib/agent/tool-registry";
 
-const READ_TOOLS = ["get_board", "list_environments", "list_tasks"];
+const READ_TOOLS = [
+  "get_board",
+  "list_environments",
+  "list_tasks",
+  "list_note_folders",
+  "list_notes",
+  "read_note",
+  "search_notes",
+];
 const MUTATION_TOOLS = [
   "create_epic",
   "create_epic_task",
@@ -37,6 +63,10 @@ const MUTATION_TOOLS = [
   "delete_task",
   "move_task",
   "update_task",
+  "append_note",
+  "create_note",
+  "delete_note",
+  "update_note",
 ];
 
 const names = (tools: readonly { name: string }[]) => tools.map((t) => t.name).sort();
@@ -186,8 +216,11 @@ describe("impact инструментов доски", () => {
     expect(deferred).toEqual([
       "create_epic",
       "create_epic_task",
+      "create_note",
       "create_task",
+      "delete_note",
       "delete_task",
+      "update_note",
       "update_task",
     ]);
   });
@@ -195,6 +228,13 @@ describe("impact инструментов доски", () => {
   it("перенос задачи исполняется без подтверждения", () => {
     const move = boardTools.find((t) => t.name === "move_task");
     expect(move?.impact).toBe("reversible");
+  });
+
+  // Дописанное в заметку видно и снимается руками — в отличие от текста,
+  // затёртого перезаписью.
+  it("дописывание в заметку исполняется без подтверждения", () => {
+    const append = boardTools.find((t) => t.name === "append_note");
+    expect(append?.impact).toBe("reversible");
   });
 
   it("у каждого инструмента задан impact", () => {

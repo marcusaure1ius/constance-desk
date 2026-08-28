@@ -171,16 +171,43 @@ describe("searchNotes и searchAll", () => {
     selectChain.offset.mockResolvedValue([]);
   });
 
-  it("заметок пока нет: заглушка не ходит в базу", async () => {
-    expect(await searchNotes()).toEqual([]);
+  it("пустой запрос не ходит в базу", async () => {
+    expect(await searchNotes("   ")).toEqual([]);
     expect(mockDb.select).not.toHaveBeenCalled();
   });
 
-  it("searchAll возвращает задачи и заметки раздельно", async () => {
-    const hits = [{ task: { id: "t-1" }, column: {}, environment: {} }];
-    selectChain.offset.mockResolvedValue(hits);
+  it("ищет по заголовку и тексту заметки", async () => {
+    await searchNotes("вэду");
+    expect(lastWhere().sql).toContain('"title" ilike');
+    expect(lastWhere().sql).toContain('"text" ilike');
+  });
 
-    expect(await searchAll("вэду")).toEqual({ tasks: hits, notes: [] });
+  // Заметка в корне среды папок не имеет, и второй запрос за путями ей не
+  // нужен: путь такой заметки — это её заголовок.
+  it("находка в корне обходится без запроса за папками", async () => {
+    selectChain.offset.mockResolvedValue([
+      { note: { id: "n-1", title: "Входящее", folderId: null }, environment: {} },
+    ]);
+
+    const found = await searchNotes("вход");
+    expect(found[0].path).toBe("Входящее");
+    expect(mockDb.select).toHaveBeenCalledTimes(1);
+  });
+
+  it("searchAll возвращает задачи и заметки раздельно", async () => {
+    // Мок отвечает одинаково обоим запросам, поэтому строка несёт сразу оба
+    // ключа. Проверяется здесь не содержимое, а раскладка ответа надвое.
+    const row = {
+      task: { id: "t-1" },
+      note: { id: "n-1", title: "Входящее", folderId: null },
+      column: {},
+      environment: {},
+    };
+    selectChain.offset.mockResolvedValue([row]);
+
+    const result = await searchAll("вэду");
+    expect(result.tasks).toEqual([row]);
+    expect(result.notes).toEqual([{ ...row, path: "Входящее" }]);
   });
 
   it("searchAll пробрасывает пагинацию в поиск задач", async () => {

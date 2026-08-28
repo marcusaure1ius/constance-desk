@@ -9,7 +9,11 @@ import {
   date,
   pgEnum,
   index,
+  unique,
+  uniqueIndex,
+  foreignKey,
 } from "drizzle-orm/pg-core";
+import { sql } from "drizzle-orm";
 
 export const priorityEnum = pgEnum("priority", ["urgent", "high", "normal"]);
 
@@ -149,5 +153,86 @@ export const tgHandles = pgTable(
     // Ожидание ввода ищется по чату, а не по идентификатору: следующее
     // сообщение пользователя про хендл ничего не знает.
     index("tg_handles_chat_idx").on(table.chatId, table.kind, table.status),
+  ]
+);
+
+/**
+ * Папка заметок. Дерево держится на ссылке на себя: `parent_id = null` —
+ * корень среды.
+ *
+ * `environment_id` есть и здесь, и в `notes` не от лени. Заметка может лежать
+ * в корне, папки у неё тогда нет, а хозяина иметь она обязана — иначе
+ * переключатель среды не может её ни показать, ни спрятать.
+ *
+ * Пара `(id, environment_id)` объявлена уникальной ради составных внешних
+ * ключей ниже: только так дочерняя строка ссылается на папку **вместе с её
+ * средой** и не может уехать в чужую.
+ */
+export const noteFolders = pgTable(
+  "note_folders",
+  {
+    id: uuid("id").defaultRandom().primaryKey(),
+    name: text("name").notNull(),
+    parentId: uuid("parent_id"),
+    environmentId: uuid("environment_id")
+      .notNull()
+      .references(() => environments.id, { onDelete: "cascade" }),
+    createdAt: timestamp("created_at").defaultNow().notNull(),
+    updatedAt: timestamp("updated_at").defaultNow().notNull(),
+  },
+  (table) => [
+    unique("note_folders_id_environment_key").on(table.id, table.environmentId),
+    // Родитель ищется вместе со средой: вложить папку в чужой проект нельзя.
+    foreignKey({
+      columns: [table.parentId, table.environmentId],
+      foreignColumns: [table.id, table.environmentId],
+      name: "note_folders_parent_fk",
+    }).onDelete("cascade"),
+    // Имя уникально среди соседей — иначе путь «Работа/Цены» адресует двоих.
+    uniqueIndex("note_folders_sibling_name_idx").on(
+      table.environmentId,
+      table.parentId,
+      table.name
+    ),
+    // Для корневых папок предыдущий индекс не работает: в Postgres NULL не
+    // равен NULL, и две папки «Работа» в корне прошли бы обе.
+    uniqueIndex("note_folders_root_name_idx")
+      .on(table.environmentId, table.name)
+      .where(sql`parent_id is null`),
+  ]
+);
+
+/**
+ * Заметка. Заголовок — он же имя файла в пути, как в Obsidian; отдельного поля
+ * «имя» нет намеренно, два имени у одного документа неизбежно разъезжаются.
+ *
+ * `folder_id = null` — заметка в корне среды.
+ */
+export const notes = pgTable(
+  "notes",
+  {
+    id: uuid("id").defaultRandom().primaryKey(),
+    title: text("title").notNull(),
+    text: text("text").notNull().default(""),
+    folderId: uuid("folder_id"),
+    environmentId: uuid("environment_id")
+      .notNull()
+      .references(() => environments.id, { onDelete: "cascade" }),
+    createdAt: timestamp("created_at").defaultNow().notNull(),
+    updatedAt: timestamp("updated_at").defaultNow().notNull(),
+  },
+  (table) => [
+    // Папка берётся вместе со средой. `folder_id = null` эту проверку
+    // пропускает — ровно то, что нужно корневым заметкам.
+    foreignKey({
+      columns: [table.folderId, table.environmentId],
+      foreignColumns: [noteFolders.id, noteFolders.environmentId],
+      name: "notes_folder_fk",
+    }).onDelete("cascade"),
+    uniqueIndex("notes_folder_title_idx").on(table.folderId, table.title),
+    uniqueIndex("notes_root_title_idx")
+      .on(table.environmentId, table.title)
+      .where(sql`folder_id is null`),
+    index("notes_environment_idx").on(table.environmentId),
   ]
 );
