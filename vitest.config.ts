@@ -25,7 +25,13 @@ export default defineConfig(({ mode }) => {
       // появление OPENROUTER_API_KEY в файле однажды уже поменяло поведение
       // офлайн-теста — он увидел второго провайдера и стал падать иначе.
       // Новый провайдер — новая строка здесь и в tests/test-isolation.test.ts.
-      env: { ...shared.env, GROQ_API_KEY: "", OPENROUTER_API_KEY: "" },
+      env: {
+        ...shared.env,
+        GROQ_API_KEY: "",
+        OPENROUTER_API_KEY: "",
+        GOOGLE_SERVICE_ACCOUNT_KEY: "",
+        GOOGLE_SLIDES_PRESENTATION_ID: "",
+      },
     },
     resolve: { alias: rootAlias() },
   };

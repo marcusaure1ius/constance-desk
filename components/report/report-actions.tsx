@@ -1,11 +1,12 @@
 "use client";
 
 import * as React from "react";
-import { Copy, FileDown, Sparkles } from "lucide-react";
+import { Copy, Presentation, Sparkles } from "lucide-react";
 import { format, startOfWeek } from "date-fns";
 import { ru } from "date-fns/locale";
 import { Button } from "@/components/ui/button";
-import { generatePptxAction, generateAiPdfAction } from "@/lib/actions/tasks";
+import { generateAiPdfAction } from "@/lib/actions/tasks";
+import { SlidesExportDialog } from "@/components/report/slides-export-dialog";
 import type { ExtendedWeeklyReport } from "@/lib/services/reports";
 
 interface ReportActionsProps {
@@ -43,7 +44,7 @@ ${section("Выполненные задачи", report.completedTasks)}
 
 export function ReportActions({ report, environmentId }: ReportActionsProps) {
   const [copying, setCopying] = React.useState(false);
-  const [generatingPptx, setGeneratingPptx] = React.useState(false);
+  const [slidesOpen, setSlidesOpen] = React.useState(false);
   const [generatingPdf, setGeneratingPdf] = React.useState(false);
 
   async function handleCopy() {
@@ -56,36 +57,6 @@ export function ReportActions({ report, environmentId }: ReportActionsProps) {
       ]);
     } finally {
       setCopying(false);
-    }
-  }
-
-  async function handleDownloadPptx() {
-    setGeneratingPptx(true);
-    try {
-      const weekStart = startOfWeek(new Date(report.weekStart), { weekStartsOn: 1 });
-      const base64 = await generatePptxAction(weekStart.toISOString(), environmentId);
-
-      const byteCharacters = atob(base64);
-      const byteNumbers = new Array(byteCharacters.length);
-      for (let i = 0; i < byteCharacters.length; i++) {
-        byteNumbers[i] = byteCharacters.charCodeAt(i);
-      }
-      const byteArray = new Uint8Array(byteNumbers);
-      const blob = new Blob([byteArray], {
-        type: "application/vnd.openxmlformats-officedocument.presentationml.presentation",
-      });
-
-      const dateLabel = format(new Date(report.weekStart), "dd.MM.yyyy", { locale: ru });
-      const url = URL.createObjectURL(blob);
-      const a = document.createElement("a");
-      a.href = url;
-      a.download = `Constance_${dateLabel}.pptx`;
-      document.body.appendChild(a);
-      a.click();
-      document.body.removeChild(a);
-      URL.revokeObjectURL(url);
-    } finally {
-      setGeneratingPptx(false);
     }
   }
 
@@ -128,11 +99,9 @@ export function ReportActions({ report, environmentId }: ReportActionsProps) {
           {copying ? "Копирование…" : "Копировать"}
         </span>
       </Button>
-      <Button variant="outline" size="sm" onClick={handleDownloadPptx} disabled={generatingPptx}>
-        <FileDown className="h-4 w-4" />
-        <span className="hidden sm:inline ml-1.5">
-          {generatingPptx ? "Генерация…" : "PPTX"}
-        </span>
+      <Button variant="outline" size="sm" onClick={() => setSlidesOpen(true)}>
+        <Presentation className="h-4 w-4" />
+        <span className="hidden sm:inline ml-1.5">Google Slides</span>
       </Button>
       <Button variant="outline" size="sm" onClick={handleDownloadAiPdf} disabled={generatingPdf}>
         <Sparkles className="h-4 w-4" />
@@ -140,6 +109,7 @@ export function ReportActions({ report, environmentId }: ReportActionsProps) {
           {generatingPdf ? "Генерация..." : "AI PDF"}
         </span>
       </Button>
+      <SlidesExportDialog open={slidesOpen} onOpenChange={setSlidesOpen} environmentId={environmentId} />
     </div>
   );
 }

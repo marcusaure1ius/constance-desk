@@ -12,6 +12,11 @@ describe("изоляция основного прогона", () => {
     expect(process.env.OPENROUTER_API_KEY ?? "").toBe("");
   });
 
+  it("не видит ключ Google и ID презентации из .env.local", () => {
+    expect(process.env.GOOGLE_SERVICE_ACCOUNT_KEY ?? "").toBe("");
+    expect(process.env.GOOGLE_SLIDES_PRESENTATION_ID ?? "").toBe("");
+  });
+
   it("не пускает fetch наружу", () => {
     expect(() => fetch("https://api.groq.com/openai/v1/models")).toThrow(/не ходит в сеть/);
   });
