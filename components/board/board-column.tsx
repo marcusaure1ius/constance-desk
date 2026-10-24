@@ -1,6 +1,7 @@
 "use client";
 
 import { memo } from "react";
+import type { Subtask } from "./task-subtasks";
 import { Droppable, Draggable } from "@hello-pangea/dnd";
 import { Plus } from "lucide-react";
 import { TaskCard } from "./task-card";
@@ -15,6 +16,7 @@ type Task = {
   plannedDate: string | null;
   completedAt: Date | null;
   position: number;
+  subtasks?: Subtask[];
 };
 
 type Category = {

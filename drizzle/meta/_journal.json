@@ -50,6 +50,13 @@
       "when": 1787924038729,
       "tag": "0006_closed_junta",
       "breakpoints": true
+    },
+    {
+      "idx": 7,
+      "version": "7",
+      "when": 1792824896655,
+      "tag": "0007_subtasks",
+      "breakpoints": true
     }
   ]
 }

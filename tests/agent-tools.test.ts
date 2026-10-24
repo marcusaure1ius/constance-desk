@@ -5,6 +5,10 @@ import { z } from "zod";
 const mocks = vi.hoisted(() => ({
   getEnvironments: vi.fn(),
   getBoardSnapshot: vi.fn(),
+  withSubtasks: vi.fn(async (tasks: { id: string }[]) => tasks.map((t) => ({ ...t, subtasks: [] }))),
+  createSubtask: vi.fn(),
+  updateSubtask: vi.fn(),
+  deleteSubtask: vi.fn(),
   getTasks: vi.fn(),
   createTask: vi.fn(),
   updateTask: vi.fn(),
@@ -23,7 +27,15 @@ const mocks = vi.hoisted(() => ({
 }));
 
 vi.mock("@/lib/services/environments", () => ({ getEnvironments: mocks.getEnvironments }));
-vi.mock("@/lib/agent/board", () => ({ getBoardSnapshot: mocks.getBoardSnapshot }));
+vi.mock("@/lib/agent/board", () => ({
+  getBoardSnapshot: mocks.getBoardSnapshot,
+  withSubtasks: mocks.withSubtasks,
+}));
+vi.mock("@/lib/services/subtasks", () => ({
+  createSubtask: mocks.createSubtask,
+  updateSubtask: mocks.updateSubtask,
+  deleteSubtask: mocks.deleteSubtask,
+}));
 vi.mock("@/lib/agent/epic-task", () => ({ createEpicTask: mocks.createEpicTask }));
 vi.mock("@/lib/services/categories", () => ({ createCategory: mocks.createCategory }));
 vi.mock("@/lib/services/tasks", () => ({
@@ -63,6 +75,10 @@ const MUTATION_TOOLS = [
   "delete_task",
   "move_task",
   "update_task",
+  "create_subtask",
+  "complete_subtask",
+  "update_subtask",
+  "delete_subtask",
   "append_note",
   "create_note",
   "delete_note",
@@ -173,7 +189,7 @@ describe("вызов инструментов реестра", () => {
       includeArchived: true,
     });
 
-    expect(outcome).toEqual({ ok: true, data: [{ id: "t-1" }] });
+    expect(outcome).toEqual({ ok: true, data: [{ id: "t-1", subtasks: [] }] });
     expect(mocks.getTasks).toHaveBeenCalledWith("env-1", { includeArchived: true });
   });
 
@@ -217,10 +233,13 @@ describe("impact инструментов доски", () => {
       "create_epic",
       "create_epic_task",
       "create_note",
+      "create_subtask",
       "create_task",
       "delete_note",
+      "delete_subtask",
       "delete_task",
       "update_note",
+      "update_subtask",
       "update_task",
     ]);
   });
@@ -239,5 +258,62 @@ describe("impact инструментов доски", () => {
 
   it("у каждого инструмента задан impact", () => {
     expect(boardTools.every((t) => t.impact)).toBe(true);
+  });
+});
+
+describe("инструменты подзадач", () => {
+  beforeEach(() => vi.clearAllMocks());
+
+  it("create_subtask передаёт задачу, название и срок в сервис", async () => {
+    mocks.createSubtask.mockResolvedValue({ id: "s-1" });
+    const outcome = await runTool(findTool("create_subtask", { surface: "chat" })!, {
+      taskId: "t-1",
+      title: "Позвонить",
+      dueDate: "2026-10-30",
+    });
+
+    expect(outcome.ok).toBe(true);
+    expect(mocks.createSubtask).toHaveBeenCalledWith({
+      taskId: "t-1",
+      title: "Позвонить",
+      dueDate: "2026-10-30",
+    });
+  });
+
+  it("complete_subtask исполняется сразу и ставит отметку", async () => {
+    const tool = findTool("complete_subtask", { surface: "chat" })!;
+    expect(isDeferred(tool)).toBe(false);
+
+    mocks.updateSubtask.mockResolvedValue({ id: "s-1", title: "Слайды" });
+    const outcome = await runTool(tool, { id: "s-1", done: true });
+    expect(mocks.updateSubtask).toHaveBeenCalledWith("s-1", { done: true });
+    expect(outcome).toEqual({ ok: true, data: { success: true, title: "Слайды", done: true } });
+  });
+
+  it("complete_subtask по несуществующему id — провал, а не пустой успех", async () => {
+    mocks.updateSubtask.mockResolvedValue(undefined);
+    const outcome = await runTool(findTool("complete_subtask", { surface: "chat" })!, {
+      id: "missing",
+      done: true,
+    });
+    expect(outcome).toEqual({ ok: false, error: "Подзадача не найдена" });
+  });
+
+  it("update_subtask снимает срок через null и не пропускает кривую дату", async () => {
+    const tool = findTool("update_subtask", { surface: "chat" })!;
+    mocks.updateSubtask.mockResolvedValue({ id: "s-1" });
+
+    await runTool(tool, { id: "s-1", dueDate: null });
+    expect(mocks.updateSubtask).toHaveBeenCalledWith("s-1", { dueDate: null });
+
+    const bad = await runTool(tool, { id: "s-1", dueDate: "30.10.2026" });
+    expect(bad.ok).toBe(false);
+    expect(mocks.updateSubtask).toHaveBeenCalledTimes(1);
+  });
+
+  it("delete_subtask удаляет по id", async () => {
+    const outcome = await runTool(findTool("delete_subtask", { surface: "chat" })!, { id: "s-1" });
+    expect(outcome).toEqual({ ok: true, data: { success: true } });
+    expect(mocks.deleteSubtask).toHaveBeenCalledWith("s-1");
   });
 });

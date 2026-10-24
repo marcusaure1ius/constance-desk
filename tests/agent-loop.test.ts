@@ -304,6 +304,68 @@ describe("метки отложенных вызовов (finding 3)", () => {
   });
 });
 
+describe("подписи предложений по подзадачам", () => {
+  it("называют подзадачу и её задачу по уже прочитанной доске", async () => {
+    const listHandler = vi.fn(async () => [
+      {
+        id: "t1",
+        title: "Отчёт",
+        subtasks: [{ id: "s1", title: "Свёрстать слайды", dueDate: null, done: false }],
+      },
+    ]);
+    const deferredTool = (name: string, inputSchema: Record<string, z.ZodType>) =>
+      defineTool({
+        name,
+        title: name,
+        description: name,
+        inputSchema,
+        surfaces: ["chat"],
+        mutation: true,
+        impact: "irreversible",
+        handler: vi.fn(async () => ({})),
+      });
+
+    const localTools: Tool[] = [
+      defineTool({
+        name: "list_tasks",
+        title: "Задачи",
+        description: "Список задач.",
+        inputSchema: { environmentId: z.string() },
+        surfaces: ["chat"],
+        mutation: false,
+        impact: "read",
+        handler: listHandler,
+      }),
+      deferredTool("create_subtask", { taskId: z.string(), title: z.string(), dueDate: z.string().optional() }),
+      deferredTool("update_subtask", { id: z.string(), dueDate: z.string().nullable().optional() }),
+      deferredTool("delete_subtask", { id: z.string() }),
+    ];
+
+    const chat = vi
+      .fn()
+      .mockResolvedValueOnce(callsTool("list_tasks", { environmentId: "env_1" }))
+      .mockResolvedValueOnce(
+        callsTool("create_subtask", { taskId: "t1", title: "Согласовать", dueDate: "2026-10-30" })
+      )
+      .mockResolvedValueOnce(callsTool("update_subtask", { id: "s1", dueDate: "2026-11-02" }))
+      .mockResolvedValueOnce(callsTool("delete_subtask", { id: "s1" }))
+      .mockResolvedValueOnce(answer("Предлагаю."));
+
+    const events = await collect(
+      runAgent({ message: "поправь подзадачи", environmentId: "env_1", tools: localTools, chat })
+    );
+
+    const proposal = events.find((e) => e.type === "proposal");
+    expect(proposal).toMatchObject({
+      calls: [
+        { tool: "create_subtask", label: "Добавить подзадачу «Согласовать» в «Отчёт» · срок 2026-10-30" },
+        { tool: "update_subtask", label: "Изменить подзадачу «Свёрстать слайды»: срок" },
+        { tool: "delete_subtask", label: "Удалить подзадачу «Свёрстать слайды»" },
+      ],
+    });
+  });
+});
+
 describe("summarizeResult", () => {
   it("массив меряет длиной", () => {
     expect(summarizeResult([1, 2, 3])).toBe("3 элемента");

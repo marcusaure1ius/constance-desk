@@ -4,6 +4,10 @@ import { describe, it, expect, vi, beforeEach } from "vitest";
 const mocks = vi.hoisted(() => ({
   getEnvironments: vi.fn(),
   getBoardSnapshot: vi.fn(),
+  withSubtasks: vi.fn(async (tasks: { id: string }[]) => tasks.map((t) => ({ ...t, subtasks: [] }))),
+  createSubtask: vi.fn(),
+  updateSubtask: vi.fn(),
+  deleteSubtask: vi.fn(),
   getTasks: vi.fn(),
   createTask: vi.fn(),
   updateTask: vi.fn(),
@@ -22,7 +26,15 @@ const mocks = vi.hoisted(() => ({
 }));
 
 vi.mock("@/lib/services/environments", () => ({ getEnvironments: mocks.getEnvironments }));
-vi.mock("@/lib/agent/board", () => ({ getBoardSnapshot: mocks.getBoardSnapshot }));
+vi.mock("@/lib/agent/board", () => ({
+  getBoardSnapshot: mocks.getBoardSnapshot,
+  withSubtasks: mocks.withSubtasks,
+}));
+vi.mock("@/lib/services/subtasks", () => ({
+  createSubtask: mocks.createSubtask,
+  updateSubtask: mocks.updateSubtask,
+  deleteSubtask: mocks.deleteSubtask,
+}));
 vi.mock("@/lib/agent/epic-task", () => ({ createEpicTask: mocks.createEpicTask }));
 vi.mock("@/lib/services/categories", () => ({ createCategory: mocks.createCategory }));
 vi.mock("@/lib/services/tasks", () => ({
@@ -109,11 +121,14 @@ describe("MCP route /api/mcp/[transport]", () => {
       const names = msg.result.tools.map((t) => t.name).sort();
       expect(names).toEqual([
         "append_note",
+        "complete_subtask",
         "create_epic",
         "create_epic_task",
         "create_note",
+        "create_subtask",
         "create_task",
         "delete_note",
+        "delete_subtask",
         "delete_task",
         "get_board",
         "list_environments",
@@ -124,6 +139,7 @@ describe("MCP route /api/mcp/[transport]", () => {
         "read_note",
         "search_notes",
         "update_note",
+        "update_subtask",
         "update_task",
       ]);
     });
@@ -164,7 +180,7 @@ describe("MCP route /api/mcp/[transport]", () => {
     it("по умолчанию исключает архив (includeArchived undefined)", async () => {
       mocks.getTasks.mockResolvedValue([{ id: "t-1" }]);
       const data = await callTool("list_tasks", { environmentId: "env-1" });
-      expect(data).toEqual([{ id: "t-1" }]);
+      expect(data).toEqual([{ id: "t-1", subtasks: [] }]);
       expect(mocks.getTasks).toHaveBeenCalledWith("env-1", { includeArchived: undefined });
     });
 

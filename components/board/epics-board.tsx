@@ -1,5 +1,6 @@
 "use client";
 
+import type { Subtask } from "./task-subtasks";
 import { Plus } from "lucide-react";
 import { EpicSwimlane } from "./epic-swimlane";
 import { useBoardView } from "@/hooks/use-board-view";
@@ -15,6 +16,7 @@ type SwimlaneTask = {
   position: number;
   plannedDate: string | null;
   completedAt: Date | null;
+  subtasks?: Subtask[];
 };
 
 interface EpicsBoardProps {

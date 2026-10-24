@@ -1,6 +1,7 @@
 "use client";
 
 import { useState, useEffect, useTransition, useMemo, useCallback, useSyncExternalStore } from "react";
+import type { Subtask } from "./task-subtasks";
 import { createPortal } from "react-dom";
 import { useSearchParams, useRouter } from "next/navigation";
 import { DragDropContext, type DropResult } from "@hello-pangea/dnd";
@@ -36,6 +37,7 @@ type Task = {
   startDate: string;
   plannedDate: string | null;
   completedAt: Date | null;
+  subtasks?: Subtask[];
 };
 type Category = { id: string; name: string; color: string | null };
 

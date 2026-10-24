@@ -75,6 +75,15 @@ function describeCall(call: DeferredCall): string {
     }
     case "delete_task":
       return "Удалить задачу";
+    case "create_subtask": {
+      const title = str(args.title) ?? "без названия";
+      const date = str(args.dueDate);
+      return `Добавить подзадачу «${title}»${date ? ` · срок ${date}` : ""}`;
+    }
+    case "update_subtask":
+      return "Изменить подзадачу";
+    case "delete_subtask":
+      return "Удалить подзадачу";
     default:
       return `${call.tool}: ${JSON.stringify(call.args)}`;
   }

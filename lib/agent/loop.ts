@@ -41,6 +41,7 @@ const FIELD_LABELS: Record<string, string> = {
   categoryId: "эпик",
   priority: "приоритет",
   plannedDate: "срок",
+  dueDate: "срок",
 };
 
 function changedFields(args: Record<string, unknown>): string[] {
@@ -66,6 +67,14 @@ function extractTasks(data: unknown): { id: string; title: string }[] {
   );
 }
 
+/** Подзадачи, вложенные в прочитанные задачи (get_board и list_tasks кладут их в `subtasks`). */
+function extractSubtasks(tasks: object[]): { id: string; title: string }[] {
+  return tasks.flatMap((task) => {
+    const subtasks = (task as { subtasks?: unknown }).subtasks;
+    return Array.isArray(subtasks) ? extractTasks(subtasks) : [];
+  });
+}
+
 /**
  * Человеческое описание отложенного вызова для карточки предложения.
  * Заголовок задачи резолвится из уже прочитанных инструментом задач — id
@@ -74,12 +83,29 @@ function extractTasks(data: unknown): { id: string; title: string }[] {
 function describeDeferred(
   toolName: string,
   args: unknown,
-  taskTitles: Map<string, string>
+  taskTitles: Map<string, string>,
+  subtaskTitles: Map<string, string>
 ): string | undefined {
-  if (toolName !== "delete_task" && toolName !== "update_task") return undefined;
-
   const record = (args && typeof args === "object" ? args : {}) as Record<string, unknown>;
   const id = typeof record.id === "string" ? record.id : undefined;
+
+  if (toolName === "create_subtask") {
+    const taskTitle = typeof record.taskId === "string" ? taskTitles.get(record.taskId) : undefined;
+    const title = typeof record.title === "string" ? record.title : "без названия";
+    const due = typeof record.dueDate === "string" ? ` · срок ${record.dueDate}` : "";
+    return `Добавить подзадачу «${title}»${taskTitle ? ` в «${taskTitle}»` : ""}${due}`;
+  }
+
+  if (toolName === "delete_subtask" || toolName === "update_subtask") {
+    const title = id ? subtaskTitles.get(id) : undefined;
+    const name = title ? `подзадачу «${title}»` : `подзадачу ${id ?? "(id неизвестен)"}`;
+    if (toolName === "delete_subtask") return `Удалить ${name}`;
+    const fields = changedFields(record);
+    return `Изменить ${name}${fields.length > 0 ? `: ${fields.join(", ")}` : ""}`;
+  }
+
+  if (toolName !== "delete_task" && toolName !== "update_task") return undefined;
+
   const title = id ? taskTitles.get(id) : undefined;
 
   if (toolName === "delete_task") {
@@ -108,9 +134,10 @@ export async function* runAgent(options: RunAgentOptions): AsyncGenerator<AgentE
   ];
 
   const deferred: DeferredCall[] = [];
-  // Заголовки задач из уже прочитанных инструментов get_board/list_tasks —
-  // ими подписываются отложенные update_task/delete_task в карточке предложения.
+  // Заголовки задач и подзадач из уже прочитанных инструментов get_board/list_tasks —
+  // ими подписываются отложенные правки и удаления в карточке предложения.
   const taskTitles = new Map<string, string>();
+  const subtaskTitles = new Map<string, string>();
 
   try {
     yield { type: "thinking" };
@@ -139,7 +166,7 @@ export async function* runAgent(options: RunAgentOptions): AsyncGenerator<AgentE
         }
 
         if (isDeferred(tool)) {
-          const label = describeDeferred(call.tool, call.args, taskTitles);
+          const label = describeDeferred(call.tool, call.args, taskTitles, subtaskTitles);
           deferred.push({ tool: call.tool, args: call.args, ...(label ? { label } : {}) });
           messages.push({
             role: "tool",
@@ -162,7 +189,9 @@ export async function* runAgent(options: RunAgentOptions): AsyncGenerator<AgentE
           : { type: "tool_end", id: call.id, tool: call.tool, error: outcome.error };
 
         if (outcome.ok) {
-          for (const task of extractTasks(outcome.data)) taskTitles.set(task.id, task.title);
+          const tasks = extractTasks(outcome.data);
+          for (const task of tasks) taskTitles.set(task.id, task.title);
+          for (const sub of extractSubtasks(tasks)) subtaskTitles.set(sub.id, sub.title);
 
           // move_task меняет доску, а сервисы реестра про Next.js не знают —
           // без этого события клиент не узнает, что доску надо перерисовать.

@@ -1,5 +1,5 @@
 import { z } from "zod";
-import { getBoardSnapshot } from "@/lib/agent/board";
+import { getBoardSnapshot, withSubtasks } from "@/lib/agent/board";
 import { createEpicTask } from "@/lib/agent/epic-task";
 import {
   defineTool,
@@ -27,6 +27,7 @@ import {
   moveTask,
   deleteTask,
 } from "@/lib/services/tasks";
+import { createSubtask, updateSubtask, deleteSubtask } from "@/lib/services/subtasks";
 
 const priority = z.enum(["urgent", "high", "normal"]);
 const isoDate = z.string().regex(/^\d{4}-\d{2}-\d{2}$/);
@@ -48,7 +49,7 @@ export const boardTools: readonly Tool[] = [
     name: "get_board",
     title: "Снимок доски",
     description:
-      "Вернуть среду, колонки, эпики и задачи одним ответом. По умолчанию без архива.",
+      "Вернуть среду, колонки, эпики и задачи с подзадачами одним ответом. По умолчанию без архива.",
     inputSchema: {
       environmentId: z.string(),
       includeArchived: z.boolean().optional(),
@@ -67,7 +68,7 @@ export const boardTools: readonly Tool[] = [
     name: "list_tasks",
     title: "Список задач",
     description:
-      "Вернуть задачи среды. По умолчанию без архива (задачи, выполненные более 30 дней назад).",
+      "Вернуть задачи среды с подзадачами. По умолчанию без архива (задачи, выполненные более 30 дней назад).",
     inputSchema: {
       environmentId: z.string(),
       includeArchived: z.boolean().optional(),
@@ -75,8 +76,8 @@ export const boardTools: readonly Tool[] = [
     surfaces: ["mcp", "chat"],
     mutation: false,
     impact: "read",
-    handler: ({ environmentId, includeArchived }) =>
-      getTasks(environmentId, { includeArchived }),
+    handler: async ({ environmentId, includeArchived }) =>
+      withSubtasks(await getTasks(environmentId, { includeArchived })),
   }),
 
   defineTool({
@@ -187,6 +188,81 @@ export const boardTools: readonly Tool[] = [
     impact: "irreversible",
     handler: async ({ id }) => {
       await deleteTask(id);
+      return { success: true };
+    },
+  }),
+
+  /* ---------------------------- Подзадачи ----------------------------
+   *
+   * Подзадача — пункт внутри задачи: название и срок, дата начала ставится
+   * сегодняшней сама. Отметка «выполнено» снимается той же галочкой на
+   * карточке, поэтому исполняется сразу; создание, правка и удаление — через
+   * подтверждение, как у задач.
+   */
+
+  defineTool({
+    name: "create_subtask",
+    title: "Создать подзадачу",
+    description: "Добавить подзадачу в задачу: название и необязательный срок.",
+    inputSchema: {
+      taskId: z.string(),
+      title: z.string(),
+      dueDate: isoDate.optional(),
+    },
+    surfaces: ["mcp", "chat"],
+    mutation: true,
+    impact: "irreversible",
+    handler: (args) => createSubtask(args),
+  }),
+
+  defineTool({
+    name: "complete_subtask",
+    title: "Отметить подзадачу",
+    description: "Отметить подзадачу выполненной (done: true) или снять отметку (done: false).",
+    inputSchema: {
+      id: z.string(),
+      done: z.boolean(),
+    },
+    surfaces: ["mcp", "chat"],
+    mutation: true,
+    impact: "reversible",
+    // Короткий ответ: целиком строка подзадачи уходит в след агента сырым JSON
+    handler: async ({ id, done }) => {
+      const subtask = await updateSubtask(id, { done });
+      if (!subtask) throw new ToolError("Подзадача не найдена");
+      return { success: true, title: subtask.title, done };
+    },
+  }),
+
+  defineTool({
+    name: "update_subtask",
+    title: "Изменить подзадачу",
+    description: "Переименовать подзадачу или поменять срок (dueDate: null — убрать срок).",
+    inputSchema: {
+      id: z.string(),
+      title: z.string().optional(),
+      dueDate: isoDate.nullable().optional(),
+    },
+    surfaces: ["mcp", "chat"],
+    mutation: true,
+    impact: "irreversible",
+    handler: async ({ id, ...data }) => {
+      const subtask = await updateSubtask(id, data);
+      if (!subtask) throw new ToolError("Подзадача не найдена");
+      return subtask;
+    },
+  }),
+
+  defineTool({
+    name: "delete_subtask",
+    title: "Удалить подзадачу",
+    description: "Удалить подзадачу по id.",
+    inputSchema: { id: z.string() },
+    surfaces: ["mcp", "chat"],
+    mutation: true,
+    impact: "irreversible",
+    handler: async ({ id }) => {
+      await deleteSubtask(id);
       return { success: true };
     },
   }),

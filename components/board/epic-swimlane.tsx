@@ -1,5 +1,6 @@
 "use client";
 
+import type { Subtask } from "./task-subtasks";
 import { memo } from "react";
 import { Droppable, Draggable } from "@hello-pangea/dnd";
 import { ChevronDown, ChevronRight } from "lucide-react";
@@ -17,6 +18,7 @@ type SwimlaneTask = {
   position: number;
   plannedDate: string | null;
   completedAt: Date | null;
+  subtasks?: Subtask[];
 };
 
 interface EpicSwimlaneProps {

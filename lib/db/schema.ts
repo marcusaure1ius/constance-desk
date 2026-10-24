@@ -86,6 +86,28 @@ export const tasks = pgTable("tasks", {
   updatedAt: timestamp("updated_at").defaultNow().notNull(),
 });
 
+/**
+ * Подзадача — короткий пункт внутри задачи: название и срок. Дата начала
+ * ставится сегодняшней при создании. Удаляется вместе с задачей.
+ */
+export const subtasks = pgTable(
+  "subtasks",
+  {
+    id: uuid("id").defaultRandom().primaryKey(),
+    taskId: uuid("task_id")
+      .notNull()
+      .references(() => tasks.id, { onDelete: "cascade" }),
+    title: text("title").notNull(),
+    position: integer("position").notNull(),
+    startDate: date("start_date").notNull(),
+    dueDate: date("due_date"),
+    completedAt: timestamp("completed_at"),
+    createdAt: timestamp("created_at").defaultNow().notNull(),
+    updatedAt: timestamp("updated_at").defaultNow().notNull(),
+  },
+  (table) => [index("subtasks_task_idx").on(table.taskId)]
+);
+
 /** Состояние обработки апдейта из Telegram. */
 export const tgUpdateStatusEnum = pgEnum("tg_update_status", [
   "received",

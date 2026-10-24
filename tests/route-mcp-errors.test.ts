@@ -5,6 +5,10 @@ import { describe, it, expect, vi, beforeEach } from "vitest";
 const mocks = vi.hoisted(() => ({
   getEnvironments: vi.fn(),
   getBoardSnapshot: vi.fn(),
+  withSubtasks: vi.fn(async (tasks: { id: string }[]) => tasks.map((t) => ({ ...t, subtasks: [] }))),
+  createSubtask: vi.fn(),
+  updateSubtask: vi.fn(),
+  deleteSubtask: vi.fn(),
   getTasks: vi.fn(),
   createTask: vi.fn(),
   updateTask: vi.fn(),
@@ -15,7 +19,15 @@ const mocks = vi.hoisted(() => ({
 }));
 
 vi.mock("@/lib/services/environments", () => ({ getEnvironments: mocks.getEnvironments }));
-vi.mock("@/lib/agent/board", () => ({ getBoardSnapshot: mocks.getBoardSnapshot }));
+vi.mock("@/lib/agent/board", () => ({
+  getBoardSnapshot: mocks.getBoardSnapshot,
+  withSubtasks: mocks.withSubtasks,
+}));
+vi.mock("@/lib/services/subtasks", () => ({
+  createSubtask: mocks.createSubtask,
+  updateSubtask: mocks.updateSubtask,
+  deleteSubtask: mocks.deleteSubtask,
+}));
 vi.mock("@/lib/agent/epic-task", () => ({ createEpicTask: mocks.createEpicTask }));
 vi.mock("@/lib/services/categories", () => ({ createCategory: mocks.createCategory }));
 vi.mock("@/lib/services/tasks", () => ({

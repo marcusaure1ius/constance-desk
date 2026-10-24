@@ -1,6 +1,7 @@
 "use client";
 
 import { useRef, useState, useCallback, useEffect, type TouchEvent } from "react";
+import type { Subtask } from "./task-subtasks";
 import { ArrowRightLeft } from "lucide-react";
 import { TaskCard } from "./task-card";
 
@@ -12,6 +13,7 @@ type Task = {
   categoryId: string | null;
   plannedDate: string | null;
   completedAt: Date | null;
+  subtasks?: Subtask[];
 };
 
 type Category = {
@@ -145,6 +147,7 @@ export function SwipeableTaskCard({
           task={task}
           categories={categories}
           onClick={handleClick}
+          subtasksPlacement="inline"
         />
       </div>
     </div>
