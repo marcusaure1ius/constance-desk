@@ -47,7 +47,7 @@ describe("parseTasksResponse", () => {
 
 describe("parseTasks", () => {
   beforeEach(() => {
-    vi.stubEnv("GROQ_API_KEY", "test-key");
+    vi.stubEnv("OPENROUTER_API_KEY", "test-key");
     vi.spyOn(globalThis, "fetch");
   });
 
@@ -69,7 +69,7 @@ describe("parseTasks", () => {
 
   it("выбрасывает ошибку при неуспешном ответе API", async () => {
     vi.mocked(fetch).mockResolvedValue(new Response("error", { status: 500 }));
-    await expect(parseTasks("тест")).rejects.toThrow("Модель groq: 500");
+    await expect(parseTasks("тест")).rejects.toThrow("Модель openrouter: 500");
   });
 
   it("возвращает пустой массив если content пустой", async () => {
@@ -83,7 +83,7 @@ describe("parseTasks", () => {
 
 describe("transcribeAudio", () => {
   beforeEach(() => {
-    vi.stubEnv("GROQ_API_KEY", "test-key");
+    vi.stubEnv("OPENROUTER_API_KEY", "test-key");
     vi.spyOn(globalThis, "fetch");
   });
 
@@ -98,13 +98,18 @@ describe("transcribeAudio", () => {
     const file = new File(["audio"], "test.webm", { type: "audio/webm" });
     const result = await transcribeAudio(file);
     expect(result).toBe("Привет мир");
+
+    const [url, init] = vi.mocked(fetch).mock.calls[0] as [string, RequestInit];
+    expect(url).toBe("https://openrouter.ai/api/v1/audio/transcriptions");
+    expect((init.headers as Record<string, string>).Authorization).toBe("Bearer test-key");
+    expect((init.body as FormData).get("model")).toBe("openai/whisper-large-v3");
   });
 
   it("выбрасывает ошибку при неуспешном ответе", async () => {
     vi.mocked(fetch).mockResolvedValue(new Response("error", { status: 400 }));
 
     const file = new File(["audio"], "test.webm", { type: "audio/webm" });
-    await expect(transcribeAudio(file)).rejects.toThrow("Модель groq: 400");
+    await expect(transcribeAudio(file)).rejects.toThrow("Модель openrouter: 400");
   });
 
   it("возвращает пустую строку если text отсутствует", async () => {

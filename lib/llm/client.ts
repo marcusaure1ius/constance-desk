@@ -1,17 +1,14 @@
 /**
- * Клиент чат-моделей, не привязанный к одному провайдеру.
+ * Клиент чат-моделей. Провайдер один — OpenRouter: Groq убран, потому что его
+ * бесплатная квота роняла захват из телеграма ровно в момент отправки
+ * сообщения, а падение к запасному провайдеру держало две конфигурации на
+ * каждую задачу. OpenRouter сам разводит запрос по своим апстримам.
  *
- * Groq и OpenRouter говорят на одном диалекте (OpenAI-совместимый
- * `/chat/completions`), поэтому разница между ними — три поля конфигурации, а
- * не два клиента. Общий клиент нужен не ради красоты, а ради падения: у Groq
- * бесплатная квота, и 429 прилетает ровно тогда, когда пользователь уже
- * отправил сообщение в бота. Тот же запрос уходит в OpenRouter, а не теряется.
- *
- * Порядок провайдеров — не настройка, а следствие цен: Groq первым, потому что
- * он бесплатный и быстрый, OpenRouter вторым, потому что платный и без лимитов.
+ * `LlmProvider` остаётся типом, а не константой, ради тестов: им подсовывают
+ * свой адрес и ключ, не трогая окружение.
  */
 
-export type ProviderName = "groq" | "openrouter";
+export type ProviderName = "openrouter";
 
 export type LlmProvider = {
   name: ProviderName;
@@ -20,7 +17,7 @@ export type LlmProvider = {
   model: string;
 };
 
-/** Провайдер ответил не-2xx. status нужен, чтобы решить, падать ли к следующему. */
+/** Провайдер ответил не-2xx. */
 export class LlmError extends Error {
   constructor(
     readonly provider: ProviderName,
@@ -32,122 +29,51 @@ export class LlmError extends Error {
   }
 }
 
-const BASE_URLS: Record<ProviderName, string> = {
-  groq: "https://api.groq.com/openai/v1",
-  openrouter: "https://openrouter.ai/api/v1",
-};
-
-/** Пара моделей под одну задачу: чем считаем у Groq и чем у OpenRouter. */
-export type ModelPair = {
-  groq: string;
-  openrouter: string;
-  /**
-   * Порядок обращения. Умолчание — Groq первым, он бесплатный. У агента
-   * порядок обратный: цикл с инструментами упирается в качество, а не в цену.
-   */
-  order?: readonly ProviderName[];
-};
+export const OPENROUTER_BASE_URL = "https://openrouter.ai/api/v1";
 
 /**
- * Модель OpenRouter для обеих задач. Берётся стабильный slug без даты и без
- * тильды: `~…-latest` у OpenRouter указывает на плавающий вариант, и прод от
- * него зависеть не должен — смена версии под ногами дороже свежести.
+ * Базовая модель всех задач. Берётся стабильный slug без даты и без тильды:
+ * `~…-latest` у OpenRouter указывает на плавающий вариант, и прод от него
+ * зависеть не должен — смена версии под ногами дороже свежести.
  */
-const OPENROUTER_MODEL = "deepseek/deepseek-v4-flash";
+const BASE_MODEL = "deepseek/deepseek-v4-flash";
 
 export const MODELS = {
-  /**
-   * Захват сообщения из телеграма. 120b, а не 20b: на 20b замерена порча
-   * пользовательских формулировок (русская задача превращалась в английскую),
-   * а с контекстом доски 120b отвечает за 0,85–2,3 с — этого хватает.
-   */
-  capture: {
-    groq: "openai/gpt-oss-120b",
-    openrouter: OPENROUTER_MODEL,
-  },
+  /** Захват сообщения из телеграма. */
+  capture: BASE_MODEL,
   /** Разбор из веб-формы SmartInput: короткий вход, короткий ответ. */
-  smartInput: {
-    groq: "openai/gpt-oss-20b",
-    openrouter: OPENROUTER_MODEL,
-  },
-  /**
-   * Цикл агента на доске. OpenRouter первым: здесь важнее не цена вызова, а
-   * то, что модель не путается в многошаговой цепочке инструментов.
-   */
-  agent: {
-    groq: "openai/gpt-oss-120b",
-    openrouter: OPENROUTER_MODEL,
-    order: ["openrouter", "groq"],
-  },
-} as const satisfies Record<string, ModelPair>;
+  smartInput: BASE_MODEL,
+  /** Цикл агента на доске. */
+  agent: BASE_MODEL,
+  /** ИИ-разбор недели в PDF-отчёте. */
+  report: BASE_MODEL,
+} as const satisfies Record<string, string>;
 
 type Env = Record<string, string | undefined>;
 
-const DEFAULT_ORDER: readonly ProviderName[] = ["groq", "openrouter"];
-
-/**
- * Провайдеры, к которым есть ключи, в порядке обращения. Нет ключа — нет
- * провайдера: пустой `Authorization` даёт 401, который выглядит как поломка
- * кода, хотя это просто ненастроенное окружение.
- */
-export function resolveProviders(models: ModelPair, env: Env = process.env): LlmProvider[] {
-  const keys: Record<ProviderName, string | undefined> = {
-    groq: env.GROQ_API_KEY?.trim(),
-    openrouter: env.OPENROUTER_API_KEY?.trim(),
-  };
-  const modelOf: Record<ProviderName, string> = {
-    groq: models.groq,
-    openrouter: models.openrouter,
-  };
-
-  return (models.order ?? DEFAULT_ORDER).flatMap((name) => {
-    const apiKey = keys[name];
-    if (!apiKey) return [];
-    return [{ name, baseUrl: BASE_URLS[name], apiKey, model: modelOf[name] }];
-  });
+/** Ключ OpenRouter из окружения. Пустой — бросаем сразу, а не ловим 401. */
+export function openRouterKey(env: Env = process.env): string {
+  const apiKey = env.OPENROUTER_API_KEY?.trim();
+  if (!apiKey) throw new Error("OPENROUTER_API_KEY не задан — модели недоступны");
+  return apiKey;
 }
 
 /**
- * Перебор провайдеров с падением на следующий при ошибках, виноватых в провайдере.
- *
- * Общий для всех клиентов, потому что логика переноса одна и та же: ошибки 429, 5xx
- * и обрывы связи — повод попробовать другого. Но сам вызов у каждого клиента свой:
- * `chatJson` просит JSON, `chatTools` просит function calling, `capture` контекст
- * отправляет. Поэтому `attempt` — это колбэк, который каждый клиент определяет сам.
+ * Провайдер под модель. Нет ключа — бросает: пустой `Authorization` даёт 401,
+ * который выглядит как поломка кода, хотя это просто ненастроенное окружение.
  */
-export async function withFailover<T>(
-  providers: LlmProvider[],
-  attempt: (provider: LlmProvider) => Promise<T>
-): Promise<T> {
-  if (providers.length === 0) {
-    throw new Error(
-      "Не настроен ни один провайдер модели: задайте GROQ_API_KEY или OPENROUTER_API_KEY"
-    );
-  }
-
-  for (let index = 0; index < providers.length; index++) {
-    const provider = providers[index];
-    const isLast = index === providers.length - 1;
-
-    try {
-      return await attempt(provider);
-    } catch (error) {
-      if (isLast || !shouldFailover(error)) throw error;
-    }
-  }
-
-  // Недостижимо: последний провайдер либо возвращает ответ, либо бросает.
-  throw new Error("Провайдеры модели закончились");
+export function resolveProvider(model: string, env: Env = process.env): LlmProvider {
+  return { name: "openrouter", baseUrl: OPENROUTER_BASE_URL, apiKey: openRouterKey(env), model };
 }
 
 export type ChatJsonInput = {
   system: string;
   user: string;
-  /** Какие модели брать у провайдеров. Игнорируется, если задан `providers`. */
-  models: ModelPair;
+  /** Какую модель брать. Игнорируется, если задан `provider`. */
+  model: string;
   temperature?: number;
-  /** Готовый список провайдеров — для тестов и вызовов с особой конфигурацией. */
-  providers?: LlmProvider[];
+  /** Готовый провайдер — для тестов и вызовов с особой конфигурацией. */
+  provider?: LlmProvider;
   env?: Env;
   fetchFn?: typeof fetch;
 };
@@ -158,30 +84,11 @@ export type ChatJsonResult = {
   model: string;
 };
 
-/**
- * Один запрос к модели с ответом в JSON и падением к следующему провайдеру.
- *
- * Перепробовать другого провайдера имеет смысл только там, где виноват сам
- * провайдер: 429 (квота), 5xx (его авария) и обрыв связи. На 4xx запрос уйдёт
- * в отказ и у второго — там ошибка в наших параметрах, и второй вызов только
- * потратит платную квоту.
- */
+/** Один запрос к модели с ответом в JSON. */
 export async function chatJson(input: ChatJsonInput): Promise<ChatJsonResult> {
-  const providers = input.providers ?? resolveProviders(input.models, input.env);
-  const fetchFn = input.fetchFn ?? fetch;
-
-  return withFailover(providers, async (provider) => {
-    const content = await callProvider(provider, input, fetchFn);
-    return { content, provider: provider.name, model: provider.model };
-  });
-}
-
-/** Стоит ли пробовать следующего провайдера. */
-function shouldFailover(error: unknown): boolean {
-  // Не LlmError — значит fetch не дошёл (обрыв, таймаут, DNS). Это про
-  // конкретного провайдера, а не про запрос: у следующего может получиться.
-  if (!(error instanceof LlmError)) return true;
-  return error.status === 429 || error.status >= 500;
+  const provider = input.provider ?? resolveProvider(input.model, input.env);
+  const content = await callProvider(provider, input, input.fetchFn ?? fetch);
+  return { content, provider: provider.name, model: provider.model };
 }
 
 async function callProvider(

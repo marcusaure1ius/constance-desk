@@ -1,20 +1,12 @@
 import type { FunctionSpec } from "@/lib/agent/tool-registry";
-import {
-  LlmError,
-  resolveProviders,
-  withFailover,
-  type LlmProvider,
-  type ModelPair,
-  type ProviderName,
-} from "./client";
+import { LlmError, resolveProvider, type LlmProvider, type ProviderName } from "./client";
 
 /**
  * Вызов модели с инструментами.
  *
  * Отдельно от `chatJson`, потому что задача другая: там ответ обязан быть
  * JSON-объектом (`response_format`), здесь модель сама решает — ответить
- * текстом или попросить инструмент. Общее у них только падение к следующему
- * провайдеру, и оно вынесено в `withFailover`.
+ * текстом или попросить инструмент.
  */
 
 export type RawToolCall = {
@@ -41,19 +33,17 @@ export type ChatToolsResult = {
 
 export type ChatToolsInput = {
   messages: ChatMessage[];
-  models: ModelPair;
+  model: string;
   tools: FunctionSpec[];
   temperature?: number;
-  providers?: LlmProvider[];
+  provider?: LlmProvider;
   env?: Record<string, string | undefined>;
   fetchFn?: typeof fetch;
 };
 
 export async function chatTools(input: ChatToolsInput): Promise<ChatToolsResult> {
-  const providers = input.providers ?? resolveProviders(input.models, input.env);
-  const fetchFn = input.fetchFn ?? fetch;
-
-  return withFailover(providers, (provider) => callProvider(provider, input, fetchFn));
+  const provider = input.provider ?? resolveProvider(input.model, input.env);
+  return callProvider(provider, input, input.fetchFn ?? fetch);
 }
 
 async function callProvider(

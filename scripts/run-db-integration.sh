@@ -10,7 +10,7 @@
 # обязана быть непустой. После прогона: хотя бы один тест выполнен и ни один не
 # пропущен — «зелёный» обязан значить «проверено на базе».
 #
-# Набор задаётся вычитанием (все *.integration.test.ts, кроме живого Groq с его
+# Набор задаётся вычитанием (все *.integration.test.ts, кроме живой модели с его
 # квотой), поэтому новый тест на базе попадает сюда сам.
 set -euo pipefail
 
@@ -28,7 +28,7 @@ trap 'rm -f "$report"' EXIT
 
 status=0
 npm run test:integration -- \
-  --exclude tests/groq.integration.test.ts \
+  --exclude tests/llm.integration.test.ts \
   --reporter=default \
   --reporter=json --outputFile.json="$report" || status=$?
 

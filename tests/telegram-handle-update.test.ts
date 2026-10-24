@@ -85,7 +85,7 @@ function makeDeps(overrides: Partial<TelegramDeps> = {}) {
     loadBoard: vi.fn().mockResolvedValue(BOARD),
     captureItems: vi
       .fn()
-      .mockResolvedValue({ items: ONE_TASK, provider: "groq", model: "openai/gpt-oss-120b" }),
+      .mockResolvedValue({ items: ONE_TASK, provider: "openrouter", model: "deepseek/deepseek-v4-flash" }),
     createTask: vi.fn().mockResolvedValue({ id: "task-1" }),
     transcribe: vi.fn().mockResolvedValue("заполнить итмо"),
     allowedChatId: CHAT,
@@ -378,12 +378,12 @@ describe("захват текста", () => {
 
   it("сбой модели: сообщение не теряется, в ответе кнопка повтора", async () => {
     const { deps, sendMessage, createTask, markFailed } = makeDeps({
-      captureItems: vi.fn().mockRejectedValue(new Error("Модель groq: 429 Rate limit")),
+      captureItems: vi.fn().mockRejectedValue(new Error("Модель openrouter: 429 Rate limit")),
     });
 
     const result = await handleUpdate(textUpdate("заполнить итмо"), CHAT, deps);
 
-    expect(result).toEqual({ status: "failed", error: "Модель groq: 429 Rate limit" });
+    expect(result).toEqual({ status: "failed", error: "Модель openrouter: 429 Rate limit" });
     expect(createTask).not.toHaveBeenCalled();
 
     const [{ text, replyMarkup }] = sendMessage.mock.calls[0];
@@ -392,7 +392,7 @@ describe("захват текста", () => {
       "cap:retry:1"
     );
     // В журнале сбой виден с причиной, а не как «обработано».
-    expect(markFailed).toHaveBeenCalledWith(1, "Модель groq: 429 Rate limit");
+    expect(markFailed).toHaveBeenCalledWith(1, "Модель openrouter: 429 Rate limit");
   });
 
   it("сообщение без текста и голоса честно называется неподдержанным", async () => {
@@ -476,7 +476,7 @@ describe("захват голосового", () => {
 
   it("сбой расшифровки не молчит: причина и кнопка повтора", async () => {
     const { deps, sendMessage, createTask } = makeDeps({
-      transcribe: vi.fn().mockRejectedValue(new Error("Модель groq: 429 Rate limit")),
+      transcribe: vi.fn().mockRejectedValue(new Error("Модель openrouter: 429 Rate limit")),
     });
 
     const result = await handleUpdate(voiceUpdate(), CHAT, deps);
@@ -591,8 +591,8 @@ describe("управление задачами", () => {
         .fn()
         .mockResolvedValue({
           items: [{ kind: "question", text: "вэду", done: true }],
-          provider: "groq",
-          model: "openai/gpt-oss-120b",
+          provider: "openrouter",
+          model: "deepseek/deepseek-v4-flash",
         }),
     });
 
@@ -620,8 +620,8 @@ describe("управление задачами", () => {
     const { deps, createTask, sendMessage } = makeDeps({
       captureItems: vi.fn().mockResolvedValue({
         items: [{ kind: "question", text: "вэду" }],
-        provider: "groq",
-        model: "openai/gpt-oss-120b",
+        provider: "openrouter",
+        model: "deepseek/deepseek-v4-flash",
       }),
       searchTasks: vi.fn().mockResolvedValue([
         HIT,
@@ -832,8 +832,8 @@ describe("разбор уходит в журнал", () => {
     // Без этого качество разбора видно только в карточке на телефоне.
     expect(parsed).toMatchObject({
       status: "captured",
-      provider: "groq",
-      model: "openai/gpt-oss-120b",
+      provider: "openrouter",
+      model: "deepseek/deepseek-v4-flash",
       tasks: [{ title: "заполнить итмо" }],
     });
   });

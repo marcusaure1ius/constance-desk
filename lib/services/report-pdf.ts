@@ -1,9 +1,7 @@
 import { format } from "date-fns";
 import { ru } from "date-fns/locale";
+import { chatJson, MODELS } from "@/lib/llm/client";
 import type { ExtendedWeeklyReport, WeekTrendItem } from "@/lib/services/reports";
-
-const GROQ_API_URL = "https://api.groq.com/openai/v1/chat/completions";
-const GROQ_CHAT_MODEL = "openai/gpt-oss-20b";
 
 export type AiAnalysis = {
   summary: string;
@@ -92,12 +90,6 @@ ${trendSection}
 - Если рисков нет — укажи «Значительных рисков не выявлено»`;
 }
 
-function getApiKey(): string {
-  const key = process.env.GROQ_API_KEY;
-  if (!key) throw new Error("GROQ_API_KEY is not set");
-  return key;
-}
-
 export function parseAiResponse(raw: string): AiAnalysis {
   // Убираем markdown-обёртки если модель добавила ```json ... ```
   let cleaned = raw.trim();
@@ -122,29 +114,11 @@ export async function getAiAnalysis(
 ): Promise<AiAnalysis> {
   const prompt = buildAiPrompt(report, trend);
 
-  const res = await fetch(GROQ_API_URL, {
-    method: "POST",
-    headers: {
-      Authorization: `Bearer ${getApiKey()}`,
-      "Content-Type": "application/json",
-    },
-    body: JSON.stringify({
-      model: GROQ_CHAT_MODEL,
-      messages: [
-        { role: "system", content: prompt },
-        { role: "user", content: "Сформируй аналитический отчёт по предоставленным данным. Верни ТОЛЬКО JSON." },
-      ],
-      temperature: 0.3,
-    }),
+  const { content } = await chatJson({
+    system: prompt,
+    user: "Сформируй аналитический отчёт по предоставленным данным. Верни ТОЛЬКО JSON.",
+    model: MODELS.report,
+    temperature: 0.3,
   });
-
-  if (!res.ok) {
-    const errorBody = await res.text();
-    console.error("Groq API error body:", errorBody);
-    throw new Error(`Groq API error: ${res.status} — ${errorBody}`);
-  }
-
-  const data = await res.json();
-  const content = data.choices?.[0]?.message?.content ?? "";
   return parseAiResponse(content);
 }

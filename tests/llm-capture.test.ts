@@ -9,7 +9,7 @@ import {
 
 /**
  * Разбор ответа модели. Живая модель проверяется отдельно
- * (`tests/groq.integration.test.ts`), здесь — то, что от неё не зависит:
+ * (`tests/llm.integration.test.ts`), здесь — то, что от неё не зависит:
  * контекст доски в промпте и защита формулировки автора.
  */
 
@@ -467,14 +467,12 @@ describe("captureItems", () => {
       text: "заполнить итмо",
       board: BOARD,
       today: TODAY,
-      providers: [
-        {
-          name: "groq",
-          baseUrl: "https://api.groq.com/openai/v1",
-          apiKey: "k",
-          model: "openai/gpt-oss-120b",
-        },
-      ],
+      provider: {
+        name: "openrouter",
+        baseUrl: "https://openrouter.ai/api/v1",
+        apiKey: "k",
+        model: "deepseek/deepseek-v4-flash",
+      },
       fetchFn: fetchFn as unknown as typeof fetch,
     });
 
@@ -484,9 +482,8 @@ describe("captureItems", () => {
     expect(body.messages[0].content).toContain("Бэклог");
     expect(body.messages[1]).toEqual({ role: "user", content: "заполнить итмо" });
     expect(outcome.items).toEqual([{ kind: "task", text: "заполнить итмо" }]);
-    // Кто ответил — часть результата: падение на второго провайдера незаметно,
-    // а разбор у разных моделей разный.
-    expect(outcome.provider).toBe("groq");
-    expect(outcome.model).toBe("openai/gpt-oss-120b");
+    // Кто ответил — часть результата: разбор у разных моделей разный.
+    expect(outcome.provider).toBe("openrouter");
+    expect(outcome.model).toBe("deepseek/deepseek-v4-flash");
   });
 });

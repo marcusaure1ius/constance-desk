@@ -9,11 +9,11 @@ import {
 } from "@/lib/llm/task-help";
 import type { LlmProvider } from "@/lib/llm/client";
 
-const GROQ: LlmProvider = {
-  name: "groq",
-  baseUrl: "https://api.groq.com/openai/v1",
-  apiKey: "groq-key",
-  model: "openai/gpt-oss-20b",
+const OPENROUTER: LlmProvider = {
+  name: "openrouter",
+  baseUrl: "https://openrouter.ai/api/v1",
+  apiKey: "or-key",
+  model: "deepseek/deepseek-v4-flash",
 };
 
 function reply(content: string): Response {
@@ -50,7 +50,7 @@ describe("improveTitle", () => {
     const fetchFn = vi.fn(async () => reply('{"title":"Предоставить сроки по почте бухгалтеров"}'));
 
     const result = await improveTitle("Нужно предоставить сроки по почте бухгалтеров", {
-      providers: [GROQ],
+      provider: OPENROUTER,
       fetchFn: fetchFn as unknown as typeof fetch,
     });
 
@@ -61,7 +61,7 @@ describe("improveTitle", () => {
     const fetchFn = vi.fn(async () => reply("извините, не понял"));
 
     const result = await improveTitle("Нужно сделать демку", {
-      providers: [GROQ],
+      provider: OPENROUTER,
       fetchFn: fetchFn as unknown as typeof fetch,
     });
 
@@ -75,7 +75,7 @@ describe("draftDescription", () => {
 
     const result = await draftDescription(
       { title: "Сделать демку", description: "" },
-      { providers: [GROQ], fetchFn: fetchFn as unknown as typeof fetch }
+      { provider: OPENROUTER, fetchFn: fetchFn as unknown as typeof fetch }
     );
 
     expect(result).toBe("Что сделать: собрать вводные.");

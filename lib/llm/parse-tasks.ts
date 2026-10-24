@@ -66,15 +66,15 @@ export function parseTasksResponse(raw: string): ParsedTask[] {
 
 export async function parseTasks(
   text: string,
-  options: { providers?: LlmProvider[]; fetchFn?: typeof fetch } = {}
+  options: { provider?: LlmProvider; fetchFn?: typeof fetch } = {}
 ): Promise<ParsedTask[]> {
   const today = new Date().toISOString().split("T")[0];
 
   const { content } = await chatJson({
     system: buildParseTasksPrompt(today),
     user: text,
-    models: MODELS.smartInput,
-    providers: options.providers,
+    model: MODELS.smartInput,
+    provider: options.provider,
     fetchFn: options.fetchFn,
   });
 

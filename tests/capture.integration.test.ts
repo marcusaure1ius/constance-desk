@@ -100,8 +100,8 @@ describe("захват на настоящей базе", () => {
           { kind: "task", text: "заполнить итмо" },
           { kind: "note", text: "нет синергии в продуктах" },
         ],
-        provider: "groq" as const,
-        model: "openai/gpt-oss-120b",
+        provider: "openrouter" as const,
+        model: "deepseek/deepseek-v4-flash",
       }),
       createTask,
     });

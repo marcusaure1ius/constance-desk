@@ -136,7 +136,7 @@ export function toMcpResult(outcome: ToolOutcome): McpToolResult {
   return result;
 }
 
-/** Ответ инструмента для чат-моделей (OpenAI-совместимый формат Groq и OpenRouter). */
+/** Ответ инструмента для чат-моделей (OpenAI-совместимый формат OpenRouter). */
 export type ToolMessage = {
   role: "tool";
   tool_call_id: string;

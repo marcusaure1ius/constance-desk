@@ -116,7 +116,7 @@ export async function* runAgent(options: RunAgentOptions): AsyncGenerator<AgentE
     yield { type: "thinking" };
 
     for (let step = 0; step < maxSteps; step++) {
-      const reply = await chat({ messages, models: MODELS.agent, tools: specs });
+      const reply = await chat({ messages, model: MODELS.agent, tools: specs });
 
       if (reply.toolCalls.length === 0) {
         if (reply.content.trim()) yield { type: "text", text: reply.content.trim() };

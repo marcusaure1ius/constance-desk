@@ -52,7 +52,7 @@ function makeDeps(items: CapturedItem[], overrides: Partial<CaptureDeps> = {}) {
   const loadBoard = vi.fn().mockResolvedValue(BOARD);
   const captureItems = vi
     .fn()
-    .mockResolvedValue({ items, provider: "groq", model: "openai/gpt-oss-120b" });
+    .mockResolvedValue({ items, provider: "openrouter", model: "deepseek/deepseek-v4-flash" });
   const createTask = vi.fn().mockResolvedValue({ id: "task-1" });
 
   const deps: CaptureDeps = { loadBoard, captureItems, createTask, ...overrides };
@@ -160,12 +160,12 @@ describe("captureMessage — задачи на доске", () => {
 describe("captureMessage — сбои", () => {
   it("модель упала: ни одной задачи и статус failed с причиной", async () => {
     const { deps, createTask } = makeDeps([], {
-      captureItems: vi.fn().mockRejectedValue(new Error("Модель groq: 429 Rate limit")),
+      captureItems: vi.fn().mockRejectedValue(new Error("Модель openrouter: 429 Rate limit")),
     });
 
     const result = await captureMessage("заполнить итмо", deps);
 
-    expect(result).toEqual({ status: "failed", reason: "Модель groq: 429 Rate limit" });
+    expect(result).toEqual({ status: "failed", reason: "Модель openrouter: 429 Rate limit" });
     expect(createTask).not.toHaveBeenCalled();
   });
 
@@ -239,15 +239,15 @@ describe("причина сбоя обрезается по законному �
   };
 
   it("короткая причина доезжает дословно, без многоточия", async () => {
-    expect(await reasonOfFailure(new Error("Модель groq: 429 Rate limit"))).toBe(
-      "Модель groq: 429 Rate limit"
+    expect(await reasonOfFailure(new Error("Модель openrouter: 429 Rate limit"))).toBe(
+      "Модель openrouter: 429 Rate limit"
     );
   });
 
   it("многословная причина режется ровно до предела вместе с многоточием", async () => {
     // Чужие сообщения об ошибках бывают на тысячу символов, а причина идёт в
     // первую строку карточки — ту, что видно в списке чатов.
-    const message = "Модель groq упала на попытке разбора: ".repeat(50);
+    const message = "Модель openrouter упала на попытке разбора: ".repeat(50);
     const reason = await reasonOfFailure(new Error(message));
 
     // Ровно предел, а не «хоть сколько-то короче»: обрезка по limit вместо
@@ -381,7 +381,7 @@ describe("карточка ответа", () => {
   });
 
   it("сбой модели: причина, кнопка повтора и кнопка «задачей как есть»", () => {
-    const card = renderCaptureCard({ status: "failed", reason: "Модель groq: 429" }, { updateId: 42 });
+    const card = renderCaptureCard({ status: "failed", reason: "Модель openrouter: 429" }, { updateId: 42 });
 
     expect(card.text).toContain("Сохранил сообщение");
     expect(card.text).toContain("429");

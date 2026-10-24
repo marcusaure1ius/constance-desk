@@ -6,7 +6,7 @@ import { loadEnv } from "vite";
  * и `vitest.integration.config.ts` (интеграционный, с сетью и базой).
  */
 
-/** Файлы, которым нужен внешний мир: живой Groq или настоящая PostgreSQL. */
+/** Файлы, которым нужен внешний мир: живая модель или настоящая PostgreSQL. */
 export const INTEGRATION_TESTS = "tests/**/*.integration.test.ts";
 
 /** Алиас "@" на корень репозитория: рядом с этим файлом, а не от cwd. */

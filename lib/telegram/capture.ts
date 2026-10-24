@@ -68,7 +68,7 @@ export type CaptureResult =
       tasks: CreatedTask[];
       /** Разбор показан, но в доску ничего не записано. */
       dryRun?: boolean;
-      /** Кто ответил: падение с Groq на OpenRouter происходит незаметно. */
+      /** Какая модель разобрала — для отладки качества разбора. */
       provider?: CaptureOutcome["provider"];
       model?: string;
       /**
@@ -107,7 +107,7 @@ export async function captureMessage(
   try {
     ({ items, provider, model } = await deps.captureItems(text, toPromptBoard(board)));
   } catch (error) {
-    // Квота Groq, авария OpenRouter, обрыв связи. Сообщение не теряется: оно
+    // Квота или авария OpenRouter, обрыв связи. Сообщение не теряется: оно
     // записано в журнал до обработки, а в карточке будет кнопка повтора.
     return { status: "failed", reason: reasonOf(error) };
   }

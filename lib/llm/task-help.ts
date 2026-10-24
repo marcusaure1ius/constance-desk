@@ -10,7 +10,7 @@ import { chatJson, MODELS, type LlmProvider } from "./client";
  * пользователь нажал «улучшить», а не «испортить».
  */
 
-type Options = { providers?: LlmProvider[]; fetchFn?: typeof fetch };
+type Options = { provider?: LlmProvider; fetchFn?: typeof fetch };
 
 export function buildTitlePrompt(): string {
   return `Ты правишь названия задач на канбан-доске.
@@ -34,8 +34,8 @@ export async function improveTitle(title: string, options: Options = {}): Promis
   const { content } = await chatJson({
     system: buildTitlePrompt(),
     user: title,
-    models: MODELS.smartInput,
-    providers: options.providers,
+    model: MODELS.smartInput,
+    provider: options.provider,
     fetchFn: options.fetchFn,
   });
 
@@ -65,8 +65,8 @@ export async function draftDescription(
   const { content } = await chatJson({
     system: buildDescriptionPrompt(today),
     user: JSON.stringify(input),
-    models: MODELS.smartInput,
-    providers: options.providers,
+    model: MODELS.smartInput,
+    provider: options.provider,
     fetchFn: options.fetchFn,
   });
 

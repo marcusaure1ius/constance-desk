@@ -8,12 +8,6 @@ const OPENROUTER: LlmProvider = {
   apiKey: "or-key",
   model: "deepseek/deepseek-v4-flash",
 };
-const GROQ: LlmProvider = {
-  name: "groq",
-  baseUrl: "https://api.groq.com/openai/v1",
-  apiKey: "groq-key",
-  model: "openai/gpt-oss-120b",
-};
 
 const TOOLS = [
   {
@@ -46,9 +40,9 @@ describe("chatTools", () => {
 
     const result = await chatTools({
       messages: [{ role: "user", content: "что на доске" }],
-      models: MODELS.agent,
+      model: MODELS.agent,
       tools: TOOLS,
-      providers: [OPENROUTER],
+      provider: OPENROUTER,
       fetchFn: fetchFn as unknown as typeof fetch,
     });
 
@@ -63,36 +57,13 @@ describe("chatTools", () => {
 
     const result = await chatTools({
       messages: [{ role: "user", content: "…" }],
-      models: MODELS.agent,
+      model: MODELS.agent,
       tools: TOOLS,
-      providers: [OPENROUTER],
+      provider: OPENROUTER,
       fetchFn: fetchFn as unknown as typeof fetch,
     });
 
     expect(result.toolCalls[0].args).toEqual({});
-  });
-
-  it("на 429 уходит к следующему провайдеру", async () => {
-    const fetchFn = vi
-      .fn()
-      .mockResolvedValueOnce(new Response("quota", { status: 429 }))
-      .mockResolvedValueOnce(
-        new Response(JSON.stringify({ choices: [{ message: { content: "готово" } }] }), {
-          status: 200,
-        })
-      );
-
-    const result = await chatTools({
-      messages: [{ role: "user", content: "…" }],
-      models: MODELS.agent,
-      tools: TOOLS,
-      providers: [OPENROUTER, GROQ],
-      fetchFn: fetchFn as unknown as typeof fetch,
-    });
-
-    expect(result.provider).toBe("groq");
-    expect(result.content).toBe("готово");
-    expect(result.toolCalls).toEqual([]);
   });
 
   it("отправляет инструменты и историю в теле запроса", async () => {
@@ -105,9 +76,9 @@ describe("chatTools", () => {
         { role: "system", content: "правила" },
         { role: "user", content: "привет" },
       ],
-      models: MODELS.agent,
+      model: MODELS.agent,
       tools: TOOLS,
-      providers: [OPENROUTER],
+      provider: OPENROUTER,
       fetchFn: fetchFn as unknown as typeof fetch,
     });
 

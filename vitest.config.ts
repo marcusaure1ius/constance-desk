@@ -4,7 +4,7 @@ import { INTEGRATION_TESTS, rootAlias, sharedTestOptions } from "./vitest.shared
 /**
  * Основной прогон (`npm test`) — офлайн и детерминированный.
  *
- * Интеграционные тесты исключены по маске: они ходят в живой Groq и в
+ * Интеграционные тесты исключены по маске: они ходят в живую модель и в
  * настоящую базу, то есть зависят от чужой квоты и от локального окружения.
  * Исключение зашито в конфиг, а не в переменную окружения, потому что
  * `loadEnv(..., "")` ниже подтягивает `.env.local` целиком — любой
@@ -27,7 +27,6 @@ export default defineConfig(({ mode }) => {
       // Новый провайдер — новая строка здесь и в tests/test-isolation.test.ts.
       env: {
         ...shared.env,
-        GROQ_API_KEY: "",
         OPENROUTER_API_KEY: "",
         GOOGLE_SERVICE_ACCOUNT_KEY: "",
         GOOGLE_SLIDES_PRESENTATION_ID: "",

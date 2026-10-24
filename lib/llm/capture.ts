@@ -6,7 +6,7 @@ import { chatJson, MODELS, type LlmProvider, type ProviderName } from "@/lib/llm
  * Три решения, которые здесь важнее кода.
  *
  * 1. Формулировка автора не переписывается. «физюрики», «итмо», «вэду», «mcp» —
- *    это его рабочие слова, а не опечатки. На gpt-oss-20b замерено, как модель
+ *    это его рабочие слова, а не опечатки. На gpt-oss-20b (Groq) замерено, как модель
  *    «улучшила» русскую задачу до «Fix login bug»: для пользователя это потеря
  *    данных, а не помощь. Промпт запрещает перевод прямо, а `guardTranslation`
  *    ловит случаи, когда модель запрет проигнорировала.
@@ -182,11 +182,11 @@ export type CaptureInput = {
   text: string;
   board: CaptureBoard;
   today?: Date;
-  providers?: LlmProvider[];
+  provider?: LlmProvider;
   fetchFn?: typeof fetch;
 };
 
-/** Разбор вместе с тем, кто его сделал. Провайдер нужен для отладки качества. */
+/** Разбор вместе с тем, кто его сделал. Модель нужна для отладки качества. */
 export type CaptureOutcome = {
   items: CapturedItem[];
   provider: ProviderName;
@@ -196,16 +196,15 @@ export type CaptureOutcome = {
 /**
  * Один вызов модели: сообщение → элементы. Бросает, если модель недоступна.
  *
- * Возвращает и провайдера с моделью: падение с Groq на OpenRouter происходит
- * незаметно, а разбор у разных моделей разный — без этой пометки нельзя
- * понять, чей результат перед глазами.
+ * Возвращает и провайдера с моделью: разбор у разных моделей разный, и без
+ * этой пометки в журнале нельзя понять, чей результат перед глазами.
  */
 export async function captureItems(input: CaptureInput): Promise<CaptureOutcome> {
   const { content, provider, model } = await chatJson({
     system: buildCapturePrompt(input.board, input.today ?? new Date()),
     user: input.text,
-    models: MODELS.capture,
-    providers: input.providers,
+    model: MODELS.capture,
+    provider: input.provider,
     fetchFn: input.fetchFn,
   });
 

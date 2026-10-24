@@ -230,7 +230,7 @@ export function parseSuggestChipsResponse(raw: string): string[] {
 export type SuggestChipsOptions = {
   today?: Date;
   limits?: BoardDigestLimits;
-  providers?: LlmProvider[];
+  provider?: LlmProvider;
   fetchFn?: typeof fetch;
 };
 
@@ -248,8 +248,8 @@ export async function suggestChips(
   const { content } = await chatJson({
     system: buildSuggestChipsPrompt(),
     user: digest,
-    models: MODELS.agent,
-    providers: options.providers,
+    model: MODELS.agent,
+    provider: options.provider,
     fetchFn: options.fetchFn,
   });
 

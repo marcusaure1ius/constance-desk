@@ -8,7 +8,7 @@
 - DB: Drizzle ORM + Neon PostgreSQL
 - Тесты: vitest
 - DnD: @hello-pangea/dnd
-- AI: `lib/llm/` — общий OpenAI-совместимый клиент (`client.ts`), Groq первым и OpenRouter вторым при 429. Захват из телеграма — `capture.ts` (gpt-oss-120b), веб-форма SmartInput — `parse-tasks.ts` (gpt-oss-20b), голос — `transcribe.ts` (whisper, только Groq)
+- AI: `lib/llm/` — клиент OpenRouter (`client.ts`, единственный провайдер, Groq убран; ключ `OPENROUTER_API_KEY`). Все чат-задачи — одна базовая модель `MODELS` (DeepSeek Flash): захват из телеграма — `capture.ts`, веб-форма SmartInput — `parse-tasks.ts`, агент, ИИ-разбор PDF-отчёта. Голос — `transcribe.ts` (`openai/whisper-large-v3` через `/audio/transcriptions` OpenRouter, ogg/opus из телеграма принимает как есть)
 - Auth: PIN-код через jose JWT, `proxy.ts` (Next.js 16) + проверка в API
 - Отчёты: @react-pdf/renderer (PDF), recharts (графики). Недельный слайд — Google Slides API: клиент `lib/google/` (JWT сервисного аккаунта через `jose`, без `googleapis`), шаблон слайда — чистая функция `lib/slides-report/build-slide.ts`, выгрузка — `lib/services/slides-export.ts`, модалка — `components/report/slides-export-dialog.tsx`
 - `GOOGLE_SERVICE_ACCOUNT_KEY` (JSON ключа или base64 от него) и `GOOGLE_SLIDES_PRESENTATION_ID` — выгрузка слайда; презентацией нужно поделиться с `client_email` ключа как с редактором. Слайд недели ищется по ID `cw_YYYYMMDD` (понедельник): повторная выгрузка перерисовывает его, новая неделя встаёт первым слайдом. Кегль таблицы подбирает `lib/slides-report/layout.ts` по оценке высоты (11 → 7 pt, коэффициенты сняты с живого слайда); не влезает и на 7 pt — эпики уходят на продолжения `cw_YYYYMMDD_pN_<суффикс>` сразу за основным, при повторной выгрузке продолжения пересоздаются. Неделя отчёта: пт–вс — текущая, пн–чт — прошлая
@@ -40,17 +40,17 @@
 ## Тесты
 - Расположение: `tests/` (не `__tests__/`)
 - Unit-тесты сервисов: `tests/{tasks,columns,categories,...}.test.ts`
-- **`npm test` — основной прогон: офлайн.** Файлы `*.integration.test.ts` исключены маской в `vitest.config.ts`, `fetch` заглушен через `tests/helpers/no-network.ts`, `GROQ_API_KEY`, `OPENROUTER_API_KEY`, `GOOGLE_SERVICE_ACCOUNT_KEY` и `GOOGLE_SLIDES_PRESENTATION_ID` подменены пустыми. Сетевой тест здесь падает с подсказкой: либо мокайте `fetch`, либо переносите файл в `*.integration.test.ts`. В CI — джоба `test`
+- **`npm test` — основной прогон: офлайн.** Файлы `*.integration.test.ts` исключены маской в `vitest.config.ts`, `fetch` заглушен через `tests/helpers/no-network.ts`, `OPENROUTER_API_KEY`, `GOOGLE_SERVICE_ACCOUNT_KEY` и `GOOGLE_SLIDES_PRESENTATION_ID` подменены пустыми. Сетевой тест здесь падает с подсказкой: либо мокайте `fetch`, либо переносите файл в `*.integration.test.ts`. В CI — джоба `test`
 - **`npm run test:integration` — всё, что ходит наружу** (конфиг `vitest.integration.config.ts`, только `*.integration.test.ts`). Пропусков (`describe.skipIf`) там нет намеренно: без ключа или без базы прогон падает, а не зеленеет с нулём проверок
-  - `npm run test:integration:db` — тесты на настоящей БД, обёртка `scripts/run-db-integration.sh`. Набор задан **вычитанием** (`--exclude` живого Groq лежит в обёртке), а не списком файлов: новый `*.integration.test.ts` попадает в CI сам, а переименование файла не сужает прогон молча. Берут `TEST_DATABASE_URL` (и только его, никогда `DATABASE_URL`), хост обязан быть локальным. Обёртка сторожит прогон с двух сторон: переменная обязана быть непустой до старта, а после прогона обязан быть хотя бы один выполненный тест и ни одного пропущенного — сам `vitest` выходит с кодом 0 и на строке «16 passed, 8 skipped». В CI — шаг джобы `migrations`
-  - `npm run test:integration:groq` — реальные запросы к Groq (`tests/groq.integration.test.ts`), нужен `GROQ_API_KEY`. В CI только вручную (джоба `groq-integration`, `workflow_dispatch`): у ключа квота, из-за неё `npm test` и падал по HTTP 429. Появится ещё один тест с живой сетью — допишите его в `--exclude` скрипта `:db`, иначе он уедет в джобу с базой
+  - `npm run test:integration:db` — тесты на настоящей БД, обёртка `scripts/run-db-integration.sh`. Набор задан **вычитанием** (`--exclude` живой модели лежит в обёртке), а не списком файлов: новый `*.integration.test.ts` попадает в CI сам, а переименование файла не сужает прогон молча. Берут `TEST_DATABASE_URL` (и только его, никогда `DATABASE_URL`), хост обязан быть локальным. Обёртка сторожит прогон с двух сторон: переменная обязана быть непустой до старта, а после прогона обязан быть хотя бы один выполненный тест и ни одного пропущенного — сам `vitest` выходит с кодом 0 и на строке «16 passed, 8 skipped». В CI — шаг джобы `migrations`
+  - `npm run test:integration:llm` — реальные запросы к модели через OpenRouter (`tests/llm.integration.test.ts`), нужен `OPENROUTER_API_KEY`. В CI только вручную (джоба `llm-integration`, `workflow_dispatch`): запросы платные, ответ недетерминирован; раньше живой Groq в `npm test` ронял прогон по HTTP 429. Появится ещё один тест с живой сетью — допишите его в `--exclude` скрипта `:db`, иначе он уедет в джобу с базой
 - `tests/test-isolation.test.ts` сторожит эту схему: сломается, если из конфига убрать заглушку сети или подмену ключа
 
 ## Команды
 - `npm run dev` — dev-сервер
 - `npm run build` — билд
 - `npm test` — vitest run (офлайн, без интеграционных)
-- `npm run test:integration` — интеграционные (`:db` — на настоящей БД, `:groq` — живой Groq)
+- `npm run test:integration` — интеграционные (`:db` — на настоящей БД, `:llm` — живая модель)
 - `npm run db:push` / `db:migrate` — применить схему / миграции к БД
 - `npm run db:generate` — сгенерировать миграции Drizzle
 - `npm run db:drift` — проверить, что схема покрыта миграциями (тот же шаг, что в CI)

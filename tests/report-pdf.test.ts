@@ -142,7 +142,7 @@ describe("parseAiResponse", () => {
 
 describe("getAiAnalysis", () => {
   beforeEach(() => {
-    vi.stubEnv("GROQ_API_KEY", "test-key");
+    vi.stubEnv("OPENROUTER_API_KEY", "test-key");
     vi.spyOn(globalThis, "fetch");
   });
 
@@ -177,11 +177,11 @@ describe("getAiAnalysis", () => {
       new Response("error", { status: 500 }),
     );
     await expect(getAiAnalysis(baseReport, baseTrend)).rejects.toThrow(
-      "Groq API error: 500",
+      "Модель openrouter: 500",
     );
   });
 
-  it("передаёт правильные параметры в Groq API", async () => {
+  it("передаёт правильные параметры в OpenRouter", async () => {
     const mockResponse = {
       choices: [{ message: { content: JSON.stringify({
         summary: "", completionRate: "", weekComparison: "",
@@ -196,12 +196,12 @@ describe("getAiAnalysis", () => {
 
     expect(fetch).toHaveBeenCalledOnce();
     const call = vi.mocked(fetch).mock.calls[0];
-    expect(call[0]).toBe("https://api.groq.com/openai/v1/chat/completions");
+    expect(call[0]).toBe("https://openrouter.ai/api/v1/chat/completions");
 
     const body = JSON.parse((call[1] as RequestInit).body as string);
-    expect(body.model).toBe("openai/gpt-oss-20b");
+    expect(body.model).toBe("deepseek/deepseek-v4-flash");
     expect(body.temperature).toBe(0.3);
-    expect(body.response_format).toBeUndefined();
+    expect(body.response_format).toEqual({ type: "json_object" });
 
     const headers = (call[1] as RequestInit).headers as Record<string, string>;
     expect(headers.Authorization).toBe("Bearer test-key");

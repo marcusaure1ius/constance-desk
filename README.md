@@ -19,7 +19,7 @@
 - **Frontend:** Next.js 16, React 19, TypeScript, Tailwind CSS 4
 - **UI:** shadcn/ui (base-ui), lucide-react
 - **База данных:** Neon PostgreSQL, Drizzle ORM
-- **AI:** Groq API — парсинг задач и генерация описаний отчётов
+- **AI:** OpenRouter — DeepSeek для разбора задач, агента и отчётов, Whisper для голоса
 - **DnD:** @hello-pangea/dnd
 - **Отчёты:** @react-pdf/renderer, recharts, Google Slides API
 - **Тесты:** Vitest
@@ -57,7 +57,7 @@ npm run dev
 |------------|----------|
 | `DATABASE_URL` | URL подключения к Neon PostgreSQL |
 | `SESSION_SECRET` | Секрет для подписи JWT-токенов |
-| `GROQ_API_KEY` | API-ключ Groq (для SmartInput и отчётов) |
+| `OPENROUTER_API_KEY` | API-ключ OpenRouter (все модели: разбор задач, агент, отчёты, голос) |
 
 ## Команды
 
@@ -82,7 +82,7 @@ npm run dev
 
 ## Деплой
 
-Проект настроен для деплоя на [Vercel](https://vercel.com). Добавьте переменные окружения (`DATABASE_URL`, `SESSION_SECRET`, `GROQ_API_KEY`) в настройках проекта на Vercel.
+Проект настроен для деплоя на [Vercel](https://vercel.com). Добавьте переменные окружения (`DATABASE_URL`, `SESSION_SECRET`, `OPENROUTER_API_KEY`) в настройках проекта на Vercel.
 
 ## Лицензия
 

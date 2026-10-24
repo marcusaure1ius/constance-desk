@@ -3,23 +3,23 @@ import { parseTasks } from "@/lib/llm/parse-tasks";
 import { captureItems, type CaptureBoard } from "@/lib/llm/capture";
 
 /*
- * Интеграционные тесты — реальные запросы к Groq API.
+ * Интеграционные тесты — реальные запросы к модели в OpenRouter.
  * В основной прогон (npm test) не попадают: файлы *.integration.test.ts
  * исключены маской в vitest.config.ts.
  *
- * Запуск: npm run test:integration:groq (нужен GROQ_API_KEY в .env.local)
+ * Запуск: npm run test:integration:llm (нужен OPENROUTER_API_KEY в .env.local)
  */
 
 // Раньше здесь стоял describe.skipIf: без ключа прогон был зелёным, не проверив
 // ничего. Теперь явная команда без ключа падает — «зелёный» значит «проверено».
-if (!process.env.GROQ_API_KEY) {
+if (!process.env.OPENROUTER_API_KEY) {
   throw new Error(
-    "GROQ_API_KEY не задан — интеграционным тестам Groq нужен настоящий ключ. " +
-      "Запуск: npm run test:integration:groq"
+    "OPENROUTER_API_KEY не задан — интеграционным тестам модели нужен настоящий ключ. " +
+      "Запуск: npm run test:integration:llm"
   );
 }
 
-describe("parseTasks — реальные запросы к Groq", () => {
+describe("parseTasks — реальные запросы к модели", () => {
   it("разбирает несколько задач из потока текста", async () => {
     const result = await parseTasks(
       "Починить баг с авторизацией, это срочно. Ещё нужно обновить документацию по API и добавить валидацию на форму регистрации"
@@ -97,13 +97,13 @@ describe("parseTasks — реальные запросы к Groq", () => {
  * Захват (T-0005) на живой модели. Эти пять проверок — критерии приёмки,
  * которые в принципе нельзя закрыть моками: качество разбора есть свойство
  * модели и промпта, а не кода. Всё, что от кода зависит (защита формулировки,
- * контекст доски, падение на OpenRouter), проверяется офлайн в
+ * контекст доски, запрос к OpenRouter), проверяется офлайн в
  * tests/llm-capture.test.ts и tests/llm-client.test.ts.
  *
- * Квота Groq ограничена — гонять этот блок стоит осознанно:
- *   npm run test:integration:groq -- -t "захват"
+ * Запросы платные — гонять этот блок стоит осознанно:
+ *   npm run test:integration:llm -- -t "захват"
  */
-describe("захват — реальные запросы к Groq", () => {
+describe("захват — реальные запросы к модели", () => {
   const BOARD: CaptureBoard = {
     environmentName: "Работа",
     environmentNames: ["Работа", "Личное"],

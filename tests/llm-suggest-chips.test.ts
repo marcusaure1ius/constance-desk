@@ -26,11 +26,11 @@ function board(overrides: Partial<BoardDigestInput> = {}): BoardDigestInput {
   return { columns: COLUMNS, categories: CATEGORIES, tasks: [], ...overrides };
 }
 
-const GROQ: LlmProvider = {
-  name: "groq",
-  baseUrl: "https://api.groq.com/openai/v1",
-  apiKey: "groq-key",
-  model: "openai/gpt-oss-120b",
+const OPENROUTER: LlmProvider = {
+  name: "openrouter",
+  baseUrl: "https://openrouter.ai/api/v1",
+  apiKey: "or-key",
+  model: "deepseek/deepseek-v4-flash",
 };
 
 function reply(content: string): Response {
@@ -187,7 +187,7 @@ describe("suggestChips", () => {
 
     const result = await suggestChips(board(), {
       today: TODAY,
-      providers: [GROQ],
+      provider: OPENROUTER,
       fetchFn: fetchFn as unknown as typeof fetch,
     });
 
@@ -204,7 +204,7 @@ describe("suggestChips", () => {
 
     await suggestChips(
       board({ tasks: [{ title: "Особая задача", columnId: "col-backlog", plannedDate: "2026-08-20" }] }),
-      { today: TODAY, providers: [GROQ], fetchFn: fetchFn as unknown as typeof fetch }
+      { today: TODAY, provider: OPENROUTER, fetchFn: fetchFn as unknown as typeof fetch }
     );
 
     const messages = sentBody?.messages as { role: string; content: string }[];
@@ -217,7 +217,7 @@ describe("suggestChips", () => {
 
     const result = await suggestChips(board(), {
       today: TODAY,
-      providers: [GROQ],
+      provider: OPENROUTER,
       fetchFn: fetchFn as unknown as typeof fetch,
     });
 
@@ -228,7 +228,7 @@ describe("suggestChips", () => {
     const fetchFn = vi.fn(async () => new Response("error", { status: 500 }));
 
     await expect(
-      suggestChips(board(), { today: TODAY, providers: [GROQ], fetchFn: fetchFn as unknown as typeof fetch })
+      suggestChips(board(), { today: TODAY, provider: OPENROUTER, fetchFn: fetchFn as unknown as typeof fetch })
     ).rejects.toThrow();
   });
 });

@@ -5,8 +5,8 @@ on:
     branches: [main]
   pull_request:
     branches: [main]
-  # Интеграционные тесты Groq ходят в живой API — только по кнопке, см. джобу
-  # groq-integration.
+  # Интеграционные тесты модели ходят в живой API — только по кнопке, см. джобу
+  # llm-integration.
   workflow_dispatch:
 
 concurrency:
@@ -153,15 +153,15 @@ jobs:
       - name: Проверить, что схема покрыта миграциями
         run: npm run db:drift
 
-  # Живой Groq — только по кнопке (workflow_dispatch). В гейт PR эти тесты не
-  # входят намеренно: у ключа квота, из-за неё прогон и падал по HTTP 429.
-  # Нужен секрет GROQ_API_KEY в настройках репозитория, иначе шаг упадёт.
-  groq-integration:
+  # Живая модель — только по кнопке (workflow_dispatch). В гейт PR эти тесты не
+  # входят намеренно: запросы платные, а ответ модели недетерминирован.
+  # Нужен секрет OPENROUTER_API_KEY в настройках репозитория, иначе шаг упадёт.
+  llm-integration:
     if: github.event_name == 'workflow_dispatch'
     needs: setup
     runs-on: ubuntu-latest
     env:
-      GROQ_API_KEY: ${{ secrets.GROQ_API_KEY }}
+      OPENROUTER_API_KEY: ${{ secrets.OPENROUTER_API_KEY }}
     steps:
       - uses: actions/checkout@v4
 
@@ -175,7 +175,7 @@ jobs:
           key: node-modules-${{ hashFiles('package-lock.json') }}
           restore-keys: node-modules-
 
-      - run: npm run test:integration:groq
+      - run: npm run test:integration:llm
 
   build:
     needs: [lint, typecheck, test, migrations]
