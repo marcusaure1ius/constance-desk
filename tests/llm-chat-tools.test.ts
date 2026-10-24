@@ -90,4 +90,57 @@ describe("chatTools", () => {
     expect(body.messages).toHaveLength(2);
     expect(body.response_format).toBeUndefined();
   });
+
+  it("запрос к модели ограничен по времени", async () => {
+    const fetchFn = vi.fn(async () =>
+      new Response(JSON.stringify({ choices: [{ message: { content: "ок" } }] }), { status: 200 })
+    );
+    await chatTools({
+      messages: [{ role: "user", content: "привет" }],
+      model: MODELS.agent,
+      tools: TOOLS,
+      provider: OPENROUTER,
+      fetchFn: fetchFn as unknown as typeof fetch,
+    });
+    const options = (fetchFn.mock.calls[0] as unknown as [string, RequestInit])[1];
+    expect(options.signal).toBeInstanceOf(AbortSignal);
+  });
+
+  it("зависшая модель — понятная ошибка, а не вечное ожидание", async () => {
+    const fetchFn = vi.fn(
+      (_url: string, init: RequestInit) =>
+        new Promise<Response>((_resolve, reject) => {
+          init.signal?.addEventListener("abort", () => reject(init.signal?.reason));
+        })
+    );
+    await expect(
+      chatTools({
+        messages: [{ role: "user", content: "привет" }],
+        model: MODELS.agent,
+        tools: TOOLS,
+        provider: OPENROUTER,
+        fetchFn: fetchFn as unknown as typeof fetch,
+        timeoutMs: 20,
+      })
+    ).rejects.toThrow("Модель не ответила");
+  });
+});
+
+describe("chatTools: скорость", () => {
+  it("тело запроса выключает рассуждения и просит самый быстрый апстрим", async () => {
+    const fetchFn = vi.fn(async () =>
+      new Response(JSON.stringify({ choices: [{ message: { content: "ок" } }] }), { status: 200 })
+    );
+    await chatTools({
+      messages: [{ role: "user", content: "привет" }],
+      model: MODELS.agent,
+      tools: TOOLS,
+      provider: OPENROUTER,
+      fetchFn: fetchFn as unknown as typeof fetch,
+    });
+    const [, options] = fetchFn.mock.calls[0] as unknown as [string, RequestInit];
+    const body = JSON.parse(options.body as string);
+    expect(body.reasoning).toEqual({ enabled: false });
+    expect(body.provider).toEqual({ sort: "throughput" });
+  });
 });

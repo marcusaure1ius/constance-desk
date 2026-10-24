@@ -1,0 +1,139 @@
+import { TRANSCRIBE_MAX_BYTES, voiceFile } from "@/lib/llm/transcribe";
+import type { TelegramClient } from "@/lib/telegram/client";
+import type { fetchLinkPreview } from "@/lib/telegram/link-preview";
+import type { TelegramEntity, TelegramMessage } from "@/lib/telegram/types";
+
+/**
+ * Разобранное входящее сообщение бота: текст, расшифровка голоса, признаки
+ * пересылки и ссылки. Любое сообщение — текст, подпись, своё или пересланное
+ * голосовое, аудиофайл, пост — приводится к одному виду, на который опираются
+ * маршрутизатор и агент.
+ */
+export type Inbound = {
+  /** Текст | подпись | расшифровка; у голоса с подписью — подпись + "\n\n" + расшифровка. */
+  text: string;
+  transcript?: string;
+  forward?: { kind: "channel" | "person"; from?: string; url?: string };
+  links: { url: string; title?: string; description?: string }[];
+  /** Фото или документ без подписи и без текста. */
+  hasUnreadableMedia: boolean;
+};
+
+export type InboundDeps = {
+  client: Pick<TelegramClient, "getFile" | "downloadFile">;
+  transcribe: (file: File) => Promise<string>;
+  fetchPreview: typeof fetchLinkPreview;
+};
+
+/** Столько Telegram отдаёт ботам через getFile. */
+const TELEGRAM_FILE_LIMIT = 20 * 1024 * 1024;
+const MAX_LINKS = 3;
+
+export async function readInbound(
+  message: TelegramMessage,
+  deps: InboundDeps
+): Promise<{ ok: true; inbound: Inbound } | { ok: false; error: string }> {
+  const caption = (message.text ?? message.caption)?.trim() ?? "";
+  let text = caption;
+  let transcript: string | undefined;
+
+  const audio = message.voice ?? message.audio;
+  if (audio) {
+    const heard = await transcribeAudio(message, deps);
+    if ("error" in heard) return { ok: false, error: heard.error };
+    transcript = heard.transcript;
+    // Подпись остаётся в тексте: маршрутизатор читает только text.
+    text = caption ? `${caption}\n\n${transcript}` : transcript;
+  }
+
+  const entities = message.text !== undefined ? message.entities : message.caption_entities;
+  const urls = extractUrls(message.text ?? message.caption ?? "", entities);
+  const links = await Promise.all(
+    urls.map(async (url) => ({ url, ...(await deps.fetchPreview(url)) }))
+  );
+
+  const inbound: Inbound = {
+    text,
+    links,
+    hasUnreadableMedia: !text && Boolean(message.photo?.length || message.document),
+  };
+  if (transcript) inbound.transcript = transcript;
+  const forward = readForward(message);
+  if (forward) inbound.forward = forward;
+
+  return { ok: true, inbound };
+}
+
+/** Голосовое или аудиофайл → расшифровка. */
+async function transcribeAudio(
+  message: TelegramMessage,
+  deps: InboundDeps
+): Promise<{ transcript: string } | { error: string }> {
+  const audio = (message.voice ?? message.audio)!;
+  const label = message.voice ? "голосовое" : "аудио";
+
+  if (audio.file_size !== undefined && audio.file_size > TELEGRAM_FILE_LIMIT) {
+    return { error: `${label} длиннее 20 МБ — столько Telegram скачать не даёт` };
+  }
+
+  try {
+    const file = await deps.client.getFile(audio.file_id);
+    if (!file.file_path) return { error: "Telegram не отдал путь к файлу" };
+
+    const bytes = await deps.client.downloadFile(file.file_path);
+    if (bytes.byteLength > TRANSCRIBE_MAX_BYTES) {
+      return { error: `${label} слишком большое для расшифровки` };
+    }
+
+    // Имя файла обязательно: Whisper определяет контейнер по расширению,
+    // безымянный Blob получает 400 «could not process file».
+    const named = message.voice
+      ? voiceFile(bytes)
+      : new File([bytes], message.audio?.file_name || "audio.mp3", {
+          type: message.audio?.mime_type ?? "audio/mpeg",
+        });
+    const transcript = (await deps.transcribe(named)).trim();
+    if (!transcript) return { error: `в сообщении (${label}) не разобрал ни слова` };
+
+    return { transcript };
+  } catch (error) {
+    return { error: error instanceof Error ? error.message : `не смог расшифровать ${label}` };
+  }
+}
+
+/** Ссылки из entities `url` и `text_link`: без дублей, не больше MAX_LINKS. */
+function extractUrls(text: string, entities: TelegramEntity[] | undefined): string[] {
+  const found: string[] = [];
+  for (const entity of entities ?? []) {
+    // offset и length Telegram считает в UTF-16 — как и slice в JS.
+    const url =
+      entity.type === "url"
+        ? text.slice(entity.offset, entity.offset + entity.length)
+        : entity.type === "text_link"
+          ? entity.url
+          : undefined;
+    if (url && !found.includes(url)) found.push(url);
+    if (found.length === MAX_LINKS) break;
+  }
+  return found;
+}
+
+function readForward(message: TelegramMessage): Inbound["forward"] {
+  const origin = message.forward_origin;
+  if (!origin) return undefined;
+
+  if (origin.type === "user") {
+    return { kind: "person", from: origin.sender_user?.first_name };
+  }
+  if (origin.type === "hidden_user") {
+    return { kind: "person", from: origin.sender_user_name };
+  }
+
+  const chat = origin.type === "channel" ? origin.chat : (origin.sender_chat ?? origin.chat);
+  const forward: NonNullable<Inbound["forward"]> = { kind: "channel" };
+  if (chat?.title) forward.from = chat.title;
+  if (chat?.username && origin.message_id !== undefined) {
+    forward.url = `https://t.me/${chat.username}/${origin.message_id}`;
+  }
+  return forward;
+}

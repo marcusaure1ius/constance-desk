@@ -1,4 +1,4 @@
-import { and, asc, desc, eq, gte, ilike, inArray, isNull, or } from "drizzle-orm";
+import { and, asc, desc, eq, gte, ilike, inArray, isNull, or, sql, type AnyColumn, type SQL } from "drizzle-orm";
 import { db } from "@/lib/db";
 import { columns, environments, noteFolders, notes, tasks } from "@/lib/db/schema";
 import { archiveCutoff } from "@/lib/services/tasks";
@@ -87,9 +87,14 @@ export async function searchTasks(
   if (!trimmed) return [];
 
   const pattern = `%${escapeLikePattern(trimmed)}%`;
-  const conditions = [
-    or(ilike(tasks.title, pattern), ilike(tasks.description, pattern))!,
-  ];
+  return selectTasks(or(ilike(tasks.title, pattern), ilike(tasks.description, pattern))!, options)
+    .limit(clampLimit(options.limit))
+    .offset(clampOffset(options.offset));
+}
+
+/** Выборка задач с колонкой и средой: общая часть обоих поисков. */
+function selectTasks(match: SQL, options: SearchOptions) {
+  const conditions = [match];
   if (!options.includeArchived) {
     conditions.push(
       or(isNull(tasks.completedAt), gte(tasks.completedAt, archiveCutoff()))!
@@ -111,9 +116,110 @@ export async function searchTasks(
     .innerJoin(environments, eq(columns.environmentId, environments.id))
     .where(and(...conditions))
     // Свежее выше; id — устойчивый разрыв ничьей, иначе страницы разъедутся.
-    .orderBy(desc(tasks.updatedAt), asc(tasks.id))
-    .limit(clampLimit(options.limit))
-    .offset(clampOffset(options.offset));
+    .orderBy(desc(tasks.updatedAt), asc(tasks.id));
+}
+
+/* ── поиск по словам (бот) ────────────────────────────────────────────────── */
+
+/**
+ * Служебные слова запроса: с ними AND по словам не находил бы ничего —
+ * «задача про слайды» не обязана содержать «задача» и «про».
+ */
+const STOP_WORDS = new Set([
+  "в", "во", "на", "по", "про", "для", "и", "или", "с", "со", "к", "ко", "о", "об", "от", "до", "из", "за",
+  "задача", "задачу", "задачи", "задаче", "задачей", "задач",
+]);
+
+/** lower + ё→е на стороне базы — пара к normalize() в памяти. */
+function foldYo(column: AnyColumn): SQL {
+  return sql`translate(lower(${column}), 'ё', 'е')`;
+}
+
+/** Сколько кандидатов берём из базы, чтобы ранжировать по словам в памяти. */
+const WORD_CANDIDATES = 200;
+
+/** Ё и Е в запросе и в задаче пишут как придётся. */
+function normalize(value: string): string {
+  return value.toLowerCase().replace(/ё/g, "е");
+}
+
+/**
+ * Грубая основа слова без морфологии: окончание срезается, корень остаётся.
+ * «слайды» → «слай», «Маша» → «маш», «вэду» → «вэд», «итмо» → «итм».
+ * Короткие слова (до трёх букв) — как есть: «вэд», «ИИ».
+ */
+export function stemWord(word: string): string {
+  const chars = Array.from(word);
+  if (chars.length >= 6) return chars.slice(0, -2).join("");
+  if (chars.length >= 4) return chars.slice(0, -1).join("");
+  return word;
+}
+
+/** Запрос → основы слов: без служебных, без повторов. */
+export function searchStems(query: string): string[] {
+  const words = normalize(query).match(/[\p{L}\p{N}]+/gu) ?? [];
+  const stems = words.filter((word) => !STOP_WORDS.has(word)).map(stemWord);
+  return [...new Set(stems)];
+}
+
+/** Сколько основ встречается в тексте. */
+export function countStemMatches(text: string, stems: string[]): number {
+  const haystack = normalize(text);
+  return stems.filter((stem) => haystack.includes(stem)).length;
+}
+
+/**
+ * Ранжирование кандидатов: если какие-то задачи содержат все основы — только
+ * они (порядок кандидатов сохраняется); иначе все, где есть хоть одна основа,
+ * по числу совпадений.
+ */
+export function rankByStems<T>(items: T[], textOf: (item: T) => string, stems: string[]): T[] {
+  if (stems.length === 0) return [];
+  const scored = items
+    .map((item, index) => ({ item, index, score: countStemMatches(textOf(item), stems) }))
+    .filter((entry) => entry.score > 0);
+
+  const full = scored.filter((entry) => entry.score === stems.length);
+  if (full.length > 0) return full.map((entry) => entry.item);
+
+  return scored
+    .sort((a, b) => b.score - a.score || a.index - b.index)
+    .map((entry) => entry.item);
+}
+
+/**
+ * Поиск задач для бота: по словам, а не одной подстрокой. «слайды Маша»
+ * находит «Позвонить Маше насчет слайдов». Сайт и MCP ходят в searchTasks —
+ * их поведение не меняется.
+ */
+export async function searchTasksByWords(
+  query: string,
+  options: SearchOptions = {}
+): Promise<TaskSearchHit[]> {
+  const stems = searchStems(query);
+  // Запрос из одних служебных слов — ищем как раньше, подстрокой.
+  if (stems.length === 0) return searchTasks(query, options);
+
+  // Основы уже с «е» вместо «ё»; колонку приводим так же, иначе «отчёт»
+  // в базе не нашёлся бы ни по «отчёт», ни по «отчет»: ilike их не равняет.
+  const match = or(
+    ...stems.flatMap((stem) => {
+      const pattern = `%${escapeLikePattern(stem)}%`;
+      return [
+        ilike(foldYo(tasks.title), pattern),
+        ilike(foldYo(tasks.description), pattern),
+      ];
+    })
+  )!;
+  const candidates = await selectTasks(match, options).limit(WORD_CANDIDATES);
+
+  const ranked = rankByStems(
+    candidates,
+    (hit) => `${hit.task.title}\n${hit.task.description ?? ""}`,
+    stems
+  );
+  const offset = clampOffset(options.offset);
+  return ranked.slice(offset, offset + clampLimit(options.limit));
 }
 
 /**

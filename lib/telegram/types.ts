@@ -28,6 +28,24 @@ export type TelegramVoice = {
   file_size?: number;
 };
 
+/** Сущность разметки текста: ссылка в тексте (`url`) или со скрытым адресом (`text_link`). */
+export type TelegramEntity = {
+  type: string;
+  offset: number;
+  length: number;
+  url?: string;
+};
+
+/** Откуда переслано сообщение. Для скрытых аккаунтов имя приходит строкой. */
+export type TelegramForwardOrigin = {
+  type: "user" | "hidden_user" | "chat" | "channel";
+  sender_user?: TelegramUser;
+  sender_user_name?: string;
+  sender_chat?: TelegramChat;
+  chat?: TelegramChat;
+  message_id?: number;
+};
+
 export type TelegramMessage = {
   message_id: number;
   date: number;
@@ -41,6 +59,13 @@ export type TelegramMessage = {
   text?: string;
   caption?: string;
   voice?: TelegramVoice;
+  /** Аудиофайл (не голосовое): имя нужно Whisper, он определяет контейнер по расширению. */
+  audio?: TelegramVoice & { file_name?: string };
+  photo?: { file_id: string }[];
+  document?: { file_id: string; file_name?: string };
+  entities?: TelegramEntity[];
+  caption_entities?: TelegramEntity[];
+  forward_origin?: TelegramForwardOrigin;
 };
 
 export type TelegramCallbackQuery = {

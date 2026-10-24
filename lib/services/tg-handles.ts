@@ -34,7 +34,7 @@ export const HANDLE_TTL_MINUTES = 7 * 24 * 60;
 export const AWAIT_INPUT_TTL_MINUTES = 15;
 
 /** Вид хендла. Строкой, а не enum: следующие задачи добавят свои. */
-export type HandleKind = "search" | "await_input";
+export type HandleKind = "search" | "await_input" | "draft";
 
 /** Срок годности по виду: ожидание ввода короткое, всё остальное — недельное. */
 export function ttlMinutesFor(kind: HandleKind): number {
@@ -159,4 +159,85 @@ export async function cancelAwaitInput(chatId: number): Promise<void> {
         eq(tgHandles.status, "active")
       )
     );
+}
+
+/**
+ * Последний живой хендл вида `kind` в чате: активный и не протухший. Читает,
+ * но не тратит.
+ */
+export async function findActiveHandle(
+  chatId: number,
+  kind: HandleKind
+): Promise<StoredHandle | null> {
+  const [row] = await db
+    .select()
+    .from(tgHandles)
+    .where(
+      and(
+        eq(tgHandles.chatId, chatId),
+        eq(tgHandles.kind, kind),
+        eq(tgHandles.status, "active"),
+        gt(tgHandles.expiresAt, new Date())
+      )
+    )
+    .orderBy(desc(tgHandles.createdAt))
+    .limit(1);
+
+  return row ?? null;
+}
+
+/**
+ * Меняет содержимое или привязанное сообщение живого хендла.
+ *
+ * Условно (`status = 'active'`) и с `returning`: true — запись обновлена,
+ * false — хендл уже отправлен, отменён или его нет. Поправка, которую агент
+ * собирал, пока владелец жал «Отправить», обязана это узнать, а не молча
+ * перерисовать отправленный черновик. Пустая правка — false.
+ */
+export async function updateHandle(
+  id: string,
+  patch: { payload?: unknown; messageId?: number }
+): Promise<boolean> {
+  const set: { payload?: unknown; messageId?: number } = {};
+  if (patch.payload !== undefined) set.payload = patch.payload;
+  if (patch.messageId !== undefined) set.messageId = patch.messageId;
+  if (Object.keys(set).length === 0) return false;
+
+  const updated = await db
+    .update(tgHandles)
+    .set(set)
+    .where(and(eq(tgHandles.id, id), eq(tgHandles.status, "active")))
+    .returning({ id: tgHandles.id });
+
+  return updated.length > 0;
+}
+
+/**
+ * Забирает хендл по id: условный `active → used` с `returning`, как в
+ * `takeAwaitInput`. Транзакций в neon-http нет, а двойное нажатие «Отправить»
+ * не должно применить черновик дважды: проигравший гонку получает null.
+ * Протухший хендл тоже не отдаётся.
+ */
+export async function claimHandle(id: string): Promise<StoredHandle | null> {
+  const [row] = await db
+    .update(tgHandles)
+    .set({ status: "used" })
+    .where(
+      and(
+        eq(tgHandles.id, id),
+        eq(tgHandles.status, "active"),
+        gt(tgHandles.expiresAt, new Date())
+      )
+    )
+    .returning();
+
+  return row ?? null;
+}
+
+/** `active → cancelled`: отменённый черновик уже не применить. */
+export async function cancelHandle(id: string): Promise<void> {
+  await db
+    .update(tgHandles)
+    .set({ status: "cancelled" })
+    .where(and(eq(tgHandles.id, id), eq(tgHandles.status, "active")));
 }

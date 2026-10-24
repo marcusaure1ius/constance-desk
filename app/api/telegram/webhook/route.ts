@@ -17,7 +17,9 @@ import { isValidWebhookSecret } from "@/lib/telegram/webhook";
  */
 
 // after() делит дедлайн с запросом; без явного лимита промис отменится молча.
-export const maxDuration = 60;
+// 300 с — потолок Vercel: агент захвата делает до 10 шагов модели, и на 60 с
+// длинная запись не успевала. Агенты узнают дедлайн и сворачиваются заранее.
+export const maxDuration = 300;
 
 export async function POST(request: Request) {
   if (!isValidWebhookSecret(request.headers.get("x-telegram-bot-api-secret-token"))) {

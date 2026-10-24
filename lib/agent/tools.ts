@@ -32,6 +32,22 @@ import { createSubtask, updateSubtask, deleteSubtask } from "@/lib/services/subt
 const priority = z.enum(["urgent", "high", "normal"]);
 const isoDate = z.string().regex(/^\d{4}-\d{2}-\d{2}$/);
 
+/** Подзадачи, которые можно передать прямо при создании задачи. */
+const newSubtasks = z
+  .array(z.object({ title: z.string(), dueDate: isoDate.optional() }))
+  .optional();
+
+type NewSubtask = { title: string; dueDate?: string };
+
+/** Подзадачи создаются по порядку: позиция считается по уже существующим. */
+async function createSubtasksFor(taskId: string, items: NewSubtask[] | undefined) {
+  const created = [];
+  for (const item of items ?? []) {
+    created.push(await createSubtask({ taskId, title: item.title, dueDate: item.dueDate }));
+  }
+  return created;
+}
+
 /** Единственный источник правды по инструментам доски. */
 export const boardTools: readonly Tool[] = [
   defineTool({
@@ -91,11 +107,16 @@ export const boardTools: readonly Tool[] = [
       categoryId: z.string().optional(),
       priority: priority.optional(),
       plannedDate: isoDate.optional(),
+      subtasks: newSubtasks,
     },
     surfaces: ["mcp", "chat"],
     mutation: true,
     impact: "irreversible",
-    handler: (args) => createTask(args),
+    handler: async ({ subtasks, ...data }) => {
+      const task = await createTask(data);
+      if (!subtasks?.length) return task;
+      return { ...task, subtasks: await createSubtasksFor(task.id, subtasks) };
+    },
   }),
 
   defineTool({
@@ -127,17 +148,21 @@ export const boardTools: readonly Tool[] = [
       priority: priority.optional(),
       plannedDate: isoDate.optional(),
       epicColor: z.string().optional(),
+      subtasks: newSubtasks,
     },
     surfaces: ["mcp", "chat"],
     mutation: true,
     impact: "irreversible",
-    handler: async (args) => {
-      const result = await createEpicTask(args);
+    handler: async ({ subtasks, ...data }) => {
+      const result = await createEpicTask(data);
       if (!result.ok) throw new ToolError(result.error);
       return {
         task: result.task,
         category: result.category,
         createdCategory: result.createdCategory,
+        ...(subtasks?.length
+          ? { subtasks: await createSubtasksFor(result.task.id, subtasks) }
+          : {}),
       };
     },
   }),

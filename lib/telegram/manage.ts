@@ -88,12 +88,14 @@ export type ManageDeps = {
   createEpic: (name: string, environmentId: string) => Promise<{ id: string }>;
   /** Хендлы: за кнопкой «Ещё N» и за ожиданием ввода стоит запись в базе. */
   createHandle: (input: {
-    kind: "search" | "await_input";
+    kind: "search" | "await_input" | "draft";
     payload: unknown;
     chatId?: number;
     messageId?: number;
   }) => Promise<string>;
-  getHandle: (id: string) => Promise<{ payload: unknown } | null>;
+  getHandle: (
+    id: string
+  ) => Promise<{ payload: unknown; kind?: string; messageId?: number | null } | null>;
   cancelAwaitInput: (chatId: number) => Promise<void>;
   /**
    * Корень приложения, например `https://constance.example`. Не задан —
@@ -451,7 +453,7 @@ export type SearchRequest = {
   chatId: number;
   /** Сообщение написано прошедшим временем: похоже, дело уже сделано. */
   looksDone?: boolean;
-  /** Код кнопки «Нет, это новая задача» — из карточки захвата T-0005. */
+  /** Код кнопки «Нет, это новая задача». Бот её сейчас не ставит: черновик заменил старый захват. */
   createAnywayCallback?: string;
 };
 

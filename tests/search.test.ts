@@ -22,6 +22,10 @@ import {
   searchAll,
   searchNotes,
   searchTasks,
+  searchTasksByWords,
+  searchStems,
+  stemWord,
+  rankByStems,
 } from "@/lib/services/search";
 
 /**
@@ -214,5 +218,104 @@ describe("searchNotes и searchAll", () => {
     await searchAll("вэду", { limit: 3, offset: 6 });
     expect(selectChain.limit).toHaveBeenCalledWith(3);
     expect(selectChain.offset).toHaveBeenCalledWith(6);
+  });
+});
+
+describe("поиск по словам для бота (L4)", () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+    mockDb.select.mockReturnValue(selectChain);
+    selectChain.from.mockReturnValue(selectChain);
+    selectChain.innerJoin.mockReturnValue(selectChain);
+    selectChain.where.mockReturnValue(selectChain);
+    selectChain.orderBy.mockReturnValue(selectChain);
+    selectChain.limit.mockReturnValue(selectChain);
+    selectChain.offset.mockResolvedValue([]);
+  });
+
+  const hit = (id: string, title: string, description: string | null = null) => ({
+    task: { id, title, description },
+    column: {},
+    environment: {},
+  });
+
+  it("основа слова: длинные теряют 1–2 буквы, короткие — как есть", () => {
+    expect(stemWord("слайды")).toBe("слай");
+    expect(stemWord("маша")).toBe("маш");
+    expect(stemWord("вэду")).toBe("вэд");
+    expect(stemWord("вэд")).toBe("вэд");
+  });
+
+  it("служебные слова из запроса выпадают", () => {
+    expect(searchStems("задача про слайды для Маши")).toEqual(["слай", "маш"]);
+  });
+
+  const board = [
+    hit("t-1", "Позвонить Маше насчет слайдов"),
+    hit("t-2", "Отчёт по ИТМО"),
+    hit("t-3", "Созвон", "Договориться с итмо о практике"),
+    hit("t-4", "Сдать отчёт по вэд"),
+    hit("t-5", "Слайды для совета"),
+  ];
+  const text = (h: ReturnType<typeof hit>) => `${h.task.title}\n${h.task.description ?? ""}`;
+  const ids = (list: ReturnType<typeof hit>[]) => list.map((h) => h.task.id);
+
+  it("«слайды Маша» находит «Позвонить Маше насчет слайдов»", () => {
+    expect(ids(rankByStems(board, text, searchStems("слайды Маша")))).toEqual(["t-1"]);
+  });
+
+  it("«итмо» находит обе задачи про ИТМО — по названию и по описанию", () => {
+    expect(ids(rankByStems(board, text, searchStems("итмо")))).toEqual(["t-2", "t-3"]);
+  });
+
+  it("«вэду» находит «вэд»", () => {
+    expect(ids(rankByStems(board, text, searchStems("вэду")))).toEqual(["t-4"]);
+  });
+
+  it("если все слова сразу не встречаются — OR по числу совпадений", () => {
+    // «слайды совет Маша»: «совет» и «слайды» есть у t-5, «Маша» и «слайды» — у t-1.
+    const ranked = ids(rankByStems(board, text, searchStems("слайды Маша звонок совет")));
+    expect(ranked.slice(0, 2).sort()).toEqual(["t-1", "t-5"]);
+  });
+
+  it("searchTasksByWords ищет базой каждую основу и ранжирует в памяти", async () => {
+    selectChain.limit.mockResolvedValueOnce(board);
+
+    const found = await searchTasksByWords("слайды Маша", { limit: 5 });
+
+    const { params } = lastWhere();
+    expect(params).toContain("%слай%");
+    expect(params).toContain("%маш%");
+    expect(found.map((h) => h.task.id)).toEqual(["t-1"]);
+  });
+
+  it("ё и е совпадают в обе стороны: колонка в SQL приводится translate(lower(…), 'ё', 'е')", async () => {
+    selectChain.limit.mockResolvedValueOnce([]);
+    await searchTasksByWords("отчёт");
+    const { sql, params } = lastWhere();
+    expect(sql).toContain(`translate(lower("tasks"."title"), 'ё', 'е') ilike`);
+    expect(sql).toContain(`translate(lower("tasks"."description"), 'ё', 'е') ilike`);
+    expect(params).toContain("%отче%");
+    expect(params.some((p) => String(p).includes("ё"))).toBe(false);
+  });
+
+  it.each([
+    ["отчёт", "Отчёт по ИТМО"],
+    ["отчет", "Отчёт по ИТМО"],
+    ["отчёт", "Отчет по ИТМО"],
+  ])("«%s» находит «%s»", async (query, title) => {
+    const stored = [hit("t-1", title)];
+    selectChain.limit.mockResolvedValueOnce(stored);
+    const found = await searchTasksByWords(query);
+    expect(found.map((h) => h.task.id)).toEqual(["t-1"]);
+    // Шаблон, ушедший в базу, совпадает с приведённой колонкой — как сделает Postgres.
+    const folded = title.toLowerCase().replace(/ё/g, "е");
+    const pattern = lastWhere().params[0] as string;
+    expect(folded.includes(pattern.replace(/%/g, ""))).toBe(true);
+  });
+
+  it("запрос из одних служебных слов — обычный поиск подстрокой", async () => {
+    await searchTasksByWords("про");
+    expect(lastWhere().params[0]).toBe("%про%");
   });
 });

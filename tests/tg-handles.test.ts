@@ -56,7 +56,13 @@ const { mockDb, state } = vi.hoisted(() => {
 
 vi.mock("@/lib/db", () => ({ db: mockDb }));
 
-import { createHandle, takeAwaitInput } from "@/lib/services/tg-handles";
+import {
+  claimHandle,
+  createHandle,
+  findActiveHandle,
+  takeAwaitInput,
+  updateHandle,
+} from "@/lib/services/tg-handles";
 
 const NOW = new Date("2026-08-24T12:00:00Z");
 
@@ -135,5 +141,63 @@ describe("takeAwaitInput", () => {
 
   it("пусто — значит вопроса не задавали: null, а не исключение", async () => {
     expect(await takeAwaitInput(42)).toBeNull();
+  });
+});
+
+describe("claimHandle", () => {
+  beforeEach(() => {
+    state.rows = [];
+  });
+
+  it("первый вызов забирает хендл, второй получает null", async () => {
+    const row = { id: "abcdefghij", kind: "draft", payload: {}, chatId: 42, messageId: 7 };
+    state.rows = [row];
+    expect(await claimHandle("abcdefghij")).toEqual(row);
+
+    // Условный UPDATE ... WHERE status = 'active' RETURNING: проигравшему
+    // гонку база возвращает пустой набор.
+    state.rows = [];
+    expect(await claimHandle("abcdefghij")).toBeNull();
+  });
+});
+
+describe("findActiveHandle", () => {
+  beforeEach(() => {
+    state.rows = [];
+    state.selectWhere = [];
+  });
+
+  it("ищет по чату, виду, статусу И сроку годности", async () => {
+    await findActiveHandle(42, "draft");
+
+    const refs = columnRefs(state.selectWhere[0]);
+    for (const column of ["chat_id", "kind", "status", "expires_at"]) {
+      expect(refs).toContain(column);
+    }
+  });
+
+  it("пусто — null", async () => {
+    expect(await findActiveHandle(42, "draft")).toBeNull();
+  });
+});
+
+describe("updateHandle", () => {
+  beforeEach(() => {
+    state.rows = [];
+  });
+
+  it("говорит, обновилась ли запись: закрытый хендл — false", async () => {
+    // Условный UPDATE ... WHERE status = 'active' RETURNING: отправленный или
+    // отменённый черновик база не трогает и возвращает пустой набор.
+    state.rows = [];
+    expect(await updateHandle("abcdefghij", { payload: { x: 1 } })).toBe(false);
+
+    state.rows = [{ id: "abcdefghij" }];
+    expect(await updateHandle("abcdefghij", { payload: { x: 1 } })).toBe(true);
+  });
+
+  it("пустая правка ничего не обновляет", async () => {
+    state.rows = [{ id: "abcdefghij" }];
+    expect(await updateHandle("abcdefghij", {})).toBe(false);
   });
 });

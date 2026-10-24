@@ -57,5 +57,35 @@ export async function transcribeAudio(
   }
 
   const data = (await response.json()) as { text?: string };
-  return data.text ?? "";
+  return stripWhisperHallucinations(data.text ?? "");
+}
+
+/** Инициалы с фамилией: «А.Синецкая», «А. Егорова». */
+const PERSON = String.raw`[\p{L}]\.\s?[\p{L}-]+`;
+
+/**
+ * Фразы, которые Whisper «слышит» в тишине и шуме: он учился на роликах с
+ * титрами, и концовка ролика всплывает в конце голосового. Живые примеры —
+ * «Субтитры сделал DimaTorzok», «Продолжение следует...», «Редактор
+ * субтитров А.Синецкая Корректор А.Егорова», «Спасибо за просмотр».
+ * Срезаются только эти обороты целиком, остальной текст не трогается.
+ */
+const WHISPER_HALLUCINATIONS: RegExp[] = [
+  /субтитры\s+(?:сделал|делал|создал|создавал|подготовил[аи]?|подогнал)\s+[\p{L}\p{N}_.-]+[.!…]*/giu,
+  new RegExp(String.raw`редактор\s+субтитров(?:\s+${PERSON})*[.!…]*`, "giu"),
+  new RegExp(String.raw`корректор(?:\s+${PERSON})+[.!…]*`, "giu"),
+  /продолжение\s+следует[.!…]*/giu,
+  /спасибо\s+за\s+просмотр[.!…]*/giu,
+];
+
+export function stripWhisperHallucinations(text: string): string {
+  let result = text;
+  for (const pattern of WHISPER_HALLUCINATIONS) result = result.replace(pattern, " ");
+  return result
+    .replace(/[ \t]{2,}/g, " ")
+    .replace(/ +([,.!?…])/g, "$1")
+    .split("\n")
+    .map((line) => line.trim())
+    .join("\n")
+    .trim();
 }

@@ -1,31 +1,31 @@
 /**
  * Разбор живых сообщений: что прислали в телеграм → что бот из этого сделал.
  *
- * Read-only. Берёт последние апдейты из tg_updates и задачи, созданные в тот
- * же промежуток, и печатает рядом. Связи «апдейт → задача» в схеме пока нет
- * (таблица tg_messages — это S-14), поэтому сопоставление по времени.
+ * Read-only. Берёт последние апдейты из tg_updates (с маршрутом Jev и
+ * черновиком агента) и задачи, созданные в тот же промежуток, и печатает
+ * рядом. Связи «апдейт → задача» в схеме пока нет (таблица tg_messages — это
+ * S-14), поэтому сопоставление по времени.
  *
  * Запуск: npx tsx inspect-capture.ts [сколько_апдейтов]
  */
 import { Client } from "pg";
 
-type ParsedTask = {
-  title: string;
-  priority?: string;
-  plannedDate?: string;
-  epic?: string;
-};
-
+/** Разбор, который обработчик кладёт в журнал (`lib/telegram/handle-update.ts`). */
 type Parsed = {
-  status: string;
-  dryRun?: boolean;
-  provider?: string;
-  model?: string;
+  route?: {
+    route: string;
+    correction: boolean;
+    source: string;
+    confidence?: number;
+    reason?: string;
+    latencyMs?: number;
+  };
   transcript?: string;
-  tasks?: ParsedTask[];
-  questions?: { text: string; done?: boolean }[];
-  others?: { kind: string; text: string }[];
-  warning?: string;
+  /** Подписи вызовов черновика. */
+  calls?: string[];
+  agentText?: string;
+  /** Поисковый запрос маршрута find_task. */
+  query?: string;
 };
 
 type UpdateRow = {
@@ -69,40 +69,33 @@ function kindOf(payload: Record<string, unknown>): string {
 
 /** Что бот понял из сообщения — то, ради чего разбор и сохраняется. */
 function printParsed(parsed: Parsed | null): void {
-  if (!parsed) {
+  if (!parsed?.route) {
     console.log("  разбор: не сохранён");
     return;
   }
 
-  const who = parsed.provider ? `${parsed.provider} · ${parsed.model ?? "?"}` : "провайдер не указан";
-  const mode = parsed.dryRun ? " · сухой прогон" : "";
-  console.log(`  разбор [${who}${mode}]:`);
+  const { route } = parsed;
+  const bits = [
+    route.source,
+    route.confidence !== undefined ? `уверенность ${route.confidence.toFixed(2)}` : null,
+    route.latencyMs !== undefined ? `${route.latencyMs} мс` : null,
+    route.reason ? `причина: ${route.reason}` : null,
+    route.correction ? "поправка" : null,
+  ].filter(Boolean);
+  console.log(`  маршрут: ${route.route} [${bits.join(" · ")}]`);
 
   if (parsed.transcript) {
     console.log(`    расшифровка: ${JSON.stringify(parsed.transcript.slice(0, 120))}`);
   }
+  if (parsed.query) console.log(`    поиск: ${JSON.stringify(parsed.query)}`);
 
-  for (const task of parsed.tasks ?? []) {
-    const bits = [
-      task.plannedDate ? `срок ${task.plannedDate}` : null,
-      task.priority && task.priority !== "normal" ? task.priority : null,
-      task.epic ? `эпик «${task.epic}»` : null,
-    ].filter(Boolean);
-    console.log(`    задача: «${task.title}»${bits.length ? " · " + bits.join(" · ") : ""}`);
+  for (const label of parsed.calls ?? []) {
+    console.log(`    черновик: ${label}`);
   }
-
-  for (const question of parsed.questions ?? []) {
-    console.log(`    вопрос${question.done ? " (о сделанном)" : ""}: ${JSON.stringify(question.text)}`);
+  if (parsed.calls && parsed.calls.length === 0) console.log("    черновик: пусто");
+  if (parsed.agentText) {
+    console.log(`    агент: ${JSON.stringify(parsed.agentText.slice(0, 200))}`);
   }
-
-  for (const other of parsed.others ?? []) {
-    console.log(`    ${other.kind}: ${JSON.stringify(other.text.slice(0, 100))}`);
-  }
-
-  if ((parsed.tasks ?? []).length === 0 && (parsed.questions ?? []).length === 0 && (parsed.others ?? []).length === 0) {
-    console.log(`    (ничего не распознано, статус ${parsed.status})`);
-  }
-  if (parsed.warning) console.log(`    предупреждение: ${parsed.warning}`);
 }
 
 async function main() {

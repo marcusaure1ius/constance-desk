@@ -29,6 +29,7 @@ trap 'rm -f "$report"' EXIT
 status=0
 npm run test:integration -- \
   --exclude tests/llm.integration.test.ts \
+  --exclude tests/jev.integration.test.ts \
   --reporter=default \
   --reporter=json --outputFile.json="$report" || status=$?
 

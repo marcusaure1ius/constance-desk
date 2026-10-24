@@ -1,6 +1,6 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
 import { buildParseTasksPrompt, parseTasksResponse, parseTasks } from "@/lib/llm/parse-tasks";
-import { transcribeAudio } from "@/lib/llm/transcribe";
+import { stripWhisperHallucinations, transcribeAudio } from "@/lib/llm/transcribe";
 
 describe("buildParseTasksPrompt", () => {
   it("подставляет текущую дату в system prompt", () => {
@@ -118,5 +118,43 @@ describe("transcribeAudio", () => {
     const file = new File(["audio"], "test.webm", { type: "audio/webm" });
     const result = await transcribeAudio(file);
     expect(result).toBe("");
+  });
+});
+
+describe("stripWhisperHallucinations", () => {
+  it.each([
+    "Субтитры сделал DimaTorzok",
+    "Субтитры создавал DimaTorzok",
+    "субтитры СОЗДАВАЛ DimaTorzok.",
+    "Продолжение следует...",
+    "Редактор субтитров А.Синецкая Корректор А.Егорова",
+    "Спасибо за просмотр!",
+    "  Продолжение следует…  ",
+  ])("тишина «%s» — пустая строка", (heard) => {
+    expect(stripWhisperHallucinations(heard)).toBe("");
+  });
+
+  it("срезает хвост, а речь автора не трогает", () => {
+    expect(
+      stripWhisperHallucinations("Позвонить Маше насчёт слайдов до пятницы. Субтитры сделал DimaTorzok")
+    ).toBe("Позвонить Маше насчёт слайдов до пятницы.");
+    expect(
+      stripWhisperHallucinations("Составить список по ML. Продолжение следует... Спасибо за просмотр.")
+    ).toBe("Составить список по ML.");
+  });
+
+  it("обычные слова «субтитры», «продолжение», «спасибо» остаются", () => {
+    const text = "Сделать субтитры к ролику, продолжение отчёта в пятницу, спасибо Пете";
+    expect(stripWhisperHallucinations(text)).toBe(text);
+  });
+
+  it("transcribeAudio отдаёт уже очищенный текст", async () => {
+    vi.stubEnv("OPENROUTER_API_KEY", "test-key");
+    const fetchFn = vi.fn().mockResolvedValue(
+      new Response(JSON.stringify({ text: "Купить хлеб. Субтитры создавал DimaTorzok" }), { status: 200 })
+    );
+    const file = new File(["audio"], "voice.ogg", { type: "audio/ogg" });
+    expect(await transcribeAudio(file, { fetchFn })).toBe("Купить хлеб.");
+    vi.unstubAllEnvs();
   });
 });

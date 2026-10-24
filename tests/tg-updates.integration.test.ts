@@ -154,13 +154,10 @@ describe("журнал апдейтов на настоящей базе", () =>
   it("сохраняет разбор рядом со статусом", async () => {
     await recordUpdate({ updateId: 900007, chatId: 555, rawText: "заполнить итмо", payload: {} });
     const parsed = {
-      status: "captured",
-      dryRun: true,
-      provider: "openrouter",
-      model: "deepseek/deepseek-v4-flash",
-      tasks: [{ title: "заполнить итмо", priority: "normal", plannedDate: "2026-08-30" }],
-      questions: [],
-      others: [{ kind: "note", text: "нет синергии" }],
+      route: { route: "capture", correction: false, source: "jev", confidence: 0.9, latencyMs: 420 },
+      transcript: "заполнить итмо",
+      calls: ["Задача «заполнить итмо»", "Заметка «нет синергии»"],
+      agentText: "Одно дело и одна мысль",
     };
 
     await markUpdateProcessed(900007, parsed);

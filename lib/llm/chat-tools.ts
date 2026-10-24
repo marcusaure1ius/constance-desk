@@ -39,7 +39,15 @@ export type ChatToolsInput = {
   provider?: LlmProvider;
   env?: Record<string, string | undefined>;
   fetchFn?: typeof fetch;
+  /** Сколько ждать ответа модели. По умолчанию — CHAT_TIMEOUT_MS. */
+  timeoutMs?: number;
 };
+
+/**
+ * Без потолка зависший провайдер держит запрос до убийства функции платформой,
+ * и пользователь не узнаёт о сбое. Шаг агента обычно отвечает за секунды.
+ */
+export const CHAT_TIMEOUT_MS = 45_000;
 
 export async function chatTools(input: ChatToolsInput): Promise<ChatToolsResult> {
   const provider = input.provider ?? resolveProvider(input.model, input.env);
@@ -51,19 +59,35 @@ async function callProvider(
   input: ChatToolsInput,
   fetchFn: typeof fetch
 ): Promise<ChatToolsResult> {
-  const response = await fetchFn(`${provider.baseUrl}/chat/completions`, {
-    method: "POST",
-    headers: {
-      Authorization: `Bearer ${provider.apiKey}`,
-      "Content-Type": "application/json",
-    },
-    body: JSON.stringify({
-      model: provider.model,
-      messages: input.messages,
-      tools: input.tools,
-      temperature: input.temperature ?? 0.2,
-    }),
-  });
+  const timeoutMs = input.timeoutMs ?? CHAT_TIMEOUT_MS;
+  let response: Response;
+  try {
+    response = await fetchFn(`${provider.baseUrl}/chat/completions`, {
+      method: "POST",
+      headers: {
+        Authorization: `Bearer ${provider.apiKey}`,
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify({
+        model: provider.model,
+        messages: input.messages,
+        tools: input.tools,
+        temperature: input.temperature ?? 0.2,
+        // Рассуждения DeepSeek — главная задержка агента: на вопрос по доске модель
+        // «думала» ~1000 токенов, ответ шёл 6–20 с. Без них — 2–5 с, а выбор
+        // инструментов и ответы по снимку доски не хуже.
+        reasoning: { enabled: false },
+        // Из апстримов OpenRouter — самый быстрый по выдаче токенов, а не дешёвый.
+        provider: { sort: "throughput" },
+      }),
+      signal: AbortSignal.timeout(timeoutMs),
+    });
+  } catch (error) {
+    if (error instanceof Error && (error.name === "TimeoutError" || error.name === "AbortError")) {
+      throw new Error(`Модель не ответила за ${Math.round(timeoutMs / 1000)} с`);
+    }
+    throw error;
+  }
 
   if (!response.ok) {
     const detail = await response.text().catch(() => response.statusText);

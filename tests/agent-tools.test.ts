@@ -118,6 +118,32 @@ describe("реестр инструментов", () => {
   });
 });
 
+describe("подзадачи при создании задачи", () => {
+  beforeEach(() => vi.clearAllMocks());
+
+  it("create_task создаёт подзадачи по порядку", async () => {
+    mocks.createTask.mockResolvedValue({ id: "t1", title: "Задача" });
+    mocks.createSubtask.mockImplementation(async (input: { title: string }) => ({
+      id: `s_${input.title}`,
+      ...input,
+    }));
+
+    const tool = findTool("create_task", { surface: "chat" })!;
+    const outcome = await runTool(tool, {
+      title: "Задача",
+      columnId: "c",
+      subtasks: [{ title: "a" }, { title: "b", dueDate: "2026-10-31" }],
+    });
+
+    expect(outcome.ok).toBe(true);
+    expect(mocks.createTask).toHaveBeenCalledWith({ title: "Задача", columnId: "c" });
+    expect(mocks.createSubtask).toHaveBeenCalledTimes(2);
+    expect(mocks.createSubtask).toHaveBeenNthCalledWith(1, { taskId: "t1", title: "a", dueDate: undefined });
+    expect(mocks.createSubtask).toHaveBeenNthCalledWith(2, { taskId: "t1", title: "b", dueDate: "2026-10-31" });
+    expect(outcome.ok && (outcome.data as { subtasks: unknown[] }).subtasks).toHaveLength(2);
+  });
+});
+
 describe("JSON Schema всего реестра", () => {
   it("строится для каждого инструмента без исключений", () => {
     for (const tool of boardTools) {

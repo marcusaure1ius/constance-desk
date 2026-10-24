@@ -19,7 +19,7 @@
     "test:watch": "vitest",
     "test:integration": "vitest run --config vitest.integration.config.ts",
     "test:integration:db": "bash scripts/run-db-integration.sh",
-    "test:integration:llm": "npm run test:integration -- tests/llm.integration.test.ts",
+    "test:integration:llm": "npm run test:integration -- tests/llm.integration.test.ts tests/jev.integration.test.ts",
     "tg:webhook": "npx tsx scripts/telegram-webhook.ts",
     "tg:inspect": "npx tsx scripts/inspect-capture.ts"
   },

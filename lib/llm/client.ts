@@ -39,7 +39,7 @@ export const OPENROUTER_BASE_URL = "https://openrouter.ai/api/v1";
 const BASE_MODEL = "deepseek/deepseek-v4-flash";
 
 export const MODELS = {
-  /** Захват сообщения из телеграма. */
+  /** Захват из телеграма. Агент захвата ходит циклом агента, то есть через `agent`. */
   capture: BASE_MODEL,
   /** Разбор из веб-формы SmartInput: короткий вход, короткий ответ. */
   smartInput: BASE_MODEL,

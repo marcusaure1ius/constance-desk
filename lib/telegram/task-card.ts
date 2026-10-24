@@ -1,5 +1,5 @@
 import { safeCutIndex } from "@/lib/telegram/client";
-import { field, plural } from "@/lib/telegram/capture";
+import { field, plural } from "@/lib/telegram/format";
 import { packUuid, unpackUuid, isHandleId } from "@/lib/telegram/ids";
 
 /**

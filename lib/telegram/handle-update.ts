@@ -1,16 +1,35 @@
-import { captureItems as captureItemsWithModel } from "@/lib/llm/capture";
-import { transcribeAudio, voiceFile, TRANSCRIBE_MAX_BYTES } from "@/lib/llm/transcribe";
+import { applyAgentCalls } from "@/lib/agent/apply";
+import { runAgent } from "@/lib/agent/loop";
+import { askJev } from "@/lib/llm/jev";
+import { extractSearchQuery } from "@/lib/llm/search-query";
+import { transcribeAudio } from "@/lib/llm/transcribe";
+import { answerBoardQuestion } from "@/lib/telegram/ask-board";
+import { buildDraft, captureTools } from "@/lib/telegram/capture-agent";
+import { loadPromptBoard, type PromptBoard } from "@/lib/telegram/board-snapshot";
+import { createTelegramClient, escapeHtml, type TelegramClient } from "@/lib/telegram/client";
 import {
-  captureCallback,
-  captureMessage,
-  createTaskFromText,
-  parseCaptureCallback,
-  renderCaptureCard,
-  type CaptureBoardData,
-  type CaptureDeps,
-  type CaptureResult,
-} from "@/lib/telegram/capture";
-import { createTelegramClient, escapeHtml, TelegramApiError, type TelegramClient } from "@/lib/telegram/client";
+  draftSummary,
+  parseDraftCallback,
+  parseDraftFix,
+  type DraftCallback,
+} from "@/lib/telegram/draft";
+import {
+  captureDraft,
+  correctDraft,
+  loadDraft,
+  loadOpenDraft,
+  loadSnapshot,
+  NO_PROJECTS,
+  resendDraft,
+  respondToDraftButton,
+  retryCard,
+  type BotBoard,
+  type DraftFlowDeps,
+  type MessageContext,
+} from "@/lib/telegram/draft-flow";
+import { field } from "@/lib/telegram/format";
+import { readInbound, type Inbound } from "@/lib/telegram/inbound";
+import { fetchLinkPreview } from "@/lib/telegram/link-preview";
 import {
   applyAwaitedInput,
   applyTaskCallback,
@@ -20,11 +39,9 @@ import {
   runSearch,
   type ManageDeps,
 } from "@/lib/telegram/manage";
-import {
-  parseTaskCallback,
-  type TaskCallback,
-  type TaskCard,
-} from "@/lib/telegram/task-card";
+import { showCard } from "@/lib/telegram/reply";
+import { decideRoute, type RouteDecision } from "@/lib/telegram/route";
+import { parseTaskCallback, type TaskCallback } from "@/lib/telegram/task-card";
 import { BOT_COMMANDS } from "@/lib/telegram/commands";
 import {
   updateChatId,
@@ -36,10 +53,9 @@ import {
 import { createCategory, getCategories } from "@/lib/services/categories";
 import { getColumns } from "@/lib/services/columns";
 import { getEnvironments } from "@/lib/services/environments";
-import { searchTasks } from "@/lib/services/search";
+import { searchTasksByWords } from "@/lib/services/search";
 import {
   completeTask,
-  createTask,
   deleteTask,
   getTaskDetails,
   moveTaskToColumn,
@@ -49,9 +65,13 @@ import {
 } from "@/lib/services/tasks";
 import {
   cancelAwaitInput,
+  cancelHandle,
+  claimHandle,
   createHandle,
+  findActiveHandle,
   getHandle,
   takeAwaitInput,
+  updateHandle,
 } from "@/lib/services/tg-handles";
 import {
   getUpdate,
@@ -70,6 +90,11 @@ import {
  * вкусу, а по времени жизни: приём обязан завершиться ДО ответа 200, потому
  * что с этого момента Telegram считает апдейт доставленным и не повторит его;
  * обработка идёт после ответа, в after().
+ *
+ * Проход сообщения: вход (`inbound.ts`) → маршрут Jev (`route.ts`) → агент
+ * захвата собирает черновик (`capture-agent.ts`), и на доску он попадает
+ * только по кнопке «✅ Отправить» (`draft.ts`). До неё бот пишет в базу лишь
+ * журнал апдейтов и `tg_handles`.
  */
 
 /** Зависимости приёма: журнал и белый список чатов. */
@@ -79,8 +104,12 @@ export type ReceiveUpdateDeps = {
   allowedChatId?: number;
 };
 
-/** Зависимости обработки: Bot API, отметки в журнале, доска и модель. */
-export type HandleUpdateDeps = CaptureDeps & ManageDeps & {
+export type { BotBoard };
+
+type OpenDraftHint = { summary: string; createdAt: Date };
+
+/** Зависимости обработки: Bot API, журнал, хендлы, маршрут и агенты. */
+export type HandleUpdateDeps = ManageDeps & DraftFlowDeps & {
   client: Pick<
     TelegramClient,
     | "sendMessage"
@@ -92,19 +121,27 @@ export type HandleUpdateDeps = CaptureDeps & ManageDeps & {
   markProcessed: typeof markUpdateProcessed;
   markFailed: typeof markUpdateFailed;
   /**
-   * Апдейт из журнала. Кнопка «разобрать заново» восстанавливает по нему
+   * Апдейт из журнала. Кнопка «Попробовать ещё раз» восстанавливает по нему
    * исходное сообщение целиком — вместе с голосовым, у которого текста в
    * журнале нет вовсе.
    */
   loadUpdate: (updateId: number) => Promise<TelegramUpdate | null>;
-  transcribe: (file: File) => Promise<string>;
   /**
-   * Забирает ожидание ввода для чата. Ответ на «пришлите новое название»
-   * приходит обычным сообщением, в котором про карточку нет ничего.
+   * Забирает ожидание ввода для чата. Ответ на «пришлите новое название» или
+   * на «что поправить?» приходит обычным сообщением, в котором про карточку
+   * нет ничего.
    */
   takeAwaitInput: (
     chatId: number
   ) => Promise<{ payload: unknown; messageId: number | null } | null>;
+
+  readInbound: (message: TelegramMessage) => ReturnType<typeof readInbound>;
+  decideRoute: (inbound: Inbound, openDraft: OpenDraftHint | null) => Promise<RouteDecision>;
+  answerBoardQuestion: (
+    text: string,
+    input: { environmentId: string; today: string; board?: PromptBoard }
+  ) => ReturnType<typeof answerBoardQuestion>;
+  extractSearchQuery: (text: string) => Promise<{ query: string; done: boolean }>;
 };
 
 export type TelegramDeps = ReceiveUpdateDeps & HandleUpdateDeps;
@@ -117,10 +154,13 @@ export type ReceiveUpdateResult =
 export type UpdateAction =
   | "start"
   | "help"
-  | "capture"
-  | "search"
+  | "draft"
+  | "correction"
+  | "confirm"
+  | "ask_board"
+  | "find_task"
+  | "smalltalk"
   | "edit"
-  | "voice"
   | "callback"
   | "unsupported";
 
@@ -132,33 +172,17 @@ export type HandleUpdateResult =
 type RespondOutcome = {
   action: UpdateAction;
   error?: string;
-  /**
-   * Что бот понял из сообщения. Уходит в журнал рядом со статусом: иначе
-   * судить о качестве разбора можно только по карточкам в телефоне.
-   */
   parsed?: ParsedSummary;
 };
 
-/** Разбор для журнала: элементы, которые вернула модель, и кто отвечал. */
-function parsedSummary(result: CaptureResult, transcript?: string): ParsedSummary {
-  if (result.status !== "captured") {
-    return { status: result.status, transcript };
-  }
-  return {
-    status: result.status,
-    dryRun: result.dryRun ?? false,
-    provider: result.provider,
-    model: result.model,
-    transcript,
-    tasks: result.tasks,
-    questions: result.questions,
-    others: result.others,
-    warning: result.warning,
-  };
-}
-
-/** Bot API не отдаёт файлы больше 20 МБ, сколько бы Whisper ни принимал. */
-const TELEGRAM_FILE_LIMIT = 20 * 1024 * 1024;
+const PLACEHOLDER_TEXT = "⏳ Разбираю…";
+const INTERNAL_ERROR = "внутренняя ошибка";
+/**
+ * Столько оставляем от дедлайна функции на карточку и отметку в журнале:
+ * агенты обязаны закончить раньше, иначе черновик не успеет попасть в чат.
+ */
+const REPLY_RESERVE_MS = 10_000;
+const REASON_LIMIT = 500;
 
 /**
  * Приём апдейта: зовётся из тела роута до ответа 200.
@@ -225,7 +249,14 @@ async function respond(
   // Спиннер на кнопке протухает за ~10 секунд, поэтому отвечаем первым делом:
   // до базы, до модели, до правки сообщения.
   if (update.callback_query) {
-    await deps.client.answerCallbackQuery({ callbackQueryId: update.callback_query.id });
+    // Ответ на нажатие — только чтобы погасить спиннер. Протухший query
+    // («query is too old») или сбой сети не должны отменять само нажатие:
+    // иначе кнопка молча ничего не делает.
+    try {
+      await deps.client.answerCallbackQuery({ callbackQueryId: update.callback_query.id });
+    } catch (error) {
+      console.warn("[telegram] answerCallbackQuery не прошёл", error);
+    }
     return respondToCallback(update.callback_query, chatId, deps);
   }
 
@@ -247,28 +278,37 @@ async function respond(
   if (!message) return { action: "unsupported" };
 
   const awaited = await respondToAwaitedInput(message, chatId, deps);
-  if (awaited) return awaited;
+  if (awaited?.kind === "answered") return awaited.outcome;
 
-  return capture(update.update_id, message, chatId, deps);
+  return processMessage(update.update_id, message, chatId, deps, {
+    fixDraftId: awaited?.kind === "draft_fix" ? awaited.draftHandleId : undefined,
+  });
 }
 
+type AwaitedInput =
+  | { kind: "answered"; outcome: RespondOutcome }
+  /** После «✏️ Исправить»: сообщение — поправка к этому черновику. */
+  | { kind: "draft_fix"; draftHandleId: string };
+
 /**
- * Ответ на «пришлите новое название следующим сообщением».
+ * Ответ на заданный вопрос: «пришлите новое название» или «что поправить?».
  *
- * null — ожидания не было, сообщение идёт обычным путём в захват. Проверка
- * стоит перед моделью намеренно: ответ на заданный вопрос разбирать нечем,
- * это готовое значение поля.
+ * null — ожидания не было, сообщение идёт обычным путём. Проверка стоит перед
+ * моделью намеренно: ответ на заданный вопрос разбирать нечем, это готовое
+ * значение поля.
  */
 async function respondToAwaitedInput(
   message: TelegramMessage,
   chatId: number,
   deps: HandleUpdateDeps
-): Promise<RespondOutcome | null> {
+): Promise<AwaitedInput | null> {
   const text = message.text?.trim();
-  if (!text) {
-    // Голосовое, картинка, пересылка — ответом на «пришлите новое название»
-    // они быть не могут, а вопрос при этом снимают: иначе ожидание досталось бы
-    // следующему тексту, который к той карточке уже никакого отношения не имеет.
+  const audio = Boolean(message.voice ?? message.audio);
+
+  if (!text && !audio) {
+    // Картинка, файл — ответом они быть не могут, а вопрос при этом снимают:
+    // иначе ожидание досталось бы следующему тексту, который к той карточке
+    // уже никакого отношения не имеет.
     await deps.cancelAwaitInput(chatId);
     return null;
   }
@@ -276,88 +316,170 @@ async function respondToAwaitedInput(
   const pending = await deps.takeAwaitInput(chatId);
   if (!pending) return null;
 
+  // Поправку можно надиктовать — голос здесь принимается.
+  const fix = parseDraftFix(pending.payload);
+  if (fix) return { kind: "draft_fix", draftHandleId: fix.draftHandleId };
+
+  // Новое название голосом не принимаем: ожидание уже забрано (то есть
+  // погашено), а голосовое идёт обычным путём, в черновик.
   const input = parseAwaitInput(pending.payload);
-  if (!input) return null;
+  if (!input || !text) return null;
 
   const outcome = await applyAwaitedInput(input, text, deps);
   await showCard(chatId, pending.messageId ?? undefined, outcome.card, deps);
-  return { action: "edit" };
+  return { kind: "answered", outcome: { action: "edit" } };
 }
 
+/* ── сообщение: вход → маршрут → ответ ────────────────────────────────────── */
+
 /**
- * Основной путь: текст или голосовое → задачи на доске.
+ * Основной путь. Сначала заглушка — модель отвечает секунды, и без неё
+ * кажется, что бот молчит. Дальше она правится в ответ: карточку черновика,
+ * ответ по доске, карточку поиска.
  *
- * Разбор не бросает: модель может не ответить, и тогда пользователь получает
- * карточку «сохранил, но не разобрал» с кнопкой повтора, а апдейт помечается
- * в журнале как failed.
+ * Сбои модели не бросают: заглушка становится «не разобрал» с кнопкой
+ * повтора, а апдейт помечается в журнале как failed.
  */
-async function capture(
+async function processMessage(
   updateId: number,
   message: TelegramMessage,
   chatId: number,
-  deps: HandleUpdateDeps
+  deps: HandleUpdateDeps,
+  options: { placeholderId?: number; fixDraftId?: string } = {}
 ): Promise<RespondOutcome> {
-  const read = await readMessage(message, deps);
+  const placeholderId = await showPlaceholder(chatId, options.placeholderId, deps);
 
-  if (read.error) {
-    await sendRetryCard(chatId, updateId, read.error, deps);
-    return { action: "voice", error: read.error };
+  try {
+    return await routeMessage(updateId, message, chatId, placeholderId, deps, options);
+  } catch (error) {
+    // Заглушка уже в чате: необработанное исключение оставило бы «Разбираю…»
+    // висеть навсегда. Повтор берёт апдейт из журнала, так что кнопка рабочая.
+    const reason = error instanceof Error ? error.message : INTERNAL_ERROR;
+    try {
+      await showCard(chatId, placeholderId, retryCard(updateId, INTERNAL_ERROR), deps);
+    } catch {
+      // Bot API недоступен — сказать нечем; апдейт всё равно помечается failed.
+    }
+    return { action: "draft", error: reason };
+  }
+}
+
+async function routeMessage(
+  updateId: number,
+  message: TelegramMessage,
+  chatId: number,
+  placeholderId: number,
+  deps: HandleUpdateDeps,
+  options: { fixDraftId?: string }
+): Promise<RespondOutcome> {
+  const read = await deps.readInbound(message);
+  if (!read.ok) {
+    await showCard(chatId, placeholderId, retryCard(updateId, read.error), deps);
+    return { action: "draft", error: read.error };
   }
 
-  if (!read.text) {
-    await deps.client.sendMessage({
+  const inbound = read.inbound;
+  if (!inbound.text) {
+    await showCard(
       chatId,
-      text:
-        "Пока понимаю только текст и голосовые.\n" +
-        "Сообщение сохранено — картинки, файлы и пересылки разберу позже.",
-    });
+      placeholderId,
+      {
+        text: inbound.hasUnreadableMedia
+          ? "Картинки и файлы пока не читаю — добавьте подпись."
+          : "Пока понимаю текст, голосовые, пересылки и ссылки.",
+      },
+      deps
+    );
     return { action: "unsupported" };
   }
 
-  const result = await captureMessage(read.text, deps);
+  const base = (route: RouteDecision): MessageContext => ({
+    updateId,
+    chatId,
+    placeholderId,
+    inbound,
+    parsed: { route, ...(inbound.transcript ? { transcript: inbound.transcript } : {}) },
+  });
 
-  /*
-   * Вопрос и рассказ о сделанном уводят в поиск, а не в создание.
-   * «ответил по вэду» обязано показать существующую задачу с кнопкой: завести
-   * из этой фразы вторую такую же — значит насорить на доске ровно там, где
-   * человек хотел прибраться. Закрывает задачу всё равно кнопка, а не фраза.
-   */
-  if (result.status === "captured" && result.tasks.length === 0) {
-    const question = result.questions[0];
-    if (question) {
-      const outcome = await runSearch(
-        {
-          query: question.text,
-          chatId,
-          looksDone: question.done,
-          // «Нет, это новая задача» — та же кнопка, что и у карточки захвата:
-          // она заводит задачу из исходного текста без разбора.
-          createAnywayCallback: captureCallback("astask", updateId),
-        },
-        deps
-      );
-      await showCard(chatId, undefined, outcome.card, deps);
-      return {
-        action: "search",
-        error: failureReason(result),
-        parsed: parsedSummary(result, read.transcript),
-      };
+  // «✏️ Исправить» уже сказал, что это поправка: Jev не спрашиваем.
+  if (options.fixDraftId) {
+    const open = await loadDraft(options.fixDraftId, deps);
+    if (open) {
+      return correctDraft(open, base({ route: "capture", correction: true, source: "rule" }), deps);
     }
   }
 
-  const card = renderCaptureCard(result, { updateId, transcript: read.transcript });
-  await deps.client.sendMessage({
-    chatId,
-    text: card.text,
-    replyMarkup: card.replyMarkup,
-  });
+  const open = await loadOpenDraft(chatId, deps);
+  const route = await deps.decideRoute(
+    inbound,
+    open ? { summary: draftSummary(open.draft), createdAt: new Date(open.draft.createdAt) } : null
+  );
+  const context = base(route);
 
-  return {
-    action: read.transcript ? "voice" : "capture",
-    error: failureReason(result),
-    parsed: parsedSummary(result, read.transcript),
-  };
+  // «Отправляй» — черновик заново внизу чата, с кнопками. Ничего не применяется.
+  if (route.confirm) return resendDraft(open, context, deps);
+
+  // Поправка без открытого черновика (его уже отправили или отменили) —
+  // обычная новая запись: править нечего.
+  if (route.correction && open) return correctDraft(open, context, deps);
+
+  switch (route.route) {
+    case "capture":
+    case "forward":
+      // Открытый черновик остаётся как есть: его кнопки работают до срока.
+      return captureDraft(context, deps);
+    case "ask_board":
+      return askBoard(context, deps);
+    case "find_task":
+      return findTask(context, deps);
+    case "smalltalk":
+      await showCard(chatId, placeholderId, { text: helpText() }, deps);
+      return { action: "smalltalk", parsed: context.parsed };
+  }
 }
+
+/** Вопрос о доске: агент только с читающими инструментами, ответ — текстом. */
+async function askBoard(context: MessageContext, deps: HandleUpdateDeps): Promise<RespondOutcome> {
+  const { chatId, placeholderId } = context;
+
+  const board = await deps.loadBoard();
+  if (!board) {
+    await showCard(chatId, placeholderId, { text: NO_PROJECTS }, deps);
+    return { action: "ask_board", parsed: context.parsed };
+  }
+
+  const snapshot = await loadSnapshot(board.environment.id, deps);
+  const answer = await deps.answerBoardQuestion(context.inbound.text, {
+    environmentId: board.environment.id,
+    today: deps.today(),
+    ...(snapshot ? { board: snapshot } : {}),
+  });
+  if (!answer.ok) {
+    await showCard(
+      chatId,
+      placeholderId,
+      { text: `Не получилось ответить: ${field(answer.error, REASON_LIMIT)}` },
+      deps
+    );
+    return { action: "ask_board", error: answer.error, parsed: context.parsed };
+  }
+
+  await showCard(chatId, placeholderId, { text: answer.html }, deps);
+  return { action: "ask_board", parsed: context.parsed };
+}
+
+/**
+ * Про одну задачу: найти → показать → нажать кнопку. Закрыть или перенести по
+ * фразе бот не может — только показать карточку с кнопками.
+ */
+async function findTask(context: MessageContext, deps: HandleUpdateDeps): Promise<RespondOutcome> {
+  const { query, done } = await deps.extractSearchQuery(context.inbound.text);
+  const outcome = await runSearch({ query, chatId: context.chatId, looksDone: done }, deps);
+  await showCard(context.chatId, context.placeholderId, outcome.card, deps);
+  return { action: "find_task", parsed: { ...context.parsed, query } };
+}
+
+/* ── кнопки ───────────────────────────────────────────────────────────────── */
 
 async function respondToCallback(
   query: NonNullable<TelegramUpdate["callback_query"]>,
@@ -367,55 +489,45 @@ async function respondToCallback(
   const action = parseTaskCallback(query.data);
   if (action) return respondToTaskCallback(action, query, chatId, deps);
 
-  const pressed = parseCaptureCallback(query.data);
+  const pressed = parseDraftCallback(query.data);
+  if (pressed) return respondToDraftCallback(pressed, query, chatId, deps);
 
-  if (!pressed) {
-    await deps.client.sendMessage({
-      chatId,
-      text:
-        "Эта кнопка мне незнакома — возможно, она из старой версии бота.\n" +
-        "Найдите задачу заново: напишите, например, «найди задачи по вэду».",
-    });
-    return { action: "callback" };
-  }
-
-  const stored = await deps.loadUpdate(pressed.updateId);
-  const message = stored ? updateMessage(stored) : undefined;
-
-  if (!message) {
-    await deps.client.sendMessage({
-      chatId,
-      text: "Не нашёл исходное сообщение в журнале — пришлите его ещё раз.",
-    });
-    return { action: "callback" };
-  }
-
-  if (pressed.action === "retry") {
-    const outcome = await capture(pressed.updateId, message, chatId, deps);
-    return { ...outcome, action: "callback" };
-  }
-
-  // «Задачей как есть»: разбор пропускается целиком, в заголовок идёт текст
-  // сообщения. Для голосового его всё же приходится расшифровать.
-  const read = await readMessage(message, deps);
-  if (read.error || !read.text) {
-    const reason = read.error ?? "в сообщении нет текста";
-    await sendRetryCard(chatId, pressed.updateId, reason, deps);
-    return { action: "callback", error: read.error };
-  }
-
-  const result = await createTaskFromText(read.text, deps);
-  const card = renderCaptureCard(result, {
-    updateId: pressed.updateId,
-    transcript: read.transcript,
-  });
   await deps.client.sendMessage({
     chatId,
-    text: card.text,
-    replyMarkup: card.replyMarkup,
+    text:
+      "Эта кнопка мне незнакома — возможно, она из старой версии бота.\n" +
+      "Пришлите сообщение заново или напишите, например, «найди задачу про вэд».",
   });
+  return { action: "callback" };
+}
 
-  return { action: "callback", error: failureReason(result) };
+/**
+ * Кнопки черновика. «Попробовать ещё раз» заново проводит сообщение из
+ * журнала; «Отправить», «Исправить» и «Отмена» — в `draft-flow.ts`.
+ */
+async function respondToDraftCallback(
+  pressed: DraftCallback,
+  query: NonNullable<TelegramUpdate["callback_query"]>,
+  chatId: number,
+  deps: HandleUpdateDeps
+): Promise<RespondOutcome> {
+  const messageId = query.message?.message_id;
+
+  if (pressed.action === "retry") {
+    const stored = await deps.loadUpdate(pressed.updateId);
+    const message = stored ? updateMessage(stored) : undefined;
+    if (!message) {
+      await deps.client.sendMessage({
+        chatId,
+        text: "Не нашёл исходное сообщение в журнале — пришлите его ещё раз.",
+      });
+      return { action: "callback" };
+    }
+    // Повтор идёт в той же карточке: она снова становится заглушкой.
+    return processMessage(pressed.updateId, message, chatId, deps, { placeholderId: messageId });
+  }
+
+  return respondToDraftButton(pressed, query.message, chatId, deps);
 }
 
 /**
@@ -450,106 +562,20 @@ async function respondToTaskCallback(
   return { action: "callback" };
 }
 
-/**
- * Показать карточку: правкой сообщения, если известно какого, иначе новым.
- *
- * Отсутствие `reply_markup` в editMessageText снимает клавиатуру — на этом
- * держится снятие кнопок у удалённой задачи и у протухшего сообщения.
- */
-async function showCard(
+/* ── сообщения ────────────────────────────────────────────────────────────── */
+
+/** Заглушка: новым сообщением или (при повторе) правкой той же карточки. */
+async function showPlaceholder(
   chatId: number,
   messageId: number | undefined,
-  card: TaskCard,
   deps: HandleUpdateDeps
-): Promise<void> {
-  if (messageId === undefined) {
-    await deps.client.sendMessage({
-      chatId,
-      text: card.text,
-      replyMarkup: card.replyMarkup,
-    });
-    return;
+): Promise<number> {
+  if (messageId !== undefined) {
+    await showCard(chatId, messageId, { text: PLACEHOLDER_TEXT }, deps);
+    return messageId;
   }
-
-  try {
-    await deps.client.editMessageText({
-      chatId,
-      messageId,
-      text: card.text,
-      replyMarkup: card.replyMarkup,
-    });
-  } catch (error) {
-    // «Message is not modified» — не сбой: пользователь нажал кнопку,
-    // которая ничего не изменила. Ронять из-за неё обработку апдейта нельзя.
-    if (!isNotModified(error)) throw error;
-  }
-}
-
-function isNotModified(error: unknown): boolean {
-  return (
-    error instanceof TelegramApiError &&
-    error.status === 400 &&
-    /message is not modified/i.test(error.description)
-  );
-}
-
-/** Текст сообщения: у голосового — расшифровка, у остального — text или caption. */
-async function readMessage(
-  message: TelegramMessage,
-  deps: HandleUpdateDeps
-): Promise<{ text?: string; transcript?: string; error?: string }> {
-  const voice = message.voice;
-  if (!voice) {
-    const text = (message.text ?? message.caption)?.trim();
-    return { text: text || undefined };
-  }
-
-  if (voice.file_size !== undefined && voice.file_size > TELEGRAM_FILE_LIMIT) {
-    return { error: "голосовое длиннее 20 МБ — столько Telegram скачать не даёт" };
-  }
-
-  try {
-    const file = await deps.client.getFile(voice.file_id);
-    if (!file.file_path) return { error: "Telegram не отдал путь к файлу" };
-
-    const bytes = await deps.client.downloadFile(file.file_path);
-    if (bytes.byteLength > TRANSCRIBE_MAX_BYTES) {
-      return { error: "голосовое слишком большое для расшифровки" };
-    }
-
-    // Имя файла обязательно: Whisper определяет контейнер по расширению,
-    // безымянный Blob получает 400 «could not process file».
-    const transcript = (await deps.transcribe(voiceFile(bytes))).trim();
-    if (!transcript) return { error: "в голосовом не разобрал ни слова" };
-
-    return { text: transcript, transcript };
-  } catch (error) {
-    return { error: error instanceof Error ? error.message : "не смог расшифровать голосовое" };
-  }
-}
-
-async function sendRetryCard(
-  chatId: number,
-  updateId: number,
-  reason: string,
-  deps: HandleUpdateDeps
-): Promise<void> {
-  await deps.client.sendMessage({
-    chatId,
-    text: `Сохранил сообщение, но не разобрал: ${escapeHtml(reason)}.`,
-    replyMarkup: {
-      inline_keyboard: [
-        [{ text: "↻ Попробовать ещё раз", callback_data: captureCallback("retry", updateId) }],
-      ],
-    },
-  });
-}
-
-/** Причина, из-за которой апдейт нужно пометить в журнале как failed. */
-function failureReason(result: CaptureResult): string | undefined {
-  if (result.status === "failed") return result.reason;
-  if (result.status === "captured") return result.warning;
-  return undefined;
+  const sent = await deps.client.sendMessage({ chatId, text: PLACEHOLDER_TEXT });
+  return sent.message_id;
 }
 
 /** «/start@constance_bot arg» → «start». Не команда — undefined. */
@@ -563,20 +589,20 @@ async function startText(deps: HandleUpdateDeps): Promise<string> {
   const board = await deps.loadBoard();
   const project = board
     ? `Активный проект: <b>${escapeHtml(board.environment.name)}</b>` +
-      (board.columns[0] ? `, задачи кладу в «${escapeHtml(board.columns[0].title)}»` : "")
-    : "Проектов пока нет — создайте первый на доске.";
+      (board.columns[0] ? `, новые задачи кладу в «${escapeHtml(board.columns[0].title)}»` : "")
+    : NO_PROJECTS;
 
   return [
-    "Привет! Я складываю задачи в Constance.",
+    "Привет! Я записываю дела и мысли в Constance.",
     "",
     project,
     "",
-    "Пришлите текст или голосовое — разберу на задачи и положу на доску.",
-    "Несколько дел в одном сообщении — несколько задач; срок и «срочно» понимаю.",
+    "Присылайте что угодно — текст, голосовое, пересылку, ссылку. Я покажу черновик:",
+    "задачи, подзадачи, заметки. На доску ничего не попадёт, пока не нажмёте «Отправить»;",
+    "«Исправить» — поправить словами или голосом.",
     "",
-    "Спросите «найди задачи по вэду» — покажу найденное с кнопками:",
-    "закрыть, поставить срок, сменить эпик, приоритет, колонку или проект.",
-    "Сам я задачи не закрываю: только по нажатию кнопки.",
+    "Спросите «что у меня на сегодня» — отвечу по доске.",
+    "«найди задачу про слайды» — покажу задачу с кнопками. Закрываю только по нажатию.",
   ].join("\n");
 }
 
@@ -585,30 +611,26 @@ function helpText(): string {
     "Команды:",
     ...BOT_COMMANDS.map((c) => `/${c.command} — ${c.description}`),
     "",
-    "Обычное сообщение или голосовое я разбираю на задачи сам.",
-    "Примеры: «сходить к суровцеву, заполнить итмо» — две задачи;",
-    "«контроль за ВШЭ кейсы до 25.08» — задача со сроком.",
+    "Текст, голосовое, пересылка или ссылка → черновик с кнопками",
+    "«Отправить», «Исправить», «Отмена». Без «Отправить» ничего не пишу.",
     "",
-    "«найди задачи по вэду» — покажу найденное с кнопками.",
-    "«ответил по вэду» — тоже поиск: закрою только по нажатию кнопки.",
+    "«что у меня на сегодня» — отвечу по доске.",
+    "«найди задачу про …» — покажу задачу с кнопками.",
   ].join("\n");
 }
 
 /**
- * Сухой прогон захвата: разбирать и показывать, но задач на доске не заводить.
- *
- * Включается, пока отлаживается качество разбора: боевая доска не должна
- * набиваться задачами, которые модель поняла неправильно. На чтение доски,
- * поиск и кнопки управления существующими задачами не влияет — только на
- * создание новых.
- *
- * Значением считается всё, кроме пустой строки, «0», «false» и «off»: режим
- * защитный, и при непонятном значении честнее не писать в доску, чем писать.
+ * «Сегодня» для агентов бота — по Москве, где живёт владелец. Сервер в UTC, и
+ * с полуночи до трёх ночи «на сегодня» и «до завтра» считались бы от вчера.
  */
-export function captureDryRunFromEnv(): boolean {
-  const raw = process.env.TELEGRAM_CAPTURE_DRY_RUN?.trim().toLowerCase();
-  if (!raw) return false;
-  return !["0", "false", "off", "no"].includes(raw);
+export function botToday(now: Date = new Date()): string {
+  // en-CA форматирует дату как YYYY-MM-DD.
+  return new Intl.DateTimeFormat("en-CA", {
+    timeZone: "Europe/Moscow",
+    year: "numeric",
+    month: "2-digit",
+    day: "2-digit",
+  }).format(now);
 }
 
 /** Разрешённый чат из окружения. Не задан или мусор — бот молчит для всех. */
@@ -619,38 +641,35 @@ export function allowedChatIdFromEnv(): number | undefined {
   return Number.isSafeInteger(parsed) ? parsed : undefined;
 }
 
-/**
- * Доска для захвата. Активной средой у бота считается первая по позиции:
- * cookie с выбранной средой есть только у браузера.
- */
-export async function loadCaptureBoard(): Promise<CaptureBoardData | null> {
+/** Активная среда бота: первая по позиции. */
+export async function loadBotBoard(): Promise<BotBoard | null> {
   const environments = await getEnvironments();
   const environment = environments[0];
   if (!environment) return null;
 
-  const [columns, epics] = await Promise.all([
-    getColumns(environment.id),
-    getCategories(environment.id),
-  ]);
-
+  const columns = await getColumns(environment.id);
   return {
     environment: { id: environment.id, name: environment.name },
-    environmentNames: environments.map((e) => e.name),
     columns: columns.map((c) => ({ id: c.id, title: c.title })),
-    epics: epics.map((e) => ({ id: e.id, name: e.name })),
   };
 }
 
 /**
- * Зависимости по умолчанию — настоящие клиент, база и настройки.
+ * Зависимости по умолчанию — настоящие клиент, база и модели.
  *
  * deadlineAt — момент, когда платформа убьёт функцию: клиент Bot API не станет
  * ждать флуд-лимит дольше, чем ей осталось жить. Клиент создаётся на запрос,
  * а не берётся из синглтона, именно из-за этого: дедлайн у каждого свой.
+ * Агенты захвата и вопроса к доске получают тот же дедлайн минус запас на
+ * ответ: не успели — отдают успетое, а не умирают вместе с функцией.
  */
 export function defaultDeps(options: { deadlineAt?: number } = {}): TelegramDeps {
+  const client = createTelegramClient({ deadlineAt: options.deadlineAt });
+  const agentDeadlineAt =
+    options.deadlineAt === undefined ? undefined : options.deadlineAt - REPLY_RESERVE_MS;
+
   return {
-    client: createTelegramClient({ deadlineAt: options.deadlineAt }),
+    client,
     recordUpdate,
     markProcessed: markUpdateProcessed,
     markFailed: markUpdateFailed,
@@ -658,12 +677,30 @@ export function defaultDeps(options: { deadlineAt?: number } = {}): TelegramDeps
       const row = await getUpdate(updateId);
       return (row?.payload as TelegramUpdate | undefined) ?? null;
     },
-    loadBoard: loadCaptureBoard,
-    captureItems: (text, board) => captureItemsWithModel({ text, board }),
-    createTask: (input) => createTask(input),
-    dryRun: captureDryRunFromEnv(),
-    transcribe: (file) => transcribeAudio(file),
+    loadBoard: loadBotBoard,
+    loadBoardSnapshot: (environmentId) => loadPromptBoard(environmentId),
     allowedChatId: allowedChatIdFromEnv(),
+
+    // Проход сообщения: вход → маршрут → черновик / ответ / поиск.
+    readInbound: (message) =>
+      readInbound(message, {
+        client,
+        transcribe: (file) => transcribeAudio(file),
+        fetchPreview: (url) => fetchLinkPreview(url),
+      }),
+    decideRoute: (inbound, openDraft) => decideRoute(inbound, openDraft, { askJev }),
+    buildDraft: (input) => buildDraft(input, { runAgent, deadlineAt: agentDeadlineAt }),
+    answerBoardQuestion: (text, input) =>
+      answerBoardQuestion(text, input, { runAgent, deadlineAt: agentDeadlineAt }),
+    extractSearchQuery: (text) => extractSearchQuery(text),
+    // Тот же набор, что был у агента захвата: подменённый или устаревший
+    // payload не исполнит инструмент, которого агенту не выдавали.
+    applyCalls: (calls) => applyAgentCalls(calls, captureTools()),
+    findActiveHandle: (chatId, kind) => findActiveHandle(chatId, kind),
+    updateHandle: (id, patch) => updateHandle(id, patch),
+    claimHandle: (id) => claimHandle(id),
+    cancelHandle: (id) => cancelHandle(id),
+    today: () => botToday(),
 
     // Управление задачами: найти → показать → нажать кнопку.
     getTask: (taskId) => getTaskDetails(taskId),
@@ -679,7 +716,7 @@ export function defaultDeps(options: { deadlineAt?: number } = {}): TelegramDeps
         id: environment.id,
         name: environment.name,
       })),
-    searchTasks: (query, limit) => searchTasks(query, { limit }),
+    searchTasks: (query, limit) => searchTasksByWords(query, { limit }),
     completeTask: (taskId) => completeTask(taskId),
     restoreTask: (taskId) => restoreTask(taskId),
     updateTask: (taskId, patch) => updateTask(taskId, patch),
