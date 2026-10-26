@@ -10,6 +10,7 @@ import { createTelegramClient, escapeHtml, type TelegramClient } from "@/lib/tel
 import {
   draftSummary,
   parseCaptureContext,
+  restatesDraft,
   parseDraftCallback,
   parseDraftFix,
   type DraftCallback,
@@ -19,7 +20,9 @@ import {
   captureDraft,
   correctDraft,
   loadDraft,
+  loadDraftByMessage,
   loadOpenDraft,
+  loadOpenDrafts,
   loadSnapshot,
   NO_PROJECTS,
   resendDraft,
@@ -30,6 +33,14 @@ import {
   type MessageContext,
 } from "@/lib/telegram/draft-flow";
 import { field } from "@/lib/telegram/format";
+import {
+  buildConversation,
+  continuesNumbering,
+  CONVERSATION_MAX_AGE_MIN,
+  CONVERSATION_MAX_UPDATES,
+  type JournalRow,
+  type Turn,
+} from "@/lib/telegram/conversation";
 import {
   asksAboutAttachment,
   attachmentMemory,
@@ -78,12 +89,15 @@ import {
   claimHandle,
   createHandle,
   findActiveHandle,
+  findHandleByMessage,
   getHandle,
+  listActiveHandles,
   takeAwaitInput,
   updateHandle,
 } from "@/lib/services/tg-handles";
 import {
   getUpdate,
+  listRecentUpdates,
   markUpdateFailed,
   markUpdateProcessed,
   recordUpdate,
@@ -145,11 +159,17 @@ export type HandleUpdateDeps = ManageDeps & DraftFlowDeps & {
   ) => Promise<{ payload: unknown; messageId: number | null } | null>;
 
   readInbound: (message: TelegramMessage) => ReturnType<typeof readInbound>;
-  decideRoute: (inbound: Inbound, openDraft: OpenDraftHint | null) => Promise<RouteDecision>;
+  decideRoute: (
+    inbound: Inbound,
+    openDraft: OpenDraftHint | null,
+    conversation?: Turn[]
+  ) => Promise<RouteDecision>;
   answerBoardQuestion: (
     text: string,
-    input: { environmentId: string; today: string; board?: PromptBoard }
+    input: { environmentId: string; today: string; board?: PromptBoard; conversation?: Turn[] }
   ) => ReturnType<typeof answerBoardQuestion>;
+  /** Журнал чата не старше `since`, новые первыми — память разговора. */
+  loadRecentUpdates: (chatId: number, since: Date, limit: number) => Promise<JournalRow[]>;
   extractSearchQuery: (text: string) => Promise<{ query: string; done: boolean }>;
 };
 
@@ -418,17 +438,29 @@ async function routeMessage(
     return { action: "unsupported" };
   }
 
-  const base = (route: RouteDecision, captureContext?: string): MessageContext => ({
+  // Память разговора и открытые черновики: агент и Jev видят, что было
+  // минуты назад («это в дополнении к двум задачам выше», «3., 4. …»).
+  const conversation = await loadConversation(chatId, updateId, deps);
+  const openDrafts = await loadOpenDrafts(chatId, deps);
+
+  const base = (
+    route: RouteDecision,
+    captureContext?: string,
+    input: Inbound = inbound
+  ): MessageContext => ({
     updateId,
     chatId,
     placeholderId,
-    inbound,
+    inbound: input,
     parsed: {
       route,
       ...(inbound.transcript ? { transcript: inbound.transcript } : {}),
       ...(captureContext ? { captureContext } : {}),
     },
+    ...(conversation.length ? { conversation } : {}),
+    ...(openDrafts.length ? { openDrafts } : {}),
   });
+  const byRule: RouteDecision = { route: "capture", correction: true, source: "rule" };
 
   // «✏️ Исправить» уже сказал, что это поправка: Jev не спрашиваем.
   if (options.fixDraftId) {
@@ -450,10 +482,45 @@ async function routeMessage(
     );
   }
 
+  // Ответ (reply) на карточку живого черновика — поправка именно к нему, в
+  // любом возрасте. Jev спрашиваем только про «отправляй»: черновик для него
+  // «свежий» (ответили на него сейчас). Текст карточки агенту не нужен — сам
+  // черновик и так в истории поправки.
+  const replied = inbound.replyTo
+    ? await loadDraftByMessage(chatId, inbound.replyTo.messageId, deps)
+    : null;
+  if (replied && !inbound.attachments?.length) {
+    const plain: Inbound = {
+      ...inbound,
+      replyTo: { messageId: inbound.replyTo!.messageId, fromBot: inbound.replyTo!.fromBot },
+    };
+    const asked = await deps.decideRoute(
+      plain,
+      { summary: draftSummary(replied.draft), createdAt: deps.now?.() ?? new Date() },
+      conversation
+    );
+    if (asked.confirm) return resendDraft(replied, base(asked, undefined, plain), deps);
+    return correctDraft(replied, base(byRule, undefined, plain), deps);
+  }
+
+  // Список, продолжающий нумерацию открытого черновика («3. …» после «1.»,
+  // «2.»), — его продолжение: правим тот черновик, а не заводим параллельный.
+  if (!inbound.attachments?.length && !inbound.forward) {
+    const continued = openDrafts.find((open) =>
+      continuesNumbering(inbound.text, [open.draft.source.text, ...open.draft.corrections])
+    );
+    if (continued) return correctDraft(continued, base(byRule), deps);
+    // Список, пересказывающий пункты открытого черновика («вот эти подзадачи
+    // добавим в …» + его пункты), — просьба переделать именно его.
+    const restated = openDrafts.find((open) => restatesDraft(inbound.text, open.draft.calls));
+    if (restated) return correctDraft(restated, base(byRule), deps);
+  }
+
   const open = await loadOpenDraft(chatId, deps);
   const route = await deps.decideRoute(
     inbound,
-    open ? { summary: draftSummary(open.draft), createdAt: new Date(open.draft.createdAt) } : null
+    open ? { summary: draftSummary(open.draft), createdAt: new Date(open.draft.createdAt) } : null,
+    conversation
   );
   const context = base(route);
 
@@ -559,6 +626,7 @@ async function askBoard(context: MessageContext, deps: HandleUpdateDeps): Promis
     environmentId: board.environment.id,
     today: deps.today(),
     ...(snapshot ? { board: snapshot } : {}),
+    ...(context.conversation?.length ? { conversation: context.conversation } : {}),
   });
   if (!answer.ok) {
     await showCard(
@@ -571,7 +639,45 @@ async function askBoard(context: MessageContext, deps: HandleUpdateDeps): Promis
   }
 
   await showCard(chatId, placeholderId, { text: answer.html }, deps);
-  return { action: "ask_board", parsed: context.parsed };
+  // Короткий пересказ ответа — для памяти разговора: следующий вопрос
+  // («а по второй подробнее») опирается на него.
+  return { action: "ask_board", parsed: { ...context.parsed, reply: plainReply(answer.html) } };
+}
+
+/** HTML ответа → простой текст до 500 знаков для журнала. */
+function plainReply(html: string): string {
+  const text = html
+    .replace(/<[^>]+>/g, "")
+    .replace(/&lt;/g, "<")
+    .replace(/&gt;/g, ">")
+    .replace(/&quot;/g, '"')
+    .replace(/&amp;/g, "&")
+    .trim();
+  const chars = Array.from(text);
+  return chars.length <= 500 ? text : `${chars.slice(0, 499).join("")}…`;
+}
+
+/**
+ * Недавний разговор чата по журналу. Сбой базы — пустой разговор: без памяти
+ * сообщение разбирается как раньше, а не падает.
+ */
+async function loadConversation(
+  chatId: number,
+  updateId: number,
+  deps: HandleUpdateDeps
+): Promise<Turn[]> {
+  const now = deps.now?.() ?? new Date();
+  try {
+    const rows = await deps.loadRecentUpdates(
+      chatId,
+      new Date(now.getTime() - CONVERSATION_MAX_AGE_MIN * 60_000),
+      CONVERSATION_MAX_UPDATES + 1
+    );
+    return buildConversation(rows, { currentUpdateId: updateId, now });
+  } catch (error) {
+    console.warn("[telegram] не прочитал разговор", error);
+    return [];
+  }
 }
 
 /**
@@ -794,7 +900,9 @@ export function defaultDeps(options: { deadlineAt?: number } = {}): TelegramDeps
         transcribe: (file) => transcribeAudio(file),
         fetchPreview: (url) => fetchLinkPreview(url),
       }),
-    decideRoute: (inbound, openDraft) => decideRoute(inbound, openDraft, { askJev }),
+    decideRoute: (inbound, openDraft, conversation) =>
+      decideRoute(inbound, openDraft, { askJev }, conversation),
+    loadRecentUpdates: (chatId, since, limit) => listRecentUpdates(chatId, since, limit),
     buildDraft: (input) => buildDraft(input, { runAgent, deadlineAt: agentDeadlineAt }),
     answerBoardQuestion: (text, input) =>
       answerBoardQuestion(text, input, { runAgent, deadlineAt: agentDeadlineAt }),
@@ -802,7 +910,9 @@ export function defaultDeps(options: { deadlineAt?: number } = {}): TelegramDeps
     // Тот же набор, что был у агента захвата: подменённый или устаревший
     // payload не исполнит инструмент, которого агенту не выдавали.
     applyCalls: (calls) => applyAgentCalls(calls, captureTools()),
-    findActiveHandle: (chatId, kind) => findActiveHandle(chatId, kind),
+    findActiveHandle: (chatId, kind, accept) => findActiveHandle(chatId, kind, accept),
+    listActiveHandles: (chatId, kind) => listActiveHandles(chatId, kind),
+    findHandleByMessage: (chatId, messageId, kind) => findHandleByMessage(chatId, messageId, kind),
     updateHandle: (id, patch) => updateHandle(id, patch),
     claimHandle: (id) => claimHandle(id),
     cancelHandle: (id) => cancelHandle(id),

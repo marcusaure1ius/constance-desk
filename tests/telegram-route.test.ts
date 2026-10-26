@@ -1,5 +1,6 @@
 import { describe, it, expect, vi } from "vitest";
 import {
+  bareConfirm,
   CONFIRM_INSTRUCTIONS,
   decideRoute,
   INTENT_CRITERIA,
@@ -323,5 +324,112 @@ describe("decideRoute", () => {
       expect(d).toMatchObject({ route: "capture", source: "fallback" });
       expect(d).not.toHaveProperty("intentOnly");
     });
+  });
+});
+
+/** Живой случай 714077403: просьба переделать черновик со списком — Jev ответил «отправляй» 0.97. */
+const LIVE_403 =
+  "Давай вот эти подзадачи добавим в создание ии-агента по почте\n\n" +
+  "1. Задача «Разобраться, может ли визуальная модель читать картинки и таблицы во вложениях»\n" +
+  "2. Задача «Собрать прототип агента без коннектора и показать на следующей встрече»\n" +
+  "6. Задача «Узнать про групповые ящики в MCP-сервере, доработку ждут в ноябре»";
+
+function jevAnswers(answers: Record<string, number>, route = "capture"): ReturnType<typeof vi.fn> {
+  return vi.fn().mockResolvedValue({
+    answers: {
+      route: { type: "choice", choice: route, confidence: 0.95, probabilities: { [route]: 0.95 } },
+      ...Object.fromEntries(
+        Object.entries(answers).map(([name, noul]) => [name, { type: "noul", noul }])
+      ),
+    },
+    latencyMs: 300,
+  });
+}
+
+describe("«отправляй» — только без нового содержания", () => {
+  it("bareConfirm: короткие «отправляй» — да; список и просьба переделать — нет", () => {
+    for (const text of ["да, отправляй", "ок, на доску", "Все, отправляй короче на доску. Пофиг.",
+      "Ну, нет, команда, вот, отправляй, отправляй сообщение. Точнее, задачу отправляй."]) {
+      expect(bareConfirm(text), text).toBe(true);
+    }
+    for (const text of [LIVE_403, "отправляй, но сделай их подзадачами", "1. отправляй"]) {
+      expect(bareConfirm(text), text).toBe(false);
+    }
+  });
+
+  it("714077403: Jev сказал «отправляй» 0.97, а это поправка к черновику", async () => {
+    const ask = jevAnswers({ confirm: 0.97, correction: 0.4, intent: 0.1 });
+    const d = await decideRoute(inbound({ text: LIVE_403 }), DRAFT, { askJev: ask as unknown as Ask });
+    expect(d.confirm).toBeUndefined();
+    expect(d.correction).toBe(true);
+    expect(d.intentOnly).toBeUndefined();
+  });
+
+  it("«да, отправляй» по-прежнему confirm", async () => {
+    const ask = jevAnswers({ confirm: 0.92, correction: 0.2 });
+    const d = await decideRoute(inbound({ text: "да, отправляй" }), DRAFT, { askJev: ask as unknown as Ask });
+    expect(d.confirm).toBe(true);
+  });
+
+  it("вопрос confirm требует «КАК ЕСТЬ, без изменений»", () => {
+    expect(CONFIRM_INSTRUCTIONS).toContain("КАК ЕСТЬ");
+    expect(CONFIRM_INSTRUCTIONS).toContain("без нового содержания");
+  });
+});
+
+describe("разговор и ответ (reply) в маршруте", () => {
+  const CONVERSATION = [
+    { role: "bot" as const, text: "Отправил черновик на доску: 6 из 6." },
+    { role: "owner" as const, text: "1. a" },
+    { role: "bot" as const, text: "Черновик: 1. a" },
+    { role: "owner" as const, text: "2. b" },
+    { role: "bot" as const, text: "Черновик: 1. b" },
+  ];
+
+  it("последние 4 реплики уходят Jev как state.previous", async () => {
+    const ask = jevAnswers({ intent: 0.1 });
+    await decideRoute(inbound(), null, { askJev: ask as unknown as Ask }, CONVERSATION);
+    const state = ask.mock.calls[0][0].state;
+    expect(state.previous).toEqual(CONVERSATION.slice(-4));
+  });
+
+  it("без разговора previous в state нет", async () => {
+    const ask = jevAnswers({ intent: 0.1 });
+    await decideRoute(inbound(), null, { askJev: ask as unknown as Ask });
+    expect(ask.mock.calls[0][0].state.previous).toBeUndefined();
+  });
+
+  it("«я просил сделать их в виде подзадачи» после отчёта — не «только намерение»", async () => {
+    const ask = jevAnswers({ intent: 0.91 });
+    const d = await decideRoute(
+      inbound({ text: "я просил сделать их в виде подзадачи" }),
+      null,
+      { askJev: ask as unknown as Ask },
+      CONVERSATION
+    );
+    expect(d.route).toBe("capture");
+    expect(d.intentOnly).toBeUndefined();
+  });
+
+  it("та же отсылка без разговора — намерение по Jev остаётся", async () => {
+    const ask = jevAnswers({ intent: 0.91 });
+    const d = await decideRoute(inbound({ text: "хочу создать задачу" }), null, { askJev: ask as unknown as Ask });
+    expect(d.intentOnly).toBe(true);
+  });
+
+  it("ответ на сообщение с текстом: вопрос «только намерение» не задаётся, текст — в state.reply", async () => {
+    const ask = jevAnswers({ intent: 0.99 });
+    const d = await decideRoute(
+      inbound({
+        text: "это в дополнении к двум задач выше",
+        replyTo: { messageId: 140, text: "📝 Черновик\n\n1. Добавить подзадачу", fromBot: true },
+      }),
+      null,
+      { askJev: ask as unknown as Ask }
+    );
+    const call = ask.mock.calls[0][0];
+    expect(call.questions.intent).toBeUndefined();
+    expect(call.state.reply).toContain("Черновик");
+    expect(d.intentOnly).toBeUndefined();
   });
 });

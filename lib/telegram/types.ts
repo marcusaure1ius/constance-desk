@@ -75,6 +75,8 @@ export type TelegramMessage = {
   entities?: TelegramEntity[];
   caption_entities?: TelegramEntity[];
   forward_origin?: TelegramForwardOrigin;
+  /** Сообщение, на которое ответили (свайп «Ответить»). Вложенный ответ Telegram не присылает. */
+  reply_to_message?: TelegramMessage;
 };
 
 export type TelegramCallbackQuery = {

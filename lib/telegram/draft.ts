@@ -66,6 +66,16 @@ export function parseDraftPayload(payload: unknown): DraftPayload | null {
   return payload as DraftPayload;
 }
 
+/**
+ * Открытый черновик — живой и с пунктами. Пустой (ноль вызовов) открытым не
+ * считается: иначе вопрос «что записать?», сохранённый черновиком, ловил бы
+ * следующие сообщения как поправки к пустоте.
+ */
+export function isNonEmptyDraft(payload: unknown): boolean {
+  const draft = parseDraftPayload(payload);
+  return draft !== null && draft.calls.length > 0;
+}
+
 /** Ожидание ввода после «✏️ Исправить»: следующее сообщение — поправка к этому черновику. */
 export function parseDraftFix(payload: unknown): { draftHandleId: string } | null {
   if (!isRecord(payload)) return null;
@@ -220,6 +230,97 @@ function agentHtml(text: string, limit: number): string {
     if (next <= 0) return "";
     source = [...source.slice(0, next - 1), "…"];
   }
+}
+
+/**
+ * Агент ничего не предложил: черновика нет, только его фраза (чаще вопрос
+ * «что записать?») — без кнопок, отправлять нечего.
+ */
+export function renderEmptyAnswer(agentText: string): TaskCard {
+  return { text: clampMessageText(agentHtml(agentText, AGENT_ANSWER_LIMIT) || EMPTY_TEXT) };
+}
+
+/** «Ничего не поменял: …» — поправка не дала ни одного пункта, черновик остался прежним. */
+export function renderUnchangedAnswer(agentText: string): TaskCard {
+  const note = agentHtml(agentText, AGENT_ANSWER_LIMIT);
+  return { text: clampMessageText(note ? `Ничего не поменял: ${note}` : "Ничего не поменял — черновик выше прежний.") };
+}
+
+/** Пункты черновика списком, как на карточке, — контекстом для агента. Простой текст. */
+export function draftItemsText(calls: DeferredCall[]): string {
+  return calls
+    .map((call, i) => {
+      const subs = subtaskTitles(call).map((title) => `\n   ◦ ${title}`).join("");
+      return `${i + 1}. ${callLabel(call)}${subs}`;
+    })
+    .join("\n");
+}
+
+const TITLED_ITEM_TOOLS = new Set(["create_task", "create_epic_task", "create_subtask", "create_note"]);
+
+function subtaskTitles(call: DeferredCall): string[] {
+  if (call.tool !== "create_task" && call.tool !== "create_epic_task") return [];
+  const subtasks = isRecord(call.args) ? call.args.subtasks : undefined;
+  if (!Array.isArray(subtasks)) return [];
+  return subtasks.flatMap((sub) => (isRecord(sub) && typeof sub.title === "string" ? [sub.title] : []));
+}
+
+/** Заголовок для сравнения: регистр, «ё», знаки и номер «3.» в начале не важны. */
+function normalizeTitle(value: string): string {
+  return normalizeName(value)
+    .replace(/^\s*\d+[.)]\s*/u, "")
+    .replace(/[^\p{L}\p{N} ]+/gu, " ")
+    .replace(/\s+/g, " ")
+    .trim();
+}
+
+/** Заголовки пунктов черновика: задачи, подзадачи (и в subtasks), заметки. */
+function itemTitles(calls: DeferredCall[], withSubtasks: boolean): string[] {
+  return calls.flatMap((call) => {
+    if (!TITLED_ITEM_TOOLS.has(call.tool) || !isRecord(call.args)) return [];
+    const own = typeof call.args.title === "string" ? [call.args.title] : [];
+    return [...own, ...(withSubtasks ? subtaskTitles(call) : [])];
+  });
+}
+
+/** Короче этого заголовок совпадает только целиком: «сайт» не должен найтись в «сайт ВЭД». */
+const CONTAINS_MIN = 8;
+
+/**
+ * Пункты черновика `from` переехали в `into`: не меньше половины заголовков
+ * `from` нашлись среди заголовков `into` (целиком или вхождением). По этому
+ * признаку бот закрывает более свежий черновик, слитый поправкой в старый.
+ */
+export function draftMerged(from: DeferredCall[], into: DeferredCall[]): boolean {
+  const source = itemTitles(from, false).map(normalizeTitle).filter(Boolean);
+  if (source.length === 0) return false;
+  const target = itemTitles(into, true).map(normalizeTitle).filter(Boolean);
+  const found = source.filter((title) =>
+    target.some(
+      (other) =>
+        other === title ||
+        (Math.min(other.length, title.length) >= CONTAINS_MIN && (other.includes(title) || title.includes(other)))
+    )
+  );
+  return found.length * 2 >= source.length;
+}
+
+/**
+ * Сообщение пересказывает пункты черновика списком (живой случай 714077403:
+ * «Давай вот эти подзадачи добавим в …» и шесть пунктов черновика B) — это
+ * просьба переделать ТОТ черновик. Нужно ≥ 2 пунктов списка в сообщении и
+ * не меньше половины пунктов черновика среди них.
+ */
+export function restatesDraft(text: string, calls: DeferredCall[]): boolean {
+  const lines = text
+    .split("\n")
+    .filter((line) => /^\s*(?:\d{1,2}[.)]|[-•*–])\s+\S/u.test(line))
+    .map((line) => line.replace(/^\s*(?:\d{1,2}[.)]|[-•*–])\s+/u, ""));
+  if (lines.length < 2) return false;
+  return draftMerged(
+    calls,
+    lines.map((title) => ({ tool: "create_task", args: { title } }))
+  );
 }
 
 export function renderDraftCard(draft: DraftPayload, handleId: string): TaskCard {

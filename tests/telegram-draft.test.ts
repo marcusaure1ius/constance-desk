@@ -12,8 +12,15 @@ import {
   findMentionedEpic,
   intentQuestion,
   parseCaptureContext,
+  draftMerged,
+  isNonEmptyDraft,
+  restatesDraft,
+  renderEmptyAnswer,
+  renderUnchangedAnswer,
   type DraftPayload,
 } from "@/lib/telegram/draft";
+import { A_CALLS, B_CALLS, MERGED_CALLS, subtaskCall } from "./fixtures/live-drafts";
+import { LIVE_403 } from "./fixtures/route-cases";
 import { taskCallback } from "@/lib/telegram/task-card";
 import { TELEGRAM_MESSAGE_LIMIT } from "@/lib/telegram/client";
 
@@ -425,5 +432,50 @@ describe("намерение без содержания: помощники", (
     };
     expect(parseDraftPayload({ ...draft, captureContext: "хочу задачу" })).not.toBeNull();
     expect(parseDraftPayload({ ...draft, captureContext: 42 })).toBeNull();
+  });
+});
+
+describe("слияние черновиков и пустые черновики", () => {
+  it("B слит в A, когда больше половины его пунктов стали подзадачами", () => {
+    expect(draftMerged(B_CALLS, MERGED_CALLS)).toBe(true);
+    // Половина — уже слияние; меньше — нет.
+    expect(draftMerged(B_CALLS, [...A_CALLS, ...B_CALLS.slice(0, 3).map((c) => subtaskCall(String((c.args as { title: string }).title)))])).toBe(true);
+    expect(draftMerged(B_CALLS, [...A_CALLS, subtaskCall("Разобраться, может ли визуальная модель читать картинки и таблицы во вложениях")])).toBe(false);
+    expect(draftMerged(B_CALLS, A_CALLS)).toBe(false);
+  });
+
+  it("сравнение без регистра, «ё», знаков и номера в начале", () => {
+    expect(draftMerged([{ tool: "create_task", args: { title: "3. Ёлка: купить!" } }], [subtaskCall("елка купить")])).toBe(true);
+    expect(draftMerged([], MERGED_CALLS)).toBe(false);
+  });
+
+  it("пустой черновик открытым не считается", () => {
+    const base = {
+      source: { text: "вот посмотри", links: [], hasUnreadableMedia: false },
+      corrections: [],
+      agentText: "Что именно записать?",
+      environmentId: "env-1",
+      createdAt: "2026-10-26T06:04:52.871Z",
+    };
+    expect(isNonEmptyDraft({ ...base, calls: [] })).toBe(false);
+    expect(isNonEmptyDraft({ ...base, calls: A_CALLS })).toBe(true);
+    expect(isNonEmptyDraft({ мусор: true })).toBe(false);
+  });
+
+  it("ответ без пунктов — без кнопок, HTML экранирован", () => {
+    const card = renderEmptyAnswer("Что записать? <b>");
+    expect(card.replyMarkup).toBeUndefined();
+    expect(card.text).toContain("&lt;b&gt;");
+    expect(renderEmptyAnswer("").text).toBe("Ничего не нашёл, что записать");
+    expect(renderUnchangedAnswer("Не понял, что поменять").text).toBe("Ничего не поменял: Не понял, что поменять");
+  });
+});
+
+describe("restatesDraft", () => {
+  it("714077403 пересказывает черновик B — да; другой черновик и одна строка — нет", () => {
+    expect(restatesDraft(LIVE_403, B_CALLS)).toBe(true);
+    expect(restatesDraft(LIVE_403, A_CALLS)).toBe(false);
+    expect(restatesDraft("1. Задача «Получить доступ в BCM и согласовать параметры непрерывности»", B_CALLS)).toBe(false);
+    expect(restatesDraft("купить хлеб", B_CALLS)).toBe(false);
   });
 });

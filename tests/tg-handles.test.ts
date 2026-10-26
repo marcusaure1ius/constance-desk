@@ -57,9 +57,12 @@ const { mockDb, state } = vi.hoisted(() => {
 vi.mock("@/lib/db", () => ({ db: mockDb }));
 
 import {
+  cancelHandle,
   claimHandle,
   createHandle,
   findActiveHandle,
+  findHandleByMessage,
+  listActiveHandles,
   takeAwaitInput,
   updateHandle,
 } from "@/lib/services/tg-handles";
@@ -199,5 +202,44 @@ describe("updateHandle", () => {
   it("пустая правка ничего не обновляет", async () => {
     state.rows = [{ id: "abcdefghij" }];
     expect(await updateHandle("abcdefghij", {})).toBe(false);
+  });
+});
+
+describe("поиск черновиков: фильтр, по сообщению, список", () => {
+  beforeEach(() => {
+    state.rows = [];
+    state.selectWhere = [];
+  });
+
+  it("findActiveHandle с фильтром берёт первый подходящий из последних", async () => {
+    state.rows = [
+      { id: "empty00001", kind: "draft", payload: { calls: [] } },
+      { id: "full000001", kind: "draft", payload: { calls: [{ tool: "create_task" }] } },
+    ];
+    const found = await findActiveHandle(42, "draft", (h) => (h.payload as { calls: unknown[] }).calls.length > 0);
+    expect(found?.id).toBe("full000001");
+    expect((await findActiveHandle(42, "draft"))?.id).toBe("empty00001");
+    expect(await findActiveHandle(42, "draft", () => false)).toBeNull();
+  });
+
+  it("findHandleByMessage ищет по чату, сообщению, виду, статусу и сроку", async () => {
+    await findHandleByMessage(42, 140, "draft");
+    const refs = columnRefs(state.selectWhere[0]);
+    for (const column of ["chat_id", "message_id", "kind", "status", "expires_at"]) {
+      expect(refs).toContain(column);
+    }
+  });
+
+  it("listActiveHandles отдаёт все живые", async () => {
+    state.rows = [{ id: "a" }, { id: "b" }];
+    expect(await listActiveHandles(42, "draft")).toHaveLength(2);
+    expect(columnRefs(state.selectWhere[0])).toContain("expires_at");
+  });
+
+  it("cancelHandle говорит, отменили ли мы", async () => {
+    state.rows = [];
+    expect(await cancelHandle("abcdefghij")).toBe(false);
+    state.rows = [{ id: "abcdefghij" }];
+    expect(await cancelHandle("abcdefghij")).toBe(true);
   });
 });

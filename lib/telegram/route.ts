@@ -9,6 +9,7 @@
 import { LlmError } from "@/lib/llm/client";
 import type { askJev } from "@/lib/llm/jev";
 import type { Inbound } from "./inbound";
+import { jevPrevious, type Turn } from "./conversation";
 
 export type Route = "capture" | "forward" | "ask_board" | "find_task" | "smalltalk";
 
@@ -95,8 +96,39 @@ const MAX_MESSAGE_LENGTH = 4000;
  * Замер 2026-10-24: «отправляй» 0.89–0.92, остальное ≤ 0.39.
  */
 export const CONFIRM_INSTRUCTIONS =
-  "Сообщение `message` — команда «отправляй/записывай/на доску» для черновика `draft` как есть " +
-  "(в устной речи с повторами и оговорками вроде «нет», «точнее»), а не новое дело и не правка пунктов?";
+  "Сообщение `message` — команда «отправляй/записывай/на доску» для черновика `draft` КАК ЕСТЬ, " +
+  "без изменений и без нового содержания (в устной речи с повторами и оговорками вроде «нет», «точнее»)? " +
+  "Если в сообщении есть пункты, список или просьба что-то добавить, переделать, сделать иначе — это не она.";
+
+/**
+ * «Отправляй» по Jev принимается только у короткой фразы без нового
+ * содержания. Живой случай 714077403: «Давай вот эти подзадачи добавим в …»
+ * со списком из шести пунктов Jev счёл «отправляй» (0.97) — бот показал
+ * старый черновик, и на доску ушли шесть задач не в том виде.
+ */
+const CONFIRM_MAX_CHARS = 120;
+const LIST_MARKER = /^\s*(?:\d{1,2}[.)]|[-•*–])\s/mu;
+const INSTRUCTION_WORDS =
+  /(?<![\p{L}])(?:добав|сдела|в\s+виде|подзадач|перенес|перенест|измен|убер|убра|поменя|исправ|объедин|раздел|вместо|передела|переименуй|допиш|дополн)/iu;
+
+export function bareConfirm(text: string): boolean {
+  const trimmed = text.trim();
+  return (
+    trimmed.length > 0 &&
+    trimmed.length <= CONFIRM_MAX_CHARS &&
+    !trimmed.includes("\n") &&
+    !LIST_MARKER.test(trimmed) &&
+    !INSTRUCTION_WORDS.test(trimmed)
+  );
+}
+
+/**
+ * Отсылка к сказанному раньше: «их», «это», «выше», «туда же». При
+ * непустом разговоре такая фраза — не «только намерение»: содержание в
+ * разговоре («я просил сделать их в виде подзадачи» после отчёта об отправке).
+ */
+const REFERENCE_WORDS =
+  /(?<![\p{L}])(?:их|это|эти|этих|этим|выше|туда\s+же|в\s+дополнени\p{L}*|тоже|то\s+же\s+самое)(?![\p{L}])/iu;
 
 /** С этого значения noul считается «только намерение, без содержания». */
 const INTENT_THRESHOLD = 0.7;
@@ -123,6 +155,8 @@ export const INTENT_CRITERIA = {
   false:
     "В тексте есть содержание записи — само дело, мысль, тема, шаг или ссылка, даже короткие: " +
     "«создай задачу позвонить Маше», «мысль: …», «добавь шаг — согласовать бюджет»; " +
+    "или содержание уже есть в разговоре `previous` или в сообщении `reply`, на которое сообщение ссылается " +
+    "(«это в дополнение к задачам выше», «сделай их подзадачами»); " +
     "или это вообще не запись, а вопрос, просьба найти или приветствие",
 };
 
@@ -131,7 +165,9 @@ const ROUTES = Object.keys(ROUTE_CRITERIA) as Route[];
 export async function decideRoute(
   inbound: Inbound,
   openDraft: { summary: string; createdAt: Date } | null,
-  deps: { askJev: typeof askJev; now?: () => Date }
+  deps: { askJev: typeof askJev; now?: () => Date },
+  /** Недавний разговор в чате: Jev видит последние реплики как `previous`. */
+  conversation: Turn[] = []
 ): Promise<RouteDecision> {
   // Прочитанный файл — всегда запись: подпись к нему («вот посмотри, какие ещё
   // есть задачи») Jev принимал за одно намерение и спрашивал «что записать?»,
@@ -151,12 +187,15 @@ export async function decideRoute(
   const questions: Parameters<typeof askJev>[0]["questions"] = {
     route: {
       type: "choice",
-      instructions: "Что автор хочет от бота своей доски задач сообщением `message`?",
+      instructions:
+        "Что автор хочет от бота своей доски задач сообщением `message` (с учётом разговора `previous`, если он есть)?",
       criteria: ROUTE_CRITERIA,
     },
   };
-  // Ссылка — уже содержание записи: спрашивать «что записать?» незачем.
-  const askIntent = inbound.links.length === 0;
+  // Ссылка — уже содержание записи: спрашивать «что записать?» незачем. Ответ
+  // на сообщение с текстом — тоже: «это в дополнение к двум задачам выше»
+  // само по себе пусто, но содержание — в сообщении, на которое ответили.
+  const askIntent = inbound.links.length === 0 && !inbound.replyTo?.text?.trim();
   if (askIntent) {
     questions.intent = { type: "noul", instructions: INTENT_INSTRUCTIONS, criteria: INTENT_CRITERIA };
   }
@@ -168,7 +207,8 @@ export async function decideRoute(
       instructions:
         "Сообщение `message` — ответ на черновик `draft` (создан `draft_age_minutes` минут назад): " +
         "убрать пункт (в том числе по номеру или порядку — «вторую», «последнюю»), " +
-        "изменить или дополнить его пункты, а не новая запись?",
+        "изменить или дополнить его пункты (в том числе «это в дополнение к задачам выше», " +
+        "продолжение нумерации его пунктов), а не новая запись?",
     };
     questions.confirm = {
       type: "noul",
@@ -183,6 +223,8 @@ export async function decideRoute(
       state: {
         message: inbound.text.slice(0, MAX_MESSAGE_LENGTH),
         links: inbound.links,
+        ...(conversation.length ? { previous: jevPrevious(conversation) } : {}),
+        ...(inbound.replyTo?.text ? { reply: inbound.replyTo.text.slice(0, 500) } : {}),
         ...(askCorrection && openDraft
           ? { draft: openDraft.summary, draft_age_minutes: draftAge }
           : {}),
@@ -202,9 +244,14 @@ export async function decideRoute(
   const looksLikeCorrection =
     askCorrection && correctionAnswer?.type === "noul" && correctionAnswer.noul >= CORRECTION_THRESHOLD;
   const confirmAnswer = result.answers.confirm;
+  const jevConfirm =
+    askCorrection && confirmAnswer?.type === "noul" && confirmAnswer.noul >= CONFIRM_THRESHOLD;
   // «Отправляй» важнее поправки и маршрута: по нему бот ничего не пишет и не
-  // зовёт агента, а лишь показывает черновик заново с кнопкой.
-  if (askCorrection && confirmAnswer?.type === "noul" && confirmAnswer.noul >= CONFIRM_THRESHOLD) {
+  // зовёт агента, а лишь показывает черновик заново с кнопкой. Но только у
+  // фразы без нового содержания: иначе Jev принял за «отправляй» просьбу о
+  // черновике — это поправка к нему (`confirmOverruled`).
+  const confirmOverruled = jevConfirm && !bareConfirm(inbound.text);
+  if (jevConfirm && !confirmOverruled) {
     return {
       route: "capture",
       correction: false,
@@ -218,10 +265,15 @@ export async function decideRoute(
   // Поправка проверяется раньше маршрута, поэтому верим ей только там, где
   // маршрут и так ведёт в черновик: уверенное «закрой задачу» или «что на
   // сегодня» при открытом черновике не должно уйти агенту поправкой.
-  const correction = (route: Route) => looksLikeCorrection && CORRECTABLE.includes(route);
+  const correction = (route: Route) =>
+    (looksLikeCorrection || confirmOverruled) && CORRECTABLE.includes(route);
   const intentAnswer = result.answers.intent;
   const looksIntentOnly =
-    askIntent && intentAnswer?.type === "noul" && intentAnswer.noul >= INTENT_THRESHOLD;
+    askIntent &&
+    !confirmOverruled &&
+    intentAnswer?.type === "noul" &&
+    intentAnswer.noul >= INTENT_THRESHOLD &&
+    !(conversation.length > 0 && REFERENCE_WORDS.test(inbound.text));
   // Спрашиваем «что записать?» только вместо черновика: поправка к черновику
   // и любой другой маршрут идут своим путём.
   const intent = (route: Route): { intentOnly?: true } =>

@@ -5,12 +5,16 @@ import type { PromptBoard } from "@/lib/telegram/board-snapshot";
 import {
   captureContextPayload,
   draftCallback,
+  draftMerged,
   findMentionedEpic,
   intentQuestion,
+  isNonEmptyDraft,
   parseDraftPayload,
   renderAppliedCard,
   renderClosedCard,
   renderDraftCard,
+  renderEmptyAnswer,
+  renderUnchangedAnswer,
   type DraftPayload,
 } from "@/lib/telegram/draft";
 import { clampMessageText } from "@/lib/telegram/client";
@@ -22,6 +26,7 @@ import type { RouteDecision } from "@/lib/telegram/route";
 import type { TaskCard } from "@/lib/telegram/task-card";
 import type { TelegramMessage } from "@/lib/telegram/types";
 import type { StoredHandle } from "@/lib/services/tg-handles";
+import { CONVERSATION_MAX_AGE_MIN, type Turn } from "@/lib/telegram/conversation";
 
 /**
  * Поток черновика: новая запись → черновик в `tg_handles` и карточка;
@@ -53,11 +58,21 @@ export type DraftFlowDeps = ReplyDeps &
     buildDraft: (input: BuildDraftInput) => Promise<BuildDraftResult>;
     /** Применение черновика по «Отправить». */
     applyCalls: (calls: DeferredCall[]) => Promise<ToolOutcome[]>;
-    findActiveHandle: (chatId: number, kind: "draft" | "attachment") => Promise<StoredHandle | null>;
+    /** `accept` — фильтр в коде: из последних живых хендлов берётся первый подходящий. */
+    findActiveHandle: (
+      chatId: number,
+      kind: "draft" | "attachment",
+      accept?: (handle: StoredHandle) => boolean
+    ) => Promise<StoredHandle | null>;
+    /** Живые хендлы вида в чате, новые первыми: все открытые черновики. */
+    listActiveHandles: (chatId: number, kind: "draft") => Promise<StoredHandle[]>;
+    /** Живой черновик, чья карточка — это сообщение чата (ответ reply на неё). */
+    findHandleByMessage: (chatId: number, messageId: number, kind: "draft") => Promise<StoredHandle | null>;
     /** false — хендл уже не активен (отправлен, отменён, протух). */
     updateHandle: (id: string, patch: { payload?: unknown; messageId?: number }) => Promise<boolean>;
     claimHandle: (id: string) => Promise<StoredHandle | null>;
-    cancelHandle: (id: string) => Promise<void>;
+    /** true — отменили мы; false — черновик уже отправлен или отменён. */
+    cancelHandle: (id: string) => Promise<boolean>;
     /** «Сегодня» для агентов, YYYY-MM-DD. */
     today: () => string;
   };
@@ -73,12 +88,25 @@ export type ParsedMessage = {
   query?: string;
   /** Намерение, на которое это сообщение — ответ («что записать?»). */
   captureContext?: string;
+  /** Другие черновики, слитые поправкой в этот и закрытые (id через запятую). */
+  mergedDraft?: string;
+  /** Ответ по доске простым текстом (≤ 500) — для памяти разговора. */
+  reply?: string;
+};
+
+/** Нажатие кнопки черновика — для журнала и памяти разговора. */
+export type ButtonParsed = {
+  button: "send" | "fix" | "cancel";
+  done?: number;
+  total?: number;
+  /** Подписи отправленных пунктов: «сделай их подзадачами» потом понятно, кого «их». */
+  calls?: string[];
 };
 
 export type DraftFlowOutcome = {
   action: "draft" | "correction" | "confirm" | "intent" | "callback";
   error?: string;
-  parsed?: ParsedMessage;
+  parsed?: ParsedMessage | ButtonParsed;
 };
 
 /** Сообщение, уже разобранное и показанное заглушкой. */
@@ -91,6 +119,13 @@ export type MessageContext = {
   parsed: ParsedMessage;
   /** Намерение, на которое бот спросил «что записать?»; сообщение — ответ на него. */
   captureContext?: string;
+  /**
+   * Открытые непустые черновики чата в окне разговора: поправке — чтобы
+   * слить их пункты, обработчику — чтобы узнать продолжение нумерации.
+   */
+  openDrafts?: OpenDraft[];
+  /** Недавний разговор (`conversation.ts`) — агенту историей. */
+  conversation?: Turn[];
 };
 
 export type OpenDraft = { id: string; messageId: number | null; draft: DraftPayload };
@@ -103,6 +138,15 @@ const EMPTY_DRAFT = "Нечего отправлять — в черновике
 const CHECK_AND_SEND = "Проверьте и нажмите «✅ Отправить»:";
 const DRAFT_BELOW = "Черновик ниже ↓";
 const CLOSED_WHILE_CORRECTING = "Черновик выше уже закрыт — разобрал сообщение как новую запись.";
+const MERGED_ABOVE = "Объединён с черновиком выше ↑";
+const MERGED_BELOW = "Объединён с черновиком ниже ↓";
+
+/** В тексте агента (без предупреждений ⚠️) есть вопрос — «что записать?». */
+function asksQuestion(agentText: string): boolean {
+  return agentText
+    .split("\n")
+    .some((line) => !line.trimStart().startsWith("⚠️") && line.includes("?"));
+}
 
 /** Новая запись → черновик в `tg_handles` и карточка на месте заглушки. */
 export async function captureDraft(
@@ -111,7 +155,7 @@ export async function captureDraft(
   /** Строка над карточкой: почему это новая запись, а не поправка. */
   note?: string
 ): Promise<DraftFlowOutcome> {
-  const { chatId, placeholderId, inbound, captureContext } = context;
+  const { chatId, placeholderId, inbound, captureContext, conversation } = context;
 
   const board = await deps.loadBoard();
   if (!board) {
@@ -126,10 +170,34 @@ export async function captureDraft(
     today: deps.today(),
     ...(captureContext ? { captureContext } : {}),
     ...(snapshot ? { board: snapshot } : {}),
+    ...(conversation?.length ? { conversation } : {}),
   });
   if (!built.ok) {
     await showCard(chatId, placeholderId, retryCard(context.updateId, built.error), deps);
     return { action: "draft", error: built.error, parsed: context.parsed };
+  }
+
+  // Пунктов нет — черновика нет: пустой хендл считался бы открытым черновиком
+  // и ловил следующие сообщения поправками. Фраза агента — без кнопок; если
+  // это вопрос «что записать?», ответ на него пойдёт в пару с этой записью.
+  if (built.calls.length === 0) {
+    const parsed: ParsedMessage = { ...context.parsed, calls: [], agentText: built.agentText };
+    const asks = asksQuestion(built.agentText);
+    if (asks) {
+      await deps.cancelAwaitInput(chatId);
+      await deps.createHandle({
+        kind: "await_input",
+        payload: captureContextPayload(
+          [captureContext?.trim(), inbound.text.trim()].filter(Boolean).join("\n")
+        ),
+        chatId,
+        messageId: placeholderId,
+      });
+    }
+    const card = renderEmptyAnswer(built.agentText);
+    if (note) card.text = clampMessageText(`${field(note, REASON_LIMIT)}\n\n${card.text}`);
+    await showCard(chatId, placeholderId, card, deps);
+    return { action: asks ? "intent" : "draft", parsed };
   }
 
   const draft: DraftPayload = {
@@ -209,13 +277,19 @@ async function mentionedEpic(
 /**
  * Поправка: агент собирает черновик заново целиком, правится ТА ЖЕ карточка,
  * новый хендл не заводится. Заглушка становится стрелкой на карточку выше.
+ *
+ * Другие открытые черновики (`context.openDrafts`) агент видит: «это в
+ * дополнении к двум задачам выше» переносит их пункты сюда. Черновик, большая
+ * часть пунктов которого переехала, закрывается (`cancelHandle`), а его
+ * карточка без кнопок говорит «Объединён с черновиком выше ↑» (или ниже ↓).
  */
 export async function correctDraft(
   open: OpenDraft,
   context: MessageContext,
   deps: DraftFlowDeps
 ): Promise<DraftFlowOutcome> {
-  const { chatId, placeholderId, inbound } = context;
+  const { chatId, placeholderId, inbound, conversation } = context;
+  const others = (context.openDrafts ?? []).filter((other) => other.id !== open.id);
 
   const snapshot = await loadSnapshot(open.draft.environmentId, deps);
   const built = await deps.buildDraft({
@@ -225,11 +299,20 @@ export async function correctDraft(
     previous: open.draft,
     correction: inbound.text,
     ...(snapshot ? { board: snapshot } : {}),
+    ...(others.length ? { openDrafts: others.map((d) => d.draft.calls) } : {}),
+    ...(conversation?.length ? { conversation } : {}),
   });
   if (!built.ok) {
     // Черновик не трогаем: прошлая версия на карточке остаётся рабочей.
     await showCard(chatId, placeholderId, retryCard(context.updateId, built.error), deps);
     return { action: "correction", error: built.error, parsed: context.parsed };
+  }
+
+  // Поправка без единого пункта не стирает черновик: на карточке остаётся
+  // прежний, а в заглушке — что сказал агент. Убрать всё — кнопка «Отмена».
+  if (built.calls.length === 0) {
+    await showCard(chatId, placeholderId, renderUnchangedAnswer(built.agentText), deps);
+    return { action: "correction", parsed: { ...context.parsed, agentText: built.agentText } };
   }
 
   const draft: DraftPayload = {
@@ -271,6 +354,7 @@ export async function correctDraft(
     return { action: "correction", error: `${CARD_NOT_UPDATED}: ${reason}`, parsed: context.parsed };
   }
 
+  let cardId = open.messageId ?? placeholderId;
   if (edited) {
     // Черновик уже обновлён и виден; стрелка — только подсказка, её сбой
     // не повод показывать «не разобрал» и звать повтор той же поправки.
@@ -281,9 +365,46 @@ export async function correctDraft(
     // Карточку удалили из чата (или её не было) — черновик переезжает в заглушку.
     await deps.updateHandle(open.id, { messageId: placeholderId });
     await showCard(chatId, placeholderId, card, deps);
+    cardId = placeholderId;
   }
 
-  return { action: "correction", parsed: withDraft(context.parsed, draft) };
+  const merged: string[] = [];
+  for (const other of others) {
+    if (await closeMergedDraft(other, draft, cardId, chatId, deps)) merged.push(other.id);
+  }
+  const parsed = withDraft(context.parsed, draft);
+  return {
+    action: "correction",
+    parsed: merged.length > 0 ? { ...parsed, mergedDraft: merged.join(",") } : parsed,
+  };
+}
+
+/**
+ * Свежий черновик слит поправкой в старый (≥ половины его пунктов теперь в
+ * старом): закрываем его, чтобы «Отправить» не записал те же дела дважды.
+ * Карточку правим, только если закрыли мы: отправленный за это время
+ * черновик держит на карточке отчёт. Сбой здесь поправку не отменяет.
+ */
+async function closeMergedDraft(
+  other: OpenDraft,
+  target: DraftPayload,
+  targetMessageId: number,
+  chatId: number,
+  deps: DraftFlowDeps
+): Promise<boolean> {
+  if (!draftMerged(other.draft.calls, target.calls)) return false;
+  try {
+    if (!(await deps.cancelHandle(other.id))) return false;
+    if (other.messageId !== null) {
+      // message_id в чате растёт: карточка с меньшим id — выше.
+      const text = other.messageId < targetMessageId ? MERGED_BELOW : MERGED_ABOVE;
+      await tryEdit(chatId, other.messageId, { text }, deps).catch(() => false);
+    }
+    return true;
+  } catch (error) {
+    console.warn("[telegram] не закрыл слитый черновик", error);
+    return false;
+  }
 }
 
 /**
@@ -368,7 +489,15 @@ export async function respondToDraftButton(
     }
     const results = await deps.applyCalls(draft.calls);
     await showCard(chatId, messageId, renderAppliedCard(draft, results), deps);
-    return done;
+    return {
+      action: "callback",
+      parsed: {
+        button: "send",
+        done: results.filter((r) => r.ok).length,
+        total: draft.calls.length,
+        calls: draft.calls.map((call) => call.label?.trim() || call.tool),
+      },
+    };
   }
 
   // «Отмена» и «Исправить» сначала проверяют, что черновик ещё жив: иначе
@@ -384,7 +513,7 @@ export async function respondToDraftButton(
   if (pressed.action === "cancel") {
     await deps.cancelHandle(handleId);
     await showCard(chatId, messageId, renderClosedCard("cancelled"), deps);
-    return done;
+    return { action: "callback", parsed: { button: "cancel" } };
   }
 
   // «Исправить»: следующее сообщение — текст или голос — поправка к этому
@@ -396,7 +525,7 @@ export async function respondToDraftButton(
     messageId,
   });
   await deps.client.sendMessage({ chatId, text: "Что поправить? Напишите или надиктуйте." });
-  return done;
+  return { action: "callback", parsed: { button: "fix" } };
 }
 
 /**
@@ -415,12 +544,53 @@ export async function loadSnapshot(
   }
 }
 
-/** Последний открытый черновик чата. Битый payload — как будто черновика нет. */
+/**
+ * Последний открытый черновик чата. Битый payload и черновик без пунктов —
+ * как будто черновика нет: пустые (вопрос «что записать?», сохранённый
+ * черновиком) не перехватывают поправки. Фильтр — и в запросе, и здесь.
+ */
 export async function loadOpenDraft(
   chatId: number,
   deps: DraftFlowDeps
 ): Promise<OpenDraft | null> {
-  return toOpenDraft(await deps.findActiveHandle(chatId, "draft"));
+  const open = toOpenDraft(
+    await deps.findActiveHandle(chatId, "draft", (handle) => isNonEmptyDraft(handle.payload))
+  );
+  return open && open.draft.calls.length > 0 ? open : null;
+}
+
+/**
+ * Все открытые непустые черновики чата в окне разговора, новые первыми.
+ * Сбой базы — пустой список: без контекста черновик всё равно соберётся.
+ */
+export async function loadOpenDrafts(chatId: number, deps: DraftFlowDeps): Promise<OpenDraft[]> {
+  const since = (deps.now?.() ?? new Date()).getTime() - CONVERSATION_MAX_AGE_MIN * 60_000;
+  try {
+    return (await deps.listActiveHandles(chatId, "draft"))
+      .map((handle) => toOpenDraft(handle))
+      .filter((open): open is OpenDraft => open !== null && open.draft.calls.length > 0)
+      .filter((open) => new Date(open.draft.createdAt).getTime() >= since)
+      .slice(0, MAX_OPEN_DRAFTS);
+  } catch (error) {
+    console.warn("[telegram] не прочитал открытые черновики", error);
+    return [];
+  }
+}
+
+/** Столько открытых черновиков агент видит контекстом. */
+const MAX_OPEN_DRAFTS = 3;
+
+/**
+ * Черновик, на карточку которого владелец ответил (reply). Пустой — null:
+ * поправлять в нём нечего, сообщение идёт обычным путём.
+ */
+export async function loadDraftByMessage(
+  chatId: number,
+  messageId: number,
+  deps: DraftFlowDeps
+): Promise<OpenDraft | null> {
+  const open = toOpenDraft(await deps.findHandleByMessage(chatId, messageId, "draft"));
+  return open && open.draft.calls.length > 0 ? open : null;
 }
 
 /** Живой черновик по id: протухший, отправленный, отменённый и чужой вид — null. */

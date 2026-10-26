@@ -25,7 +25,17 @@ export type Inbound = {
   attachments?: Attachment[];
   /** Имя присланного файла, который бот прочитать не может (pdf, docx, архив). */
   unsupportedAttachment?: string;
+  /**
+   * Сообщение, на которое владелец ответил: по messageId бот узнаёт карточку
+   * черновика, текст уходит агенту контекстом. Поле есть, только если ответ был.
+   */
+  replyTo?: ReplyTo;
 };
+
+export type ReplyTo = { messageId: number; text?: string; fromBot: boolean };
+
+/** Столько знаков сообщения, на которое ответили, хранится и уходит агенту. */
+export const REPLY_TEXT_LIMIT = 1000;
 
 export type Attachment = { name: string; text: string; truncated: boolean };
 
@@ -103,6 +113,8 @@ export async function readInbound(
   if (unsupportedAttachment) inbound.unsupportedAttachment = unsupportedAttachment;
   const forward = readForward(message);
   if (forward) inbound.forward = forward;
+  const replyTo = readReplyTo(message);
+  if (replyTo) inbound.replyTo = replyTo;
 
   return { ok: true, inbound };
 }
@@ -216,6 +228,16 @@ function extractUrls(text: string, entities: TelegramEntity[] | undefined): stri
     if (found.length === MAX_LINKS) break;
   }
   return found;
+}
+
+/** Ответ на сообщение: id, его текст или подпись (до REPLY_TEXT_LIMIT) и чьё оно. */
+export function readReplyTo(message: TelegramMessage): ReplyTo | undefined {
+  const replied = message.reply_to_message;
+  if (!replied || typeof replied.message_id !== "number") return undefined;
+  const replyTo: ReplyTo = { messageId: replied.message_id, fromBot: replied.from?.is_bot === true };
+  const text = (replied.text ?? replied.caption)?.trim();
+  if (text) replyTo.text = Array.from(text).slice(0, REPLY_TEXT_LIMIT).join("");
+  return replyTo;
 }
 
 function readForward(message: TelegramMessage): Inbound["forward"] {

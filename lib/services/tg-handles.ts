@@ -165,12 +165,68 @@ export async function cancelAwaitInput(chatId: number): Promise<void> {
     );
 }
 
+/** Столько последних живых хендлов просматривает `findActiveHandle` с фильтром. */
+const ACCEPT_SCAN_LIMIT = 20;
+
 /**
  * Последний живой хендл вида `kind` в чате: активный и не протухший. Читает,
  * но не тратит.
+ *
+ * `accept` — фильтр в коде поверх запроса: из последних живых хендлов
+ * берётся первый подходящий. Так пустые черновики (ноль пунктов — в проде
+ * такие остались от вопроса «что записать?») не считаются открытыми и не
+ * перехватывают поправки, а миграция для этого не нужна.
  */
 export async function findActiveHandle(
   chatId: number,
+  kind: HandleKind,
+  accept?: (handle: StoredHandle) => boolean
+): Promise<StoredHandle | null> {
+  const rows = await db
+    .select()
+    .from(tgHandles)
+    .where(
+      and(
+        eq(tgHandles.chatId, chatId),
+        eq(tgHandles.kind, kind),
+        eq(tgHandles.status, "active"),
+        gt(tgHandles.expiresAt, new Date())
+      )
+    )
+    .orderBy(desc(tgHandles.createdAt))
+    .limit(accept ? ACCEPT_SCAN_LIMIT : 1);
+
+  return (accept ? rows.find(accept) : rows[0]) ?? null;
+}
+
+/** Живые хендлы вида `kind` в чате, новые первыми (до `limit`). Только чтение. */
+export async function listActiveHandles(
+  chatId: number,
+  kind: HandleKind,
+  limit = ACCEPT_SCAN_LIMIT
+): Promise<StoredHandle[]> {
+  return db
+    .select()
+    .from(tgHandles)
+    .where(
+      and(
+        eq(tgHandles.chatId, chatId),
+        eq(tgHandles.kind, kind),
+        eq(tgHandles.status, "active"),
+        gt(tgHandles.expiresAt, new Date())
+      )
+    )
+    .orderBy(desc(tgHandles.createdAt))
+    .limit(limit);
+}
+
+/**
+ * Живой хендл вида `kind`, привязанный к сообщению чата: владелец ответил
+ * (reply) на карточку черновика — по её message_id находим сам черновик.
+ */
+export async function findHandleByMessage(
+  chatId: number,
+  messageId: number,
   kind: HandleKind
 ): Promise<StoredHandle | null> {
   const [row] = await db
@@ -179,6 +235,7 @@ export async function findActiveHandle(
     .where(
       and(
         eq(tgHandles.chatId, chatId),
+        eq(tgHandles.messageId, messageId),
         eq(tgHandles.kind, kind),
         eq(tgHandles.status, "active"),
         gt(tgHandles.expiresAt, new Date())
@@ -238,10 +295,16 @@ export async function claimHandle(id: string): Promise<StoredHandle | null> {
   return row ?? null;
 }
 
-/** `active → cancelled`: отменённый черновик уже не применить. */
-export async function cancelHandle(id: string): Promise<void> {
-  await db
+/**
+ * `active → cancelled`: отменённый черновик уже не применить. true — отменили
+ * именно мы; false — его уже отправили или отменили раньше (тогда карточку с
+ * отчётом трогать нельзя).
+ */
+export async function cancelHandle(id: string): Promise<boolean> {
+  const cancelled = await db
     .update(tgHandles)
     .set({ status: "cancelled" })
-    .where(and(eq(tgHandles.id, id), eq(tgHandles.status, "active")));
+    .where(and(eq(tgHandles.id, id), eq(tgHandles.status, "active")))
+    .returning({ id: tgHandles.id });
+  return cancelled.length > 0;
 }

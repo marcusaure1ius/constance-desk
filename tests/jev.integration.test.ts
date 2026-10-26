@@ -12,6 +12,11 @@ import {
   NOT_INTENT_ONLY_CASES,
   ROUTE_CASES,
   ROUTE_HIT_RATIO,
+  AFTER_SENT_NOT_INTENT_CASES,
+  CONVERSATION_CORRECTION_CASES,
+  LIVE_CONVERSATION,
+  LIVE_DRAFT_B,
+  SENT_CONVERSATION,
 } from "./fixtures/route-cases";
 
 /*
@@ -121,5 +126,30 @@ describe("decideRoute — реальный Jev", () => {
       console.log(`intentOnly=${r.d.intentOnly ?? false} route=${r.d.route} «${r.text.slice(0, 50)}»`);
     }
     expect(results.filter((r) => r.d.intentOnly).map((r) => r.text)).toEqual([]);
+  }, 30000);
+
+  it("с разговором «это в дополнении к двум задач выше» — поправка, не намерение", async () => {
+    const draft = { summary: LIVE_DRAFT_B, createdAt: new Date() };
+    const results = await Promise.all(
+      CONVERSATION_CORRECTION_CASES.map(async (text) => ({
+        text,
+        d: await decideRoute(inbound(text), draft, deps, LIVE_CONVERSATION),
+      }))
+    );
+    for (const r of results) {
+      console.log(`correction=${r.d.correction} intentOnly=${r.d.intentOnly ?? false} confirm=${r.d.confirm ?? false} «${r.text}»`);
+    }
+    expect(results.filter((r) => !r.d.correction || r.d.intentOnly || r.d.confirm).map((r) => r.text)).toEqual([]);
+  }, 30000);
+
+  it("после отчёта «я просил сделать их в виде подзадачи» — запись, не «только намерение»", async () => {
+    const results = await Promise.all(
+      AFTER_SENT_NOT_INTENT_CASES.map(async (text) => ({
+        text,
+        d: await decideRoute(inbound(text), null, deps, SENT_CONVERSATION),
+      }))
+    );
+    for (const r of results) console.log(`intentOnly=${r.d.intentOnly ?? false} route=${r.d.route} «${r.text}»`);
+    expect(results.filter((r) => r.d.intentOnly || r.d.route !== "capture").map((r) => r.text)).toEqual([]);
   }, 30000);
 });

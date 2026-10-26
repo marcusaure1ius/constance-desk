@@ -3,7 +3,8 @@ import type { runAgent } from "@/lib/agent/loop";
 import { toolsFor } from "@/lib/agent/tools";
 import type { ChatMessage } from "@/lib/llm/chat-tools";
 import { buildCapturePrompt } from "@/lib/llm/capture-prompt";
-import type { DraftPayload } from "@/lib/telegram/draft";
+import { conversationHistory, type Turn } from "@/lib/telegram/conversation";
+import { draftItemsText, type DraftPayload } from "@/lib/telegram/draft";
 import type { Inbound } from "@/lib/telegram/inbound";
 import type { PromptBoard } from "@/lib/telegram/board-snapshot";
 
@@ -31,6 +32,15 @@ export type BuildDraftInput = {
   captureContext?: string;
   /** Снимок доски в промпт: без него агент тратит первый шаг на get_board. */
   board?: PromptBoard;
+  /**
+   * Другие открытые черновики чата при поправке (кроме поправляемого): агент
+   * переносит их пункты, только если поправка про них («в дополнение к
+   * задачам выше»). Новой записи их не дают отдельным списком: она видит
+   * черновики в разговоре, а отдельный список живой прогон тянул повторять.
+   */
+  openDrafts?: DeferredCall[][];
+  /** Недавний разговор в чате (`conversation.ts`) — историей перед сообщением. */
+  conversation?: Turn[];
 };
 
 export type BuildDraftResult =
@@ -86,9 +96,13 @@ export async function buildDraft(
   const { previous, correction } = input;
   const isCorrection = previous !== undefined && correction !== undefined;
 
-  const history: ChatMessage[] = isCorrection ? correctionHistory(previous) : [];
+  // Разговор — первым: дальше при поправке идёт история самого черновика.
+  const history: ChatMessage[] = [
+    ...conversationHistory(input.conversation ?? []),
+    ...(isCorrection ? correctionHistory(previous) : []),
+  ];
   const message = isCorrection
-    ? correctionMessage(correction)
+    ? correctionMessage(correction, { replyTo: input.inbound.replyTo, otherDrafts: input.openDrafts })
     : entryMessage(input.inbound, input.captureContext);
 
   let calls: DeferredCall[] | undefined;
@@ -251,6 +265,9 @@ export function entryMessage(inbound: Inbound, captureContext?: string): string 
     parts.push("Новая запись: владелец прислал файл без подписи.");
   }
 
+  const reply = replyContext(inbound.replyTo);
+  if (reply) parts.push(reply);
+
   if (inbound.attachments?.length) {
     const calendar = attachmentCalendar(inbound.attachments);
     parts.push(
@@ -297,12 +314,51 @@ export function attachmentCalendar(attachments: { name: string; text: string }[]
   return null;
 }
 
-export function correctionMessage(correction: string): string {
+const OTHER_DRAFTS_INTRO = "Кроме этого черновика в чате открыты другие (не отправлены, отдельные карточки):";
+const OTHER_DRAFTS_RULE =
+  "Если поправка связывает этот черновик с другим («это», «эти», «в дополнение к задачам выше», «туда же», " +
+  "продолжение нумерации) — объедини их: твой ответ должен содержать пункты ОБОИХ черновиков, этого и другого, " +
+  "в одном виде (например все — подзадачами той же задачи), формулировки не меняй; другой черновик бот закроет сам. " +
+  "Если поправка к другим черновикам не относится — не трогай их.";
+
+/** Черновики списком: «Черновик A» / «Черновик B» с пунктами. */
+function draftsBlock(drafts: DeferredCall[][] | undefined): string | null {
+  const shown = (drafts ?? []).filter((calls) => calls.length > 0);
+  if (shown.length === 0) return null;
+  return shown
+    .map((calls, i) => `Черновик ${String.fromCharCode(65 + i)}:\n${draftItemsText(calls)}`)
+    .join("\n\n");
+}
+
+/**
+ * Сообщение, на которое владелец ответил, — контекст записи. Обёртка, как у
+ * пересланного: внутри может быть что угодно, и закрыть её изнутри нельзя.
+ */
+function replyContext(replyTo: Inbound["replyTo"]): string | null {
+  const text = replyTo?.text?.trim();
+  if (!replyTo || !text) return null;
+  const from = replyTo.fromBot ? "bot" : "owner";
   return (
-    `Поправка к черновику: ${correction}\n\n` +
-    "Собери черновик заново целиком: твои вызовы — ВЕСЬ новый черновик, он заменит прошлый. " +
-    "Номера в поправке — номера пунктов черновика выше."
+    `Ответ на сообщение${replyTo.fromBot ? " бота" : " владельца"}:\n` +
+    `<reply from="${from}">\n${wrapperBody(text)}\n</reply>\n` +
+    "Это контекст: по нему понятно, к чему относятся «это», «туда же», «к задачам выше». Заголовки — из самой записи."
   );
+}
+
+export function correctionMessage(
+  correction: string,
+  extras: { replyTo?: Inbound["replyTo"]; otherDrafts?: DeferredCall[][] } = {}
+): string {
+  const parts = [`Поправка к черновику: ${correction}`];
+  const reply = replyContext(extras.replyTo);
+  if (reply) parts.push(reply);
+  const others = draftsBlock(extras.otherDrafts);
+  if (others) parts.push(`${OTHER_DRAFTS_INTRO}\n${others}\n${OTHER_DRAFTS_RULE}`);
+  parts.push(
+    "Собери черновик заново целиком: твои вызовы — ВЕСЬ новый черновик, он заменит прошлый. " +
+      "Номера в поправке — номера пунктов черновика выше."
+  );
+  return parts.join("\n\n");
 }
 
 /**
@@ -406,6 +462,7 @@ function sourceWords(input: BuildDraftInput): Set<string> {
   const inbounds = [input.previous?.source, input.inbound].filter((x): x is Inbound => !!x);
   const pieces = inbounds.flatMap((inbound) => [
     inbound.text,
+    inbound.replyTo?.text ?? "",
     inbound.transcript ?? "",
     inbound.forward?.from ?? "",
     ...(inbound.attachments ?? []).flatMap((file) => [file.name, file.text]),
@@ -415,7 +472,10 @@ function sourceWords(input: BuildDraftInput): Set<string> {
     ...(input.previous?.corrections ?? []),
     input.correction ?? "",
     input.previous?.captureContext ?? "",
-    input.captureContext ?? ""
+    input.captureContext ?? "",
+    // Пункты свежего черновика агент вправе перенести — их латиница не перевод.
+    JSON.stringify(input.openDrafts ?? []),
+    ...(input.conversation ?? []).map((turn) => turn.text)
   );
   return new Set(pieces.join("\n").toLowerCase().match(LATIN_WORD) ?? []);
 }

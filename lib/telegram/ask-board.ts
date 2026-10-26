@@ -2,6 +2,7 @@ import type { runAgent } from "@/lib/agent/loop";
 import { toolsFor } from "@/lib/agent/tools";
 import { buildAgentPrompt } from "@/lib/llm/agent-prompt";
 import type { PromptBoard } from "./board-snapshot";
+import { conversationHistory, type Turn } from "./conversation";
 import { clampMessageText } from "./client";
 import { richTextToTelegramHtml } from "./telegram-html";
 
@@ -37,7 +38,7 @@ export function dropNarration(text: string): string {
 
 export async function answerBoardQuestion(
   text: string,
-  input: { environmentId: string; today: string; board?: PromptBoard },
+  input: { environmentId: string; today: string; board?: PromptBoard; conversation?: Turn[] },
   deps: { runAgent: typeof runAgent; deadlineAt?: number },
 ): Promise<{ ok: true; html: string } | { ok: false; error: string }> {
   let answer: string | null = null;
@@ -45,6 +46,8 @@ export async function answerBoardQuestion(
 
   for await (const event of deps.runAgent({
     message: text,
+    // Разговор — историей: «а по второй подробнее» понятно только с ним.
+    ...(input.conversation?.length ? { history: conversationHistory(input.conversation) } : {}),
     environmentId: input.environmentId,
     today: input.today,
     tools: toolsFor({ surface: "chat", includeMutations: false }),

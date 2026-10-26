@@ -1,4 +1,4 @@
-import { eq } from "drizzle-orm";
+import { and, desc, eq, gte } from "drizzle-orm";
 import { db } from "@/lib/db";
 import { tgUpdates } from "@/lib/db/schema";
 
@@ -67,4 +67,27 @@ export async function markUpdateFailed(updateId: number, error: string): Promise
 export async function getUpdate(updateId: number) {
   const [row] = await db.select().from(tgUpdates).where(eq(tgUpdates.updateId, updateId));
   return row ?? null;
+}
+
+/**
+ * Последние апдейты чата не старше `since`, новые первыми — память разговора
+ * бота (`lib/telegram/conversation.ts`). Только чтение.
+ */
+export async function listRecentUpdates(
+  chatId: number,
+  since: Date,
+  limit: number
+): Promise<{ updateId: number; createdAt: Date; status: string; payload: unknown; parsed: unknown }[]> {
+  return db
+    .select({
+      updateId: tgUpdates.updateId,
+      createdAt: tgUpdates.createdAt,
+      status: tgUpdates.status,
+      payload: tgUpdates.payload,
+      parsed: tgUpdates.parsed,
+    })
+    .from(tgUpdates)
+    .where(and(eq(tgUpdates.chatId, chatId), gte(tgUpdates.createdAt, since)))
+    .orderBy(desc(tgUpdates.createdAt))
+    .limit(limit);
 }

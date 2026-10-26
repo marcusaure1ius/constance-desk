@@ -177,3 +177,34 @@ describe("readInbound", () => {
     expect(result).toEqual({ ok: false, error: "whisper упал" });
   });
 });
+
+describe("ответ (reply) на сообщение", () => {
+  it("id, текст и чьё сообщение — в inbound.replyTo", async () => {
+    const inbound = await read({
+      text: "это в дополнении к двум задач выше",
+      reply_to_message: {
+        message_id: 140,
+        date: 0,
+        chat: { id: 1, type: "private" },
+        from: { id: 99, is_bot: true, first_name: "Constance" },
+        text: "📝 Черновик\n\n1. Добавить подзадачу",
+      },
+    });
+    expect(inbound.replyTo).toEqual({ messageId: 140, text: "📝 Черновик\n\n1. Добавить подзадачу", fromBot: true });
+  });
+
+  it("подпись вместо текста, своё сообщение, обрезка до 1000 знаков", async () => {
+    const inbound = await read({
+      text: "и это",
+      reply_to_message: { message_id: 5, date: 0, chat: { id: 1, type: "private" }, from: { id: 1, is_bot: false, first_name: "Д" }, caption: "я".repeat(1500) },
+    });
+    expect(inbound.replyTo?.fromBot).toBe(false);
+    expect(inbound.replyTo?.text).toHaveLength(1000);
+  });
+
+  it("ответ на сообщение без текста — только id; без ответа поля нет", async () => {
+    const reply = await read({ text: "x", reply_to_message: { message_id: 9, date: 0, chat: { id: 1, type: "private" } } });
+    expect(reply.replyTo).toEqual({ messageId: 9, fromBot: false });
+    expect((await read({ text: "x" })).replyTo).toBeUndefined();
+  });
+});
