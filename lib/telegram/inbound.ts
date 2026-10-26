@@ -32,7 +32,11 @@ export type Inbound = {
   replyTo?: ReplyTo;
 };
 
-export type ReplyTo = { messageId: number; text?: string; fromBot: boolean };
+/**
+ * `forwarded` — ответили на пересланное сообщение: его прислал владелец, но
+ * текст чужой, и агенту он уходит как чужой.
+ */
+export type ReplyTo = { messageId: number; text?: string; fromBot: boolean; forwarded?: true };
 
 /** Столько знаков сообщения, на которое ответили, хранится и уходит агенту. */
 export const REPLY_TEXT_LIMIT = 1000;
@@ -235,6 +239,7 @@ export function readReplyTo(message: TelegramMessage): ReplyTo | undefined {
   const replied = message.reply_to_message;
   if (!replied || typeof replied.message_id !== "number") return undefined;
   const replyTo: ReplyTo = { messageId: replied.message_id, fromBot: replied.from?.is_bot === true };
+  if (replied.forward_origin) replyTo.forwarded = true;
   const text = (replied.text ?? replied.caption)?.trim();
   if (text) replyTo.text = Array.from(text).slice(0, REPLY_TEXT_LIMIT).join("");
   return replyTo;

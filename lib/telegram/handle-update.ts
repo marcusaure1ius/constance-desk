@@ -483,12 +483,14 @@ async function routeMessage(
   }
 
   // Ответ (reply) на карточку живого черновика — поправка именно к нему, в
-  // любом возрасте. Jev спрашиваем только про «отправляй»: черновик для него
-  // «свежий» (ответили на него сейчас). Текст карточки агенту не нужен — сам
-  // черновик и так в истории поправки.
+  // любом возрасте, если Jev считает сообщение записью (capture/forward):
+  // «что на сегодня?» реплаем на карточку — всё равно вопрос к доске. Для
+  // «отправляй» черновик Jev видит «свежим» (ответили на него сейчас). Текст
+  // карточки агенту не нужен — сам черновик и так в истории поправки.
   const replied = inbound.replyTo
     ? await loadDraftByMessage(chatId, inbound.replyTo.messageId, deps)
     : null;
+  let decided: RouteDecision | null = null;
   if (replied && !inbound.attachments?.length) {
     const plain: Inbound = {
       ...inbound,
@@ -500,28 +502,37 @@ async function routeMessage(
       conversation
     );
     if (asked.confirm) return resendDraft(replied, base(asked, undefined, plain), deps);
-    return correctDraft(replied, base(byRule, undefined, plain), deps);
+    if (isRecordRoute(asked)) return correctDraft(replied, base(byRule, undefined, plain), deps);
+    // Не запись — обычный путь с уже готовым маршрутом, без второго вопроса к Jev.
+    decided = { ...asked, correction: false };
   }
 
   // Список, продолжающий нумерацию открытого черновика («3. …» после «1.»,
   // «2.»), — его продолжение: правим тот черновик, а не заводим параллельный.
-  if (!inbound.attachments?.length && !inbound.forward) {
+  const plainList = !inbound.attachments?.length && !inbound.forward;
+  if (plainList && !decided) {
     const continued = openDrafts.find((open) =>
       continuesNumbering(inbound.text, [open.draft.source.text, ...open.draft.corrections])
     );
     if (continued) return correctDraft(continued, base(byRule), deps);
-    // Список, пересказывающий пункты открытого черновика («вот эти подзадачи
-    // добавим в …» + его пункты), — просьба переделать именно его.
-    const restated = openDrafts.find((open) => restatesDraft(inbound.text, open.draft.calls));
-    if (restated) return correctDraft(restated, base(byRule), deps);
   }
 
   const open = await loadOpenDraft(chatId, deps);
-  const route = await deps.decideRoute(
-    inbound,
-    open ? { summary: draftSummary(open.draft), createdAt: new Date(open.draft.createdAt) } : null,
-    conversation
-  );
+  const route =
+    decided ??
+    (await deps.decideRoute(
+      inbound,
+      open ? { summary: draftSummary(open.draft), createdAt: new Date(open.draft.createdAt) } : null,
+      conversation
+    ));
+
+  // Список, пересказывающий пункты открытого черновика («вот эти подзадачи
+  // добавим в …» + его пункты), — просьба переделать именно его. Только если
+  // Jev считает сообщение записью: «найди: - отчёт» с тем же словом — поиск.
+  if (plainList && !decided && isRecordRoute(route)) {
+    const restated = openDrafts.find((draft) => restatesDraft(inbound.text, draft.draft.calls));
+    if (restated) return correctDraft(restated, base(byRule), deps);
+  }
   const context = base(route);
 
   // «Отправляй» — черновик заново внизу чата, с кнопками. Ничего не применяется.
@@ -547,6 +558,11 @@ async function routeMessage(
       await showCard(chatId, placeholderId, { text: helpText() }, deps);
       return { action: "smalltalk", parsed: context.parsed };
   }
+}
+
+/** Маршрут записи: только его бот вправе превратить в поправку черновика. */
+function isRecordRoute(route: RouteDecision): boolean {
+  return route.route === "capture" || route.route === "forward";
 }
 
 /**

@@ -283,44 +283,51 @@ function itemTitles(calls: DeferredCall[], withSubtasks: boolean): string[] {
   });
 }
 
-/** Короче этого заголовок совпадает только целиком: «сайт» не должен найтись в «сайт ВЭД». */
-const CONTAINS_MIN = 8;
-
 /**
- * Пункты черновика `from` переехали в `into`: не меньше половины заголовков
- * `from` нашлись среди заголовков `into` (целиком или вхождением). По этому
- * признаку бот закрывает более свежий черновик, слитый поправкой в старый.
+ * Все пункты черновика `from` есть в `into` — по точному совпадению
+ * заголовков после нормализации (регистр, «ё», знаки, номер «3.»). Только
+ * тогда бот закрывает слитый поправкой черновик: частичное совпадение
+ * («Подготовить отчёт» в «Подготовить отчёт по продажам») закрыло бы его
+ * вместе с непереехавшими пунктами — они пропали бы молча.
  */
 export function draftMerged(from: DeferredCall[], into: DeferredCall[]): boolean {
   const source = itemTitles(from, false).map(normalizeTitle).filter(Boolean);
   if (source.length === 0) return false;
-  const target = itemTitles(into, true).map(normalizeTitle).filter(Boolean);
-  const found = source.filter((title) =>
-    target.some(
-      (other) =>
-        other === title ||
-        (Math.min(other.length, title.length) >= CONTAINS_MIN && (other.includes(title) || title.includes(other)))
-    )
-  );
-  return found.length * 2 >= source.length;
+  const target = new Set(itemTitles(into, true).map(normalizeTitle).filter(Boolean));
+  return source.every((title) => target.has(title));
+}
+
+/** Строка списка без маркера: «1. …», «- …». */
+const LIST_LINE = /^\s*(?:\d{1,2}[.)]|[-•*–])\s+(\S.*)$/u;
+
+/**
+ * Заголовки, которыми строка списка может назвать пункт: сама строка и, если
+ * это подпись с карточки («Задача «X»», «Добавить подзадачу «X» в «Y»»), — X.
+ * Ленивый захват с якорем: «золотой» в кавычках внутри X не обрывает его.
+ */
+function lineTitles(line: string): string[] {
+  const quoted = line.match(/^[^«]*«(.+?)»(?:\s+в\s+(?:эпике\s+)?«[^»]*»)?\s*(?:·.*)?$/u)?.[1];
+  return [line, ...(quoted ? [quoted] : [])].map(normalizeTitle).filter(Boolean);
 }
 
 /**
  * Сообщение пересказывает пункты черновика списком (живой случай 714077403:
  * «Давай вот эти подзадачи добавим в …» и шесть пунктов черновика B) — это
- * просьба переделать ТОТ черновик. Нужно ≥ 2 пунктов списка в сообщении и
- * не меньше половины пунктов черновика среди них.
+ * просьба переделать ТОТ черновик. Нужно не меньше двух совпавших пунктов и
+ * больше половины пунктов черновика, совпадение — точное после нормализации:
+ * новый список с одним общим пунктом — новая запись, а не поправка.
  */
 export function restatesDraft(text: string, calls: DeferredCall[]): boolean {
-  const lines = text
-    .split("\n")
-    .filter((line) => /^\s*(?:\d{1,2}[.)]|[-•*–])\s+\S/u.test(line))
-    .map((line) => line.replace(/^\s*(?:\d{1,2}[.)]|[-•*–])\s+/u, ""));
-  if (lines.length < 2) return false;
-  return draftMerged(
-    calls,
-    lines.map((title) => ({ tool: "create_task", args: { title } }))
+  const mentioned = new Set(
+    text.split("\n").flatMap((line) => {
+      const item = line.match(LIST_LINE)?.[1];
+      return item ? lineTitles(item) : [];
+    })
   );
+  const own = itemTitles(calls, true).map(normalizeTitle).filter(Boolean);
+  if (own.length === 0) return false;
+  const matched = own.filter((title) => mentioned.has(title)).length;
+  return matched >= 2 && matched * 2 > own.length;
 }
 
 export function renderDraftCard(draft: DraftPayload, handleId: string): TaskCard {

@@ -436,16 +436,27 @@ describe("намерение без содержания: помощники", (
 });
 
 describe("слияние черновиков и пустые черновики", () => {
-  it("B слит в A, когда больше половины его пунктов стали подзадачами", () => {
+  it("B слит в A, только когда ВСЕ его пункты стали подзадачами", () => {
     expect(draftMerged(B_CALLS, MERGED_CALLS)).toBe(true);
-    // Половина — уже слияние; меньше — нет.
-    expect(draftMerged(B_CALLS, [...A_CALLS, ...B_CALLS.slice(0, 3).map((c) => subtaskCall(String((c.args as { title: string }).title)))])).toBe(true);
-    expect(draftMerged(B_CALLS, [...A_CALLS, subtaskCall("Разобраться, может ли визуальная модель читать картинки и таблицы во вложениях")])).toBe(false);
+    // Половины мало: остальные пункты пропали бы вместе с закрытым черновиком.
+    const half = [...A_CALLS, ...B_CALLS.slice(0, 3).map((c) => subtaskCall(String((c.args as { title: string }).title)))];
+    expect(draftMerged(B_CALLS, half)).toBe(false);
     expect(draftMerged(B_CALLS, A_CALLS)).toBe(false);
+  });
+
+  it("частичное совпадение заголовка — не слияние", () => {
+    const b = [
+      { tool: "create_task", args: { title: "Подготовить отчёт" } },
+      { tool: "create_task", args: { title: "Позвонить Маше" } },
+    ];
+    expect(draftMerged(b, [subtaskCall("Подготовить отчёт по продажам"), subtaskCall("Позвонить Маше")])).toBe(false);
+    expect(draftMerged(b, [subtaskCall("Подготовить отчёт")])).toBe(false);
+    expect(draftMerged(b, [subtaskCall("подготовить отчет."), subtaskCall("Позвонить Маше")])).toBe(true);
   });
 
   it("сравнение без регистра, «ё», знаков и номера в начале", () => {
     expect(draftMerged([{ tool: "create_task", args: { title: "3. Ёлка: купить!" } }], [subtaskCall("елка купить")])).toBe(true);
+    expect(draftMerged([{ tool: "create_task", args: { title: "Ёлка" } }], [subtaskCall("елка купить")])).toBe(false);
     expect(draftMerged([], MERGED_CALLS)).toBe(false);
   });
 
@@ -477,5 +488,17 @@ describe("restatesDraft", () => {
     expect(restatesDraft(LIVE_403, A_CALLS)).toBe(false);
     expect(restatesDraft("1. Задача «Получить доступ в BCM и согласовать параметры непрерывности»", B_CALLS)).toBe(false);
     expect(restatesDraft("купить хлеб", B_CALLS)).toBe(false);
+  });
+
+  it("поиск со словом из черновика и новый список с одним общим пунктом — не пересказ", () => {
+    const two = [
+      { tool: "create_task", args: { title: "отчёт" }, label: "Задача «отчёт»" },
+      { tool: "create_task", args: { title: "Позвонить Маше" }, label: "Задача «Позвонить Маше»" },
+    ];
+    expect(restatesDraft("найди:\n- отчёт\n- слайды", two)).toBe(false);
+    expect(restatesDraft("1. Позвонить Маше\n2. Купить хлеб\n3. Сходить в банк", two)).toBe(false);
+    expect(restatesDraft("1. отчёт\n2. Позвонить Маше", two)).toBe(true);
+    // Вхождение не считается: «отчёт по продажам» — другой пункт.
+    expect(restatesDraft("1. отчёт по продажам\n2. Позвонить Маше по слайдам", two)).toBe(false);
   });
 });

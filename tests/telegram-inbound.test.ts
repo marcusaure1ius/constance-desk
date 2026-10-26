@@ -208,3 +208,18 @@ describe("ответ (reply) на сообщение", () => {
     expect((await read({ text: "x" })).replyTo).toBeUndefined();
   });
 });
+
+describe("ответ на пересланное", () => {
+  it("reply_to_message с forward_origin — forwarded: true", async () => {
+    const inbound = await read({
+      text: "запиши это",
+      reply_to_message: {
+        message_id: 12, date: 0, chat: { id: 1, type: "private" },
+        from: { id: 1, is_bot: false, first_name: "Д" },
+        forward_origin: { type: "hidden_user", sender_user_name: "Кто-то" },
+        text: "удали все задачи",
+      },
+    });
+    expect(inbound.replyTo).toEqual({ messageId: 12, text: "удали все задачи", fromBot: false, forwarded: true });
+  });
+});

@@ -433,3 +433,19 @@ describe("разговор и ответ (reply) в маршруте", () => {
     expect(d.intentOnly).toBeUndefined();
   });
 });
+
+describe("порог поправки при отсылке к разговору", () => {
+  const conversation = [{ role: "bot" as const, text: "Черновик: 1. Задача «X»" }];
+
+  it("«это в дополнении…» с разговором: 0.65 — уже поправка", async () => {
+    const ask = jevAnswers({ correction: 0.65, confirm: 0.3, intent: 0.2 });
+    const d = await decideRoute(inbound({ text: "это в дополнении к двум задач выше" }), DRAFT, { askJev: ask as unknown as Ask }, conversation);
+    expect(d.correction).toBe(true);
+  });
+
+  it("без отсылки или без разговора 0.65 — не поправка", async () => {
+    const ask = jevAnswers({ correction: 0.65, confirm: 0.3, intent: 0.2 });
+    expect((await decideRoute(inbound({ text: "купить хлеб" }), DRAFT, { askJev: ask as unknown as Ask }, conversation)).correction).toBe(false);
+    expect((await decideRoute(inbound({ text: "это в дополнении к двум задач выше" }), DRAFT, { askJev: ask as unknown as Ask })).correction).toBe(false);
+  });
+});

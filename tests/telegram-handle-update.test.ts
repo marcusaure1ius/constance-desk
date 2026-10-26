@@ -2177,7 +2177,8 @@ describe("живой случай 714077403: «отправляй» по Jev н�
     const result = await handleUpdate(textUpdate(LIVE_403, CHAT, 714077403), CHAT, deps);
 
     expect(result).toEqual({ status: "processed", action: "correction" });
-    expect(route).not.toHaveBeenCalled();
+    // Jev спрошен: правило пересказа работает только при маршруте записи.
+    expect(route).toHaveBeenCalledTimes(1);
     expect(buildDraft.mock.calls[0][0].previous).toEqual(B_DRAFT);
     expect(createHandle).not.toHaveBeenCalledWith(expect.objectContaining({ kind: "draft" }));
   });
@@ -2337,5 +2338,70 @@ describe("журнал для памяти разговора", () => {
 
     expect(result).toEqual({ status: "processed", action: "draft" });
     expect(createHandle).toHaveBeenCalledWith(expect.objectContaining({ kind: "draft" }));
+  });
+});
+
+describe("правила поправки уступают Jev, слияние без потерь", () => {
+  beforeEach(() => vi.clearAllMocks());
+
+  const TWO = [
+    { tool: "create_task", args: { title: "отчёт" }, label: "Задача «отчёт»" },
+    { tool: "create_task", args: { title: "Позвонить Маше" }, label: "Задача «Позвонить Маше»" },
+  ];
+  const TWO_HANDLE = { ...B_HANDLE, payload: liveDraft("отчёт, позвонить Маше", TWO, "2026-08-25T11:59:00.000Z") };
+
+  it("«найди:\n- отчёт…» при черновике из двух пунктов — поиск, не поправка", async () => {
+    const { deps, buildDraft, extractSearchQuery } = makeDeps({
+      listActiveHandles: vi.fn().mockResolvedValue([TWO_HANDLE]),
+      findActiveHandle: activeHandles([TWO_HANDLE]),
+      decideRoute: vi.fn().mockResolvedValue({ route: "find_task", correction: false, source: "jev" }),
+    });
+
+    const result = await handleUpdate(textUpdate("найди:\n- отчёт\n- Позвонить Маше"), CHAT, deps);
+
+    expect(result).toEqual({ status: "processed", action: "find_task" });
+    expect(buildDraft).not.toHaveBeenCalled();
+    expect(extractSearchQuery).toHaveBeenCalled();
+  });
+
+  it("новый список с одним общим пунктом — новый черновик, старый не тронут", async () => {
+    const { deps, buildDraft, createHandle, updateHandle } = makeDeps({
+      listActiveHandles: vi.fn().mockResolvedValue([TWO_HANDLE]),
+      findActiveHandle: activeHandles([TWO_HANDLE]),
+    });
+
+    await handleUpdate(textUpdate("1. Позвонить Маше\n2. Купить хлеб\n3. Сходить в банк"), CHAT, deps);
+
+    expect(buildDraft.mock.calls[0][0].previous).toBeUndefined();
+    expect(createHandle).toHaveBeenCalledWith(expect.objectContaining({ kind: "draft" }));
+    expect(updateHandle).not.toHaveBeenCalled();
+  });
+
+  it("реплай на карточку черновика с вопросом к доске — ответ по доске, черновик не правится", async () => {
+    const { deps, buildDraft, answerBoardQuestion, decideRoute: route } = makeDeps({
+      findHandleByMessage: vi.fn().mockResolvedValue(A_HANDLE),
+      decideRoute: vi.fn().mockResolvedValue({ route: "ask_board", correction: false, source: "jev" }),
+    });
+
+    const result = await handleUpdate(replyUpdate("что у меня на сегодня?", A_CARD), CHAT, deps);
+
+    expect(result).toEqual({ status: "processed", action: "ask_board" });
+    expect(buildDraft).not.toHaveBeenCalled();
+    expect(answerBoardQuestion).toHaveBeenCalled();
+    // Маршрут уже известен — второго вопроса к Jev нет.
+    expect(route).toHaveBeenCalledTimes(1);
+  });
+
+  it("агент перенёс из B лишь часть пунктов — B остаётся открытым", async () => {
+    const { deps, cancelHandle, editMessageText } = makeDeps({
+      findHandleByMessage: vi.fn().mockResolvedValue(A_HANDLE),
+      listActiveHandles: vi.fn().mockResolvedValue([B_HANDLE, A_HANDLE]),
+      buildDraft: vi.fn().mockResolvedValue({ ok: true, calls: MERGED_CALLS.slice(0, 7), agentText: "" }),
+    });
+
+    await handleUpdate(replyUpdate("это в дополнении к двум задач выше", A_CARD), CHAT, deps);
+
+    expect(cancelHandle).not.toHaveBeenCalled();
+    expect(lastEditOf(editMessageText, B_CARD)).toBeUndefined();
   });
 });

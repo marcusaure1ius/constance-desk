@@ -53,3 +53,15 @@ export function field(value: string, limit: number): string {
 
   return html.slice(0, safeCutIndex(html, cut)) + ELLIPSIS;
 }
+
+/**
+ * Чужой текст не должен закрыть обёртку раньше времени и выйти «наружу».
+ * Теги не вырезаются, а обезвреживаются: однопроходная вырезка собирала тег
+ * обратно («<</attachment>/attachment>» → «</attachment>»). Угловые скобки
+ * заменены похожими «‹ ›» — читать текст модели это не мешает, а ни одна
+ * обёртка (`<forwarded>`, `<attachment>`, `<reply>`) изнутри уже не откроется
+ * и не закроется.
+ */
+export function wrapperBody(value: string): string {
+  return value.replace(/</g, "‹").replace(/>/g, "›");
+}

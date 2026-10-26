@@ -74,6 +74,8 @@ export const ROUTE_CRITERIA: Record<Route, string> = {
 const MIN_CONFIDENCE = 0.6;
 /** С этого значения noul считается «да, это поправка». */
 const CORRECTION_THRESHOLD = 0.7;
+/** Порог поправки для фразы с явной отсылкой к разговору («это», «выше»). */
+const REFERENCE_CORRECTION_THRESHOLD = 0.6;
 /** С этого значения noul считается «да, отправь черновик». */
 const CONFIRM_THRESHOLD = 0.7;
 /**
@@ -241,8 +243,13 @@ export async function decideRoute(
 
   const answer = result.answers.route;
   const correctionAnswer = result.answers.correction;
+  // Явная отсылка к сказанному («это в дополнении к двум задачам выше») при
+  // непустом разговоре — порог поправки ниже: Jev на такой фразе колеблется
+  // у 0.7 (замер 2026-10-26: 0.69–0.74 на коротком разговоре, 0.96 на живом).
+  const referential = conversation.length > 0 && REFERENCE_WORDS.test(inbound.text);
+  const correctionThreshold = referential ? REFERENCE_CORRECTION_THRESHOLD : CORRECTION_THRESHOLD;
   const looksLikeCorrection =
-    askCorrection && correctionAnswer?.type === "noul" && correctionAnswer.noul >= CORRECTION_THRESHOLD;
+    askCorrection && correctionAnswer?.type === "noul" && correctionAnswer.noul >= correctionThreshold;
   const confirmAnswer = result.answers.confirm;
   const jevConfirm =
     askCorrection && confirmAnswer?.type === "noul" && confirmAnswer.noul >= CONFIRM_THRESHOLD;
