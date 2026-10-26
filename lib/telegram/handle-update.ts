@@ -30,7 +30,14 @@ import {
   type MessageContext,
 } from "@/lib/telegram/draft-flow";
 import { field } from "@/lib/telegram/format";
-import { readInbound, type Inbound } from "@/lib/telegram/inbound";
+import {
+  asksAboutAttachment,
+  attachmentMemory,
+  parseAttachmentMemory,
+  readInbound,
+  type Inbound,
+} from "@/lib/telegram/inbound";
+import { unsupportedAttachmentWarning } from "@/lib/telegram/capture-agent";
 import { fetchLinkPreview } from "@/lib/telegram/link-preview";
 import {
   applyAwaitedInput,
@@ -388,15 +395,23 @@ async function routeMessage(
     return { action: "draft", error: read.error };
   }
 
-  const inbound = read.inbound;
-  if (!inbound.text) {
+  let inbound = read.inbound;
+  if (inbound.attachments?.length && message.document) {
+    await rememberAttachment(chatId, message, deps);
+  } else if (!options.fixDraftId) {
+    inbound = await withRecentAttachment(inbound, chatId, deps);
+  }
+
+  if (!inbound.text && !inbound.attachments?.length) {
     await showCard(
       chatId,
       placeholderId,
       {
-        text: inbound.hasUnreadableMedia
-          ? "Картинки и файлы пока не читаю — добавьте подпись."
-          : "Пока понимаю текст, голосовые, пересылки и ссылки.",
+        text: inbound.unsupportedAttachment
+          ? field(unsupportedAttachmentWarning(inbound.unsupportedAttachment).replace(/^⚠️ /u, ""), REASON_LIMIT)
+          : inbound.hasUnreadableMedia
+            ? "Картинки и файлы пока не читаю — добавьте подпись."
+            : "Пока понимаю текст, голосовые, пересылки и ссылки.",
       },
       deps
     );
@@ -464,6 +479,57 @@ async function routeMessage(
     case "smalltalk":
       await showCard(chatId, placeholderId, { text: helpText() }, deps);
       return { action: "smalltalk", parsed: context.parsed };
+  }
+}
+
+/**
+ * Текстовый файл прочитан — помним его 15 минут: следующее сообщение может
+ * быть «проанализируй файл». Сбой базы здесь не мешает разобрать сам файл.
+ */
+async function rememberAttachment(
+  chatId: number,
+  message: TelegramMessage,
+  deps: HandleUpdateDeps
+): Promise<void> {
+  try {
+    await deps.createHandle({
+      kind: "attachment",
+      payload: attachmentMemory(message.document!),
+      chatId,
+      // Срок — 15 минут, по виду хендла (ttlMinutesFor).
+    });
+  } catch (error) {
+    console.warn("[telegram] не запомнил вложение", error);
+  }
+}
+
+/**
+ * «Проанализируй файлы, выцепи оттуда задачи» сразу после файла: в самом
+ * сообщении файла нет, поэтому перечитываем последний текстовый файл чата
+ * (хендл `attachment`, 15 минут) и разбираем его с этим сообщением как
+ * подписью. Файла нет или он не перечитался — сообщение идёт как есть.
+ */
+async function withRecentAttachment(
+  inbound: Inbound,
+  chatId: number,
+  deps: HandleUpdateDeps
+): Promise<Inbound> {
+  if (inbound.attachments?.length || !asksAboutAttachment(inbound.text)) return inbound;
+  try {
+    const handle = await deps.findActiveHandle(chatId, "attachment");
+    const document = handle ? parseAttachmentMemory(handle.payload) : null;
+    if (!document) return inbound;
+    const reread = await deps.readInbound({
+      message_id: 0,
+      date: 0,
+      chat: { id: chatId, type: "private" },
+      document,
+    });
+    if (!reread.ok || !reread.inbound.attachments?.length) return inbound;
+    return { ...inbound, attachments: reread.inbound.attachments };
+  } catch (error) {
+    console.warn("[telegram] не перечитал вложение", error);
+    return inbound;
   }
 }
 

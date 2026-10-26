@@ -46,6 +46,15 @@ export type TelegramForwardOrigin = {
   message_id?: number;
 };
 
+/** Файл, присланный документом. Имя и тип Telegram передаёт не всегда. */
+export type TelegramDocument = {
+  file_id: string;
+  file_unique_id?: string;
+  file_name?: string;
+  mime_type?: string;
+  file_size?: number;
+};
+
 export type TelegramMessage = {
   message_id: number;
   date: number;
@@ -62,7 +71,7 @@ export type TelegramMessage = {
   /** Аудиофайл (не голосовое): имя нужно Whisper, он определяет контейнер по расширению. */
   audio?: TelegramVoice & { file_name?: string };
   photo?: { file_id: string }[];
-  document?: { file_id: string; file_name?: string };
+  document?: TelegramDocument;
   entities?: TelegramEntity[];
   caption_entities?: TelegramEntity[];
   forward_origin?: TelegramForwardOrigin;

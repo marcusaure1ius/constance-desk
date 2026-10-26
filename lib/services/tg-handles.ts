@@ -34,11 +34,15 @@ export const HANDLE_TTL_MINUTES = 7 * 24 * 60;
 export const AWAIT_INPUT_TTL_MINUTES = 15;
 
 /** Вид хендла. Строкой, а не enum: следующие задачи добавят свои. */
-export type HandleKind = "search" | "await_input" | "draft";
+export type HandleKind = "search" | "await_input" | "draft" | "attachment";
 
-/** Срок годности по виду: ожидание ввода короткое, всё остальное — недельное. */
+/**
+ * Срок годности по виду: ожидание ввода и память о последнем файле
+ * (`attachment`, «проанализируй файл» следом за ним) короткие, всё остальное —
+ * недельное.
+ */
 export function ttlMinutesFor(kind: HandleKind): number {
-  return kind === "await_input" ? AWAIT_INPUT_TTL_MINUTES : HANDLE_TTL_MINUTES;
+  return kind === "await_input" || kind === "attachment" ? AWAIT_INPUT_TTL_MINUTES : HANDLE_TTL_MINUTES;
 }
 
 export type CreateHandleInput = {

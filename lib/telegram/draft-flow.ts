@@ -53,7 +53,7 @@ export type DraftFlowDeps = ReplyDeps &
     buildDraft: (input: BuildDraftInput) => Promise<BuildDraftResult>;
     /** Применение черновика по «Отправить». */
     applyCalls: (calls: DeferredCall[]) => Promise<ToolOutcome[]>;
-    findActiveHandle: (chatId: number, kind: "draft") => Promise<StoredHandle | null>;
+    findActiveHandle: (chatId: number, kind: "draft" | "attachment") => Promise<StoredHandle | null>;
     /** false — хендл уже не активен (отправлен, отменён, протух). */
     updateHandle: (id: string, patch: { payload?: unknown; messageId?: number }) => Promise<boolean>;
     claimHandle: (id: string) => Promise<StoredHandle | null>;

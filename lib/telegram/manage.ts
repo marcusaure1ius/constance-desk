@@ -88,7 +88,7 @@ export type ManageDeps = {
   createEpic: (name: string, environmentId: string) => Promise<{ id: string }>;
   /** Хендлы: за кнопкой «Ещё N» и за ожиданием ввода стоит запись в базе. */
   createHandle: (input: {
-    kind: "search" | "await_input" | "draft";
+    kind: "search" | "await_input" | "draft" | "attachment";
     payload: unknown;
     chatId?: number;
     messageId?: number;

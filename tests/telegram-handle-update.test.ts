@@ -564,6 +564,122 @@ describe("захват: сообщение → черновик", () => {
     );
   });
 
+  describe("текстовые вложения", () => {
+    const MD = new TextEncoder().encode("# Встреча\nя: пришлю письмо завтра").buffer;
+    const documentUpdate = (
+      document: NonNullable<NonNullable<TelegramUpdate["message"]>["document"]>,
+      caption?: string,
+      updateId = 3
+    ): TelegramUpdate => ({
+      update_id: updateId,
+      message: {
+        message_id: 13,
+        date: 1,
+        chat: { id: CHAT, type: "private" },
+        document,
+        ...(caption ? { caption } : {}),
+      },
+    });
+    const MD_DOC = { file_id: "doc-1", file_name: "transcript.md", mime_type: "text/markdown", file_size: 40 };
+
+    it("файл с подписью: черновик по файлу, подпись — текст, файл запомнен", async () => {
+      const { deps, buildDraft, createHandle, downloadFile } = makeDeps();
+      downloadFile.mockResolvedValue(MD);
+
+      const result = await handleUpdate(documentUpdate(MD_DOC, "вот посмотри какие еще есть задачи"), CHAT, deps);
+
+      expect(result).toEqual({ status: "processed", action: "draft" });
+      const input = buildDraft.mock.calls[0][0];
+      expect(input.inbound.text).toBe("вот посмотри какие еще есть задачи");
+      expect(input.inbound.attachments).toEqual([
+        { name: "transcript.md", text: "# Встреча\nя: пришлю письмо завтра", truncated: false },
+      ]);
+      // До «Отправить» в базу — только хендлы: память о файле и черновик.
+      expect(createHandle).toHaveBeenCalledWith(
+        expect.objectContaining({ kind: "attachment", chatId: CHAT, payload: { document: MD_DOC } })
+      );
+      expect(deps.applyCalls).not.toHaveBeenCalled();
+    });
+
+    it("файл без подписи тоже идёт в черновик", async () => {
+      const { deps, buildDraft, downloadFile } = makeDeps();
+      downloadFile.mockResolvedValue(MD);
+
+      const result = await handleUpdate(documentUpdate(MD_DOC), CHAT, deps);
+
+      expect(result).toEqual({ status: "processed", action: "draft" });
+      expect(buildDraft.mock.calls[0][0].inbound.attachments).toHaveLength(1);
+    });
+
+    it("pdf без подписи: говорим, какие файлы читаем, ничего не качаем", async () => {
+      const { deps, editMessageText, buildDraft, getFile, decideRoute } = makeDeps();
+
+      const result = await handleUpdate(
+        documentUpdate({ file_id: "doc-2", file_name: "отчёт <2026>.pdf", mime_type: "application/pdf" }),
+        CHAT,
+        deps
+      );
+
+      expect(result).toEqual({ status: "processed", action: "unsupported" });
+      expect(getFile).not.toHaveBeenCalled();
+      expect(decideRoute).not.toHaveBeenCalled();
+      expect(buildDraft).not.toHaveBeenCalled();
+      expect(lastEditOf(editMessageText, PLACEHOLDER)!.text).toBe(
+        "Файл «отчёт &lt;2026&gt;.pdf» пока не читаю — пришлите .txt/.md или текстом."
+      );
+    });
+
+    it("pdf с подписью: подпись разбирается, файл — предупреждением агента", async () => {
+      const { deps, buildDraft } = makeDeps();
+
+      await handleUpdate(
+        documentUpdate({ file_id: "doc-2", file_name: "отчёт.pdf", mime_type: "application/pdf" }, "позвонить Маше"),
+        CHAT,
+        deps
+      );
+
+      const input = buildDraft.mock.calls[0][0];
+      expect(input.inbound.text).toBe("позвонить Маше");
+      expect(input.inbound.unsupportedAttachment).toBe("отчёт.pdf");
+      expect(input.inbound.attachments).toBeUndefined();
+    });
+
+    it("«проанализируй файлы» следом за файлом — тот же файл перечитывается", async () => {
+      const { deps, buildDraft, findActiveHandle, getFile, downloadFile } = makeDeps();
+      downloadFile.mockResolvedValue(MD);
+      findActiveHandle.mockImplementation(async (_chat: number, kind: string) =>
+        kind === "attachment"
+          ? { id: "ATTACH0001", kind: "attachment", payload: { document: MD_DOC }, chatId: CHAT, messageId: null }
+          : null
+      );
+
+      await handleUpdate(textUpdate("проанализируй файлы, выцепи оттуда задачи"), CHAT, deps);
+
+      expect(findActiveHandle).toHaveBeenCalledWith(CHAT, "attachment");
+      expect(getFile).toHaveBeenCalledWith("doc-1");
+      const input = buildDraft.mock.calls[0][0];
+      expect(input.inbound.text).toBe("проанализируй файлы, выцепи оттуда задачи");
+      expect(input.inbound.attachments?.[0].name).toBe("transcript.md");
+    });
+
+    it("«проанализируй файл» без недавнего файла — обычное сообщение", async () => {
+      const { deps, buildDraft, getFile } = makeDeps();
+
+      await handleUpdate(textUpdate("проанализируй файл"), CHAT, deps);
+
+      expect(getFile).not.toHaveBeenCalled();
+      expect(buildDraft.mock.calls[0][0].inbound.attachments).toBeUndefined();
+    });
+
+    it("обычный текст файл не ищет", async () => {
+      const { deps, findActiveHandle } = makeDeps();
+
+      await handleUpdate(textUpdate("позвонить Маше"), CHAT, deps);
+
+      expect(findActiveHandle).not.toHaveBeenCalledWith(CHAT, "attachment");
+    });
+  });
+
   it("сбой агента: черновика нет, в заглушке причина и кнопка повтора", async () => {
     const { deps, editMessageText, createHandle, markFailed } = makeDeps({
       buildDraft: vi.fn().mockResolvedValue({ ok: false, error: "Модель <молчит>" }),

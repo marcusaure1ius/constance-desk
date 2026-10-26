@@ -164,6 +164,7 @@ export function parseDraftCallback(data: string | undefined): DraftCallback | nu
 
 const TRANSCRIPT_LIMIT = 300;
 const LABEL_LIMIT = 200;
+const ATTACHMENT_NAME_LIMIT = 100;
 const ERROR_LIMIT = 200;
 const BUTTON_TITLE_LIMIT = 40;
 const EMPTY_TEXT = "Ничего не нашёл, что записать";
@@ -230,6 +231,11 @@ export function renderDraftCard(draft: DraftPayload, handleId: string): TaskCard
 
   if (draft.source.transcript) {
     lines.push("", `🎙 «${field(draft.source.transcript, TRANSCRIPT_LIMIT)}»`);
+  }
+  // Что именно бот прочитал: имя файла и пометка, если дочитал не до конца.
+  for (const file of Array.isArray(draft.source.attachments) ? draft.source.attachments : []) {
+    if (typeof file?.name !== "string") continue;
+    lines.push(`📎 ${field(file.name, ATTACHMENT_NAME_LIMIT)}${file.truncated ? " (прочитал начало)" : ""}`);
   }
   if (typeof draft.correctionTranscript === "string" && draft.correctionTranscript.trim()) {
     lines.push(`🎙 поправка: «${field(draft.correctionTranscript.trim(), TRANSCRIPT_LIMIT)}»`);
