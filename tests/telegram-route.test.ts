@@ -1,5 +1,11 @@
 import { describe, it, expect, vi } from "vitest";
-import { CONFIRM_INSTRUCTIONS, decideRoute, ROUTE_CRITERIA } from "@/lib/telegram/route";
+import {
+  CONFIRM_INSTRUCTIONS,
+  decideRoute,
+  INTENT_CRITERIA,
+  INTENT_INSTRUCTIONS,
+  ROUTE_CRITERIA,
+} from "@/lib/telegram/route";
 import type { askJev } from "@/lib/llm/jev";
 import { LlmError } from "@/lib/llm/client";
 import type { Inbound } from "@/lib/telegram/inbound";
@@ -81,7 +87,7 @@ describe("decideRoute", () => {
     const ask = jevReturns("capture", 0.9);
     await decideRoute(inbound(), null, { askJev: ask as unknown as Ask });
     const questions = ask.mock.calls[0][0].questions;
-    expect(Object.keys(questions)).toEqual(["route"]);
+    expect(Object.keys(questions)).toEqual(["route", "intent"]);
     expect(Object.keys(questions.route.criteria)).toEqual(Object.keys(ROUTE_CRITERIA));
     expect(ask.mock.calls[0][0].state).toEqual({ message: "позвонить Маше", links: [] });
   });
@@ -92,7 +98,7 @@ describe("decideRoute", () => {
       askJev: ask as unknown as Ask,
     });
     expect(d.correction).toBe(true);
-    expect(Object.keys(ask.mock.calls[0][0].questions)).toEqual(["route", "correction", "confirm"]);
+    expect(Object.keys(ask.mock.calls[0][0].questions)).toEqual(["route", "intent", "correction", "confirm"]);
     expect(ask.mock.calls[0][0].state.draft).toBe(DRAFT.summary);
   });
 
@@ -148,7 +154,7 @@ describe("decideRoute", () => {
       { askJev: ask as unknown as Ask, now: () => now }
     );
     expect(d.correction).toBe(false);
-    expect(Object.keys(ask.mock.calls[0][0].questions)).toEqual(["route"]);
+    expect(Object.keys(ask.mock.calls[0][0].questions)).toEqual(["route", "intent"]);
     expect(ask.mock.calls[0][0].state).not.toHaveProperty("draft");
   });
 
@@ -221,5 +227,101 @@ describe("decideRoute", () => {
     expect(ROUTE_CRITERIA.capture).toMatch(/подзадачу/);
     expect(ROUTE_CRITERIA.capture).toMatch(/ссылку/);
     expect(ROUTE_CRITERIA.find_task).not.toMatch(/поправ/);
+  });
+
+  describe("намерение без содержания", () => {
+    function jevIntent(
+      choice: string,
+      confidence: number,
+      intent: number,
+      extra: { correction?: number; confirm?: number } = {}
+    ): ReturnType<typeof vi.fn> {
+      return vi.fn().mockResolvedValue({
+        answers: {
+          route: { type: "choice", choice, confidence, probabilities: { [choice]: confidence } },
+          intent: { type: "noul", noul: intent },
+          ...(extra.correction === undefined ? {} : { correction: { type: "noul", noul: extra.correction } }),
+          ...(extra.confirm === undefined ? {} : { confirm: { type: "noul", noul: extra.confirm } }),
+        },
+        latencyMs: 400,
+      });
+    }
+    const TEXT = "хочу создать новую задачу в блоке ml модели";
+
+    it("вопрос intent задаётся в том же запросе, с критериями да/нет", async () => {
+      const ask = jevIntent("capture", 0.99, 0.97);
+      await decideRoute(inbound({ text: TEXT }), null, { askJev: ask as unknown as Ask });
+      expect(ask).toHaveBeenCalledTimes(1);
+      expect(ask.mock.calls[0][0].questions.intent).toEqual({
+        type: "noul",
+        instructions: INTENT_INSTRUCTIONS,
+        criteria: INTENT_CRITERIA,
+      });
+    });
+
+    it("capture и noul ≥ 0.7 — intentOnly", async () => {
+      const ask = jevIntent("capture", 0.99, 0.7);
+      const d = await decideRoute(inbound({ text: TEXT }), null, { askJev: ask as unknown as Ask });
+      expect(d).toMatchObject({ route: "capture", correction: false, intentOnly: true, source: "jev" });
+    });
+
+    it("noul ниже 0.7 — обычная запись, поля intentOnly нет", async () => {
+      const ask = jevIntent("capture", 0.99, 0.69);
+      const d = await decideRoute(inbound({ text: "Создай задачу позвонить Маше" }), null, {
+        askJev: ask as unknown as Ask,
+      });
+      expect(d).not.toHaveProperty("intentOnly");
+    });
+
+    it("запасной capture по низкой уверенности тоже спрашивает «что записать»", async () => {
+      const ask = jevIntent("find_task", 0.5, 0.9);
+      const d = await decideRoute(inbound({ text: TEXT }), null, { askJev: ask as unknown as Ask });
+      expect(d).toMatchObject({ route: "capture", source: "fallback", intentOnly: true });
+    });
+
+    it.each(["ask_board", "find_task", "smalltalk", "forward"])(
+      "маршрут %s — не intentOnly, даже при высоком noul",
+      async (route) => {
+        const ask = jevIntent(route, 0.95, 0.95);
+        const d = await decideRoute(inbound({ text: TEXT }), null, { askJev: ask as unknown as Ask });
+        expect(d).not.toHaveProperty("intentOnly");
+      }
+    );
+
+    it("поправка к черновику важнее намерения", async () => {
+      const ask = jevIntent("capture", 0.9, 0.95, { correction: 0.9, confirm: 0.1 });
+      const d = await decideRoute(inbound({ text: "и добавь задачу" }), DRAFT, {
+        askJev: ask as unknown as Ask,
+      });
+      expect(d.correction).toBe(true);
+      expect(d).not.toHaveProperty("intentOnly");
+    });
+
+    it("«отправляй» важнее намерения", async () => {
+      const ask = jevIntent("capture", 0.9, 0.95, { correction: 0.1, confirm: 0.9 });
+      const d = await decideRoute(inbound({ text: "да, записывай" }), DRAFT, {
+        askJev: ask as unknown as Ask,
+      });
+      expect(d.confirm).toBe(true);
+      expect(d).not.toHaveProperty("intentOnly");
+    });
+
+    it("со ссылкой не спрашивается: ссылка — уже содержание", async () => {
+      const ask = jevIntent("capture", 0.9, 0.95);
+      const d = await decideRoute(
+        inbound({ text: "запиши https://example.com", links: [{ url: "https://example.com" }] }),
+        null,
+        { askJev: ask as unknown as Ask }
+      );
+      expect(ask.mock.calls[0][0].questions).not.toHaveProperty("intent");
+      expect(d).not.toHaveProperty("intentOnly");
+    });
+
+    it("сбой Jev — запасной capture без intentOnly", async () => {
+      const ask = vi.fn().mockRejectedValue(new Error("Jev: timeout 1500 мс"));
+      const d = await decideRoute(inbound({ text: TEXT }), null, { askJev: ask as unknown as Ask });
+      expect(d).toMatchObject({ route: "capture", source: "fallback" });
+      expect(d).not.toHaveProperty("intentOnly");
+    });
   });
 });

@@ -24,6 +24,11 @@ export type BuildDraftInput = {
   /** Прошлый черновик — при поправке. */
   previous?: DraftPayload;
   correction?: string;
+  /**
+   * Прошлое сообщение — одно намерение («хочу создать задачу в блоке ML»), на
+   * которое бот спросил, что записать. Эта запись — ответ на вопрос.
+   */
+  captureContext?: string;
   /** Снимок доски в промпт: без него агент тратит первый шаг на get_board. */
   board?: PromptBoard;
 };
@@ -72,7 +77,9 @@ export async function buildDraft(
   const isCorrection = previous !== undefined && correction !== undefined;
 
   const history: ChatMessage[] = isCorrection ? correctionHistory(previous) : [];
-  const message = isCorrection ? correctionMessage(correction) : entryMessage(input.inbound);
+  const message = isCorrection
+    ? correctionMessage(correction)
+    : entryMessage(input.inbound, input.captureContext);
 
   let calls: DeferredCall[] | undefined;
   const texts: string[] = [];
@@ -190,8 +197,17 @@ export function cleanAgentText(text: string): string {
 /* ── сообщения агенту ─────────────────────────────────────────────────────── */
 
 /** Сообщение о новой записи. Оно же — первое сообщение истории при поправке. */
-export function entryMessage(inbound: Inbound): string {
+export function entryMessage(inbound: Inbound, captureContext?: string): string {
   const parts: string[] = [];
+
+  // Намерение без содержания бот уже переспросил: здесь ответ на «что записать?».
+  // Заголовок — из самой записи, контекст лишь подсказывает эпик, задачу или вид.
+  if (captureContext?.trim()) {
+    parts.push(
+      `Контекст от автора (его прошлое сообщение, только намерение): ${captureContext.trim()}\n` +
+        "Это не заголовок: заголовок бери из самой записи ниже, а контекст — чтобы выбрать эпик, задачу или вид записи."
+    );
+  }
 
   if (inbound.forward) {
     const attrs = [`from="${attr(inbound.forward.from ?? "неизвестно")}"`, `kind="${inbound.forward.kind}"`];
@@ -202,7 +218,7 @@ export function entryMessage(inbound: Inbound): string {
       `<forwarded ${attrs.join(" ")}>\n${body(inbound.text)}\n</forwarded>`
     );
   } else {
-    parts.push(`Новая запись:\n${inbound.text}`);
+    parts.push(`${captureContext?.trim() ? "Сама запись" : "Новая запись"}:\n${inbound.text}`);
   }
 
   if (inbound.links.length > 0) {
@@ -243,7 +259,9 @@ export function draftMessage(calls: DeferredCall[]): string {
  * текущий), поэтому на месте ответов к прошлым поправкам — заглушка.
  */
 function correctionHistory(previous: DraftPayload): ChatMessage[] {
-  const history: ChatMessage[] = [{ role: "user", content: entryMessage(previous.source) }];
+  const history: ChatMessage[] = [
+    { role: "user", content: entryMessage(previous.source, previous.captureContext) },
+  ];
   for (const past of previous.corrections) {
     history.push({ role: "assistant", content: "Черновик собран, его заменила поправка ниже." });
     history.push({ role: "user", content: correctionMessage(past) });
@@ -320,7 +338,12 @@ function sourceWords(input: BuildDraftInput): Set<string> {
     inbound.forward?.from ?? "",
     ...inbound.links.flatMap((link) => [link.url, link.title ?? "", link.description ?? ""]),
   ]);
-  pieces.push(...(input.previous?.corrections ?? []), input.correction ?? "");
+  pieces.push(
+    ...(input.previous?.corrections ?? []),
+    input.correction ?? "",
+    input.previous?.captureContext ?? "",
+    input.captureContext ?? ""
+  );
   return new Set(pieces.join("\n").toLowerCase().match(LATIN_WORD) ?? []);
 }
 

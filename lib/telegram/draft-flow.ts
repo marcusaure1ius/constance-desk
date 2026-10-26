@@ -3,7 +3,10 @@ import type { ToolOutcome } from "@/lib/agent/tool-registry";
 import type { BuildDraftInput, BuildDraftResult } from "@/lib/telegram/capture-agent";
 import type { PromptBoard } from "@/lib/telegram/board-snapshot";
 import {
+  captureContextPayload,
   draftCallback,
+  findMentionedEpic,
+  intentQuestion,
   parseDraftPayload,
   renderAppliedCard,
   renderClosedCard,
@@ -37,7 +40,10 @@ export type BotBoard = {
 };
 
 export type DraftFlowDeps = ReplyDeps &
-  Pick<ManageDeps, "createHandle" | "getHandle" | "cancelAwaitInput" | "now"> & {
+  Pick<
+    ManageDeps,
+    "createHandle" | "getHandle" | "cancelAwaitInput" | "now" | "listEpics" | "listEnvironments"
+  > & {
     loadBoard: () => Promise<BotBoard | null>;
     /**
      * Снимок всех сред для промпта агента (активная — первой). Не задан или
@@ -65,10 +71,12 @@ export type ParsedMessage = {
   agentText?: string;
   /** Поисковый запрос маршрута find_task. */
   query?: string;
+  /** Намерение, на которое это сообщение — ответ («что записать?»). */
+  captureContext?: string;
 };
 
 export type DraftFlowOutcome = {
-  action: "draft" | "correction" | "confirm" | "callback";
+  action: "draft" | "correction" | "confirm" | "intent" | "callback";
   error?: string;
   parsed?: ParsedMessage;
 };
@@ -81,6 +89,8 @@ export type MessageContext = {
   placeholderId: number;
   inbound: Inbound;
   parsed: ParsedMessage;
+  /** Намерение, на которое бот спросил «что записать?»; сообщение — ответ на него. */
+  captureContext?: string;
 };
 
 export type OpenDraft = { id: string; messageId: number | null; draft: DraftPayload };
@@ -101,7 +111,7 @@ export async function captureDraft(
   /** Строка над карточкой: почему это новая запись, а не поправка. */
   note?: string
 ): Promise<DraftFlowOutcome> {
-  const { chatId, placeholderId, inbound } = context;
+  const { chatId, placeholderId, inbound, captureContext } = context;
 
   const board = await deps.loadBoard();
   if (!board) {
@@ -114,6 +124,7 @@ export async function captureDraft(
     inbound,
     environmentId: board.environment.id,
     today: deps.today(),
+    ...(captureContext ? { captureContext } : {}),
     ...(snapshot ? { board: snapshot } : {}),
   });
   if (!built.ok) {
@@ -128,6 +139,7 @@ export async function captureDraft(
     agentText: built.agentText,
     environmentId: board.environment.id,
     createdAt: (deps.now?.() ?? new Date()).toISOString(),
+    ...(captureContext ? { captureContext } : {}),
   };
   const handleId = await deps.createHandle({
     kind: "draft",
@@ -140,6 +152,58 @@ export async function captureDraft(
   if (note) card.text = clampMessageText(`${field(note, REASON_LIMIT)}\n\n${card.text}`);
   await showCard(chatId, placeholderId, card, deps);
   return { action: "draft", parsed: withDraft(context.parsed, draft) };
+}
+
+/**
+ * «Хочу создать задачу в блоке ML» — намерение без содержания. Агента не
+ * зовём (иначе фраза становится заголовком задачи), а спрашиваем, что
+ * записать: заглушка становится вопросом, а ожидание ввода (15 минут) держит
+ * исходную фразу. Следующее сообщение — текст или голос — уходит агенту
+ * вместе с ней (`captureContext`), так что задача ляжет в названный эпик.
+ * В базу пишется только ожидание в `tg_handles`.
+ */
+export async function askWhatToCapture(
+  context: MessageContext,
+  deps: DraftFlowDeps
+): Promise<DraftFlowOutcome> {
+  const { chatId, placeholderId, inbound } = context;
+
+  const epic = await mentionedEpic(inbound.text, deps);
+  // Старый вопрос («новое название?», «что поправить?») этим снимается:
+  // ответ теперь ждёт только «что записать».
+  await deps.cancelAwaitInput(chatId);
+  await deps.createHandle({
+    kind: "await_input",
+    payload: captureContextPayload(inbound.text),
+    chatId,
+    messageId: placeholderId,
+  });
+  await showCard(chatId, placeholderId, { text: intentQuestion(epic) }, deps);
+  return { action: "intent", parsed: context.parsed };
+}
+
+/**
+ * Эпик из сообщения — по названиям эпиков всех сред, активная первой. Сбой
+ * базы здесь не повод молчать: вопрос просто выйдет без эпика.
+ */
+async function mentionedEpic(
+  text: string,
+  deps: DraftFlowDeps
+): Promise<{ name: string } | null> {
+  try {
+    const board = await deps.loadBoard();
+    const environments = await deps.listEnvironments();
+    const ordered = board
+      ? [
+          ...environments.filter((e) => e.id === board.environment.id),
+          ...environments.filter((e) => e.id !== board.environment.id),
+        ]
+      : environments;
+    const epics = (await Promise.all(ordered.map((e) => deps.listEpics(e.id)))).flat();
+    return findMentionedEpic(text, epics);
+  } catch {
+    return null;
+  }
 }
 
 /**

@@ -22,6 +22,13 @@ export type RouteDecision = {
    * внизу чата, с кнопками. Поле есть лишь при `true`.
    */
   confirm?: true;
+  /**
+   * «Хочу создать задачу в блоке ML» — сообщение лишь объявляет, что автор
+   * хочет что-то записать, но не говорит что. Бот агента не зовёт, а
+   * спрашивает, что именно записать. Поле есть лишь при `true` и только у
+   * маршрута `capture` без поправки и «отправляй».
+   */
+  intentOnly?: true;
   source: "jev" | "rule" | "fallback";
   confidence?: number;
   /** Почему взят запасной маршрут: timeout | http_<status> | network | bad_response | low_confidence. */
@@ -91,6 +98,34 @@ export const CONFIRM_INSTRUCTIONS =
   "Сообщение `message` — команда «отправляй/записывай/на доску» для черновика `draft` как есть " +
   "(в устной речи с повторами и оговорками вроде «нет», «точнее»), а не новое дело и не правка пунктов?";
 
+/** С этого значения noul считается «только намерение, без содержания». */
+const INTENT_THRESHOLD = 0.7;
+
+/**
+ * Вопрос «это объявление намерения без содержания?». Живой замер — фразы
+ * `INTENT_ONLY_CASES` и `NOT_INTENT_ONLY_CASES` в
+ * `tests/fixtures/route-cases.ts`: «хочу создать новую задачу в блоке ml
+ * модели» — да (эпик назван, а дела нет), «Создай задачу позвонить Маше» и
+ * «мысль: в стратегии нет синергии» — нет. Задаётся в том же запросе, что и
+ * маршрут: отдельный круг к Jev ради него не нужен. Пример «добавлю шаг к
+ * задаче про Y» в критерии поднял «хочу добавить подзадачу к задаче про
+ * отчёт» с 0.76 до 0.94. Замер 2026-10-26: намерения 0.94–0.98, записи с
+ * содержанием и остальные фразы замера ≤ 0.25.
+ */
+export const INTENT_INSTRUCTIONS =
+  "Сообщение `message` только объявляет, что автор хочет что-то создать или записать " +
+  "(задачу, заметку, подзадачу), но не говорит, что именно?";
+export const INTENT_CRITERIA = {
+  true:
+    "Есть лишь намерение и, может быть, место — эпик, блок, задача, к которой добавить: " +
+    "«хочу создать задачу в блоке X», «надо завести задачу», «запиши заметку», «добавлю шаг к задаче про Y». " +
+    "Самого дела, мысли или шага — что именно сделать или записать — в тексте нет",
+  false:
+    "В тексте есть содержание записи — само дело, мысль, тема, шаг или ссылка, даже короткие: " +
+    "«создай задачу позвонить Маше», «мысль: …», «добавь шаг — согласовать бюджет»; " +
+    "или это вообще не запись, а вопрос, просьба найти или приветствие",
+};
+
 const ROUTES = Object.keys(ROUTE_CRITERIA) as Route[];
 
 export async function decideRoute(
@@ -113,6 +148,11 @@ export async function decideRoute(
       criteria: ROUTE_CRITERIA,
     },
   };
+  // Ссылка — уже содержание записи: спрашивать «что записать?» незачем.
+  const askIntent = inbound.links.length === 0;
+  if (askIntent) {
+    questions.intent = { type: "noul", instructions: INTENT_INSTRUCTIONS, criteria: INTENT_CRITERIA };
+  }
   const draftAge = openDraft ? ageMinutes(openDraft.createdAt, deps.now?.() ?? new Date()) : null;
   const askCorrection = draftAge !== null && draftAge < CORRECTION_MAX_AGE_MIN;
   if (askCorrection) {
@@ -172,6 +212,13 @@ export async function decideRoute(
   // маршрут и так ведёт в черновик: уверенное «закрой задачу» или «что на
   // сегодня» при открытом черновике не должно уйти агенту поправкой.
   const correction = (route: Route) => looksLikeCorrection && CORRECTABLE.includes(route);
+  const intentAnswer = result.answers.intent;
+  const looksIntentOnly =
+    askIntent && intentAnswer?.type === "noul" && intentAnswer.noul >= INTENT_THRESHOLD;
+  // Спрашиваем «что записать?» только вместо черновика: поправка к черновику
+  // и любой другой маршрут идут своим путём.
+  const intent = (route: Route): { intentOnly?: true } =>
+    looksIntentOnly && route === "capture" && !correction(route) ? { intentOnly: true } : {};
 
   if (
     answer?.type !== "choice" ||
@@ -180,6 +227,7 @@ export async function decideRoute(
     return {
       route: "capture",
       correction: correction("capture"),
+      ...intent("capture"),
       source: "fallback",
       reason: "bad_response",
     };
@@ -188,6 +236,7 @@ export async function decideRoute(
     return {
       route: "capture",
       correction: correction("capture"),
+      ...intent("capture"),
       source: "fallback",
       reason: "low_confidence",
       confidence: answer.confidence,
@@ -197,6 +246,7 @@ export async function decideRoute(
   return {
     route: answer.choice as Route,
     correction: correction(answer.choice as Route),
+    ...intent(answer.choice as Route),
     source: "jev",
     confidence: answer.confidence,
     latencyMs: result.latencyMs,

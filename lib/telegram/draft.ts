@@ -35,6 +35,12 @@ export type DraftPayload = {
    * что бот услышал. Текстовая поправка поле снимает.
    */
   correctionTranscript?: string;
+  /**
+   * Прошлое сообщение автора, которое лишь объявило намерение («хочу создать
+   * задачу в блоке ML»): бот спросил, что записать, и эта запись — ответ.
+   * Агент видит его как контекст и при поправке тоже.
+   */
+  captureContext?: string;
 };
 
 /**
@@ -55,6 +61,7 @@ export function parseDraftPayload(payload: unknown): DraftPayload | null {
   }
   if (typeof agentText !== "string" || typeof environmentId !== "string") return null;
   if (typeof createdAt !== "string") return null;
+  if (payload.captureContext !== undefined && typeof payload.captureContext !== "string") return null;
 
   return payload as DraftPayload;
 }
@@ -65,6 +72,56 @@ export function parseDraftFix(payload: unknown): { draftHandleId: string } | nul
   const id = payload.draftHandleId;
   return typeof id === "string" && isHandleId(id) ? { draftHandleId: id } : null;
 }
+
+/** Столько знаков намерения хранится в ожидании и уходит агенту контекстом. */
+const CAPTURE_CONTEXT_LIMIT = 1000;
+
+/**
+ * Ожидание ввода после «Что именно записать?»: следующее сообщение — сама
+ * запись, а это — объявленное до неё намерение.
+ */
+export function captureContextPayload(text: string): { captureContext: string } {
+  return { captureContext: text.trim().slice(0, CAPTURE_CONTEXT_LIMIT) };
+}
+
+export function parseCaptureContext(payload: unknown): { captureContext: string } | null {
+  if (!isRecord(payload)) return null;
+  const context = payload.captureContext;
+  return typeof context === "string" && context.trim() ? { captureContext: context } : null;
+}
+
+/** Регистр и «ё» не различаем, пробелы схлопываем: «ML  модели» = «ml модели». */
+function normalizeName(value: string): string {
+  return value.toLocaleLowerCase("ru").replace(/ё/g, "е").replace(/\s+/g, " ").trim();
+}
+
+/**
+ * Эпик, названный в сообщении целым словом или фразой («в блоке ml модели» →
+ * «ML модели»). Несколько совпадений — самое длинное название: «ML модели»
+ * точнее, чем «ML». Не нашёлся — null, бот спросит без эпика.
+ */
+export function findMentionedEpic<T extends { name: string }>(text: string, epics: T[]): T | null {
+  const haystack = normalizeName(text);
+  let best: T | null = null;
+  for (const epic of epics) {
+    const name = normalizeName(epic.name);
+    if (name.length < 2) continue;
+    const escaped = name.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+    // \b в JS — только латиница, поэтому границы слова — через \p{L}\p{N}.
+    const pattern = new RegExp(`(?<![\\p{L}\\p{N}])${escaped}(?![\\p{L}\\p{N}])`, "u");
+    if (pattern.test(haystack) && (!best || name.length > normalizeName(best.name).length)) best = epic;
+  }
+  return best;
+}
+
+/** Вопрос вместо черновика, когда сообщение — одно намерение без содержания. HTML. */
+export function intentQuestion(epic: { name: string } | null): string {
+  return epic
+    ? `Какую задачу завести в эпике «${field(epic.name, EPIC_NAME_LIMIT)}»? Напишите или надиктуйте.`
+    : "Что именно записать? Напишите или надиктуйте.";
+}
+
+const EPIC_NAME_LIMIT = 200;
 
 function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === "object" && value !== null && !Array.isArray(value);

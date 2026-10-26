@@ -1592,3 +1592,145 @@ describe("снимок доски в запросе агентов", () => {
     expect(buildDraft.mock.calls[0][0]).not.toHaveProperty("board");
   });
 });
+
+describe("намерение без содержания: «хочу создать задачу»", () => {
+  beforeEach(() => vi.clearAllMocks());
+
+  const INTENT_TEXT = "хочу создать новую задачу в блоке ml модели";
+  const INTENT: RouteDecision = { ...CAPTURE, intentOnly: true };
+
+  it("агента не зовёт: заглушка становится вопросом с эпиком, ставится ожидание с исходной фразой", async () => {
+    const listEpics = vi.fn(async (environmentId: string) =>
+      environmentId === "env-1"
+        ? [
+            { id: "epic-ml", name: "ML модели" },
+            { id: "epic-ml-short", name: "ML" },
+          ]
+        : []
+    );
+    const { deps, buildDraft, createHandle, cancelAwaitInput, editMessageText } = makeDeps({
+      decideRoute: vi.fn().mockResolvedValue(INTENT),
+      listEpics,
+    });
+
+    const result = await handleUpdate(textUpdate(INTENT_TEXT), CHAT, deps);
+
+    expect(result).toEqual({ status: "processed", action: "intent" });
+    expect(buildDraft).not.toHaveBeenCalled();
+    expect(cancelAwaitInput).toHaveBeenCalledWith(CHAT);
+    expect(createHandle).toHaveBeenCalledTimes(1);
+    expect(createHandle).toHaveBeenCalledWith({
+      kind: "await_input",
+      payload: { captureContext: INTENT_TEXT },
+      chatId: CHAT,
+      messageId: PLACEHOLDER,
+    });
+    const card = lastEditOf(editMessageText, PLACEHOLDER)!;
+    expect(card.text).toBe("Какую задачу завести в эпике «ML модели»? Напишите или надиктуйте.");
+    expect(card.replyMarkup).toBeUndefined();
+  });
+
+  it("эпика в сообщении нет — общий вопрос «что именно записать?»", async () => {
+    const { deps, buildDraft, editMessageText } = makeDeps({
+      decideRoute: vi.fn().mockResolvedValue(INTENT),
+    });
+
+    await handleUpdate(textUpdate("надо завести задачу"), CHAT, deps);
+
+    expect(buildDraft).not.toHaveBeenCalled();
+    expect(lastEditOf(editMessageText, PLACEHOLDER)!.text).toBe(
+      "Что именно записать? Напишите или надиктуйте."
+    );
+  });
+
+  it("название эпика в вопросе экранируется, сбой списка эпиков — вопрос без эпика", async () => {
+    const html = makeDeps({
+      decideRoute: vi.fn().mockResolvedValue(INTENT),
+      listEpics: vi.fn().mockResolvedValue([{ id: "e", name: "R&D <лаб>" }]),
+    });
+    await handleUpdate(textUpdate("хочу задачу в r&d <лаб>"), CHAT, html.deps);
+    expect(lastEditOf(html.editMessageText, PLACEHOLDER)!.text).toContain("«R&amp;D &lt;лаб&gt;»");
+
+    const broken = makeDeps({
+      decideRoute: vi.fn().mockResolvedValue(INTENT),
+      listEpics: vi.fn().mockRejectedValue(new Error("база недоступна")),
+    });
+    const result = await handleUpdate(textUpdate(INTENT_TEXT), CHAT, broken.deps);
+    expect(result).toEqual({ status: "processed", action: "intent" });
+    expect(lastEditOf(broken.editMessageText, PLACEHOLDER)!.text).toContain("Что именно записать?");
+  });
+
+  it("следующий текст — запись с контекстом намерения, без вопроса к Jev", async () => {
+    const { deps, decideRoute, buildDraft, createHandle } = makeDeps({
+      takeAwaitInput: vi.fn().mockResolvedValue({
+        payload: { captureContext: INTENT_TEXT },
+        messageId: PLACEHOLDER,
+      }),
+    });
+
+    const result = await handleUpdate(textUpdate("обучить модель оттока"), CHAT, deps);
+
+    expect(result).toEqual({ status: "processed", action: "draft" });
+    expect(decideRoute).not.toHaveBeenCalled();
+    expect(buildDraft).toHaveBeenCalledWith(
+      expect.objectContaining({
+        inbound: expect.objectContaining({ text: "обучить модель оттока" }),
+        captureContext: INTENT_TEXT,
+      })
+    );
+    expect(createHandle).toHaveBeenCalledWith(
+      expect.objectContaining({
+        kind: "draft",
+        payload: expect.objectContaining({ captureContext: INTENT_TEXT }),
+      })
+    );
+  });
+
+  it("голосовое тоже ответ: расшифровка уходит агенту с контекстом", async () => {
+    const { deps, decideRoute, buildDraft, transcribe, cancelAwaitInput } = makeDeps({
+      takeAwaitInput: vi.fn().mockResolvedValue({
+        payload: { captureContext: INTENT_TEXT },
+        messageId: PLACEHOLDER,
+      }),
+    });
+
+    const result = await handleUpdate(voiceUpdate(), CHAT, deps);
+
+    expect(result).toEqual({ status: "processed", action: "draft" });
+    expect(transcribe).toHaveBeenCalled();
+    expect(cancelAwaitInput).not.toHaveBeenCalled();
+    expect(decideRoute).not.toHaveBeenCalled();
+    expect(buildDraft.mock.calls[0][0]).toMatchObject({
+      inbound: { text: "позвонить Маше" },
+      captureContext: INTENT_TEXT,
+    });
+  });
+
+  it("команда снимает ожидание «что записать?»", async () => {
+    const { deps, cancelAwaitInput, takeAwaitInput, buildDraft } = makeDeps({
+      takeAwaitInput: vi.fn().mockResolvedValue({
+        payload: { captureContext: INTENT_TEXT },
+        messageId: PLACEHOLDER,
+      }),
+    });
+
+    await handleUpdate(textUpdate("/help"), CHAT, deps);
+
+    expect(cancelAwaitInput).toHaveBeenCalledWith(CHAT);
+    expect(takeAwaitInput).not.toHaveBeenCalled();
+    expect(buildDraft).not.toHaveBeenCalled();
+  });
+
+  it("intentOnly не перебивает «отправляй» при открытом черновике", async () => {
+    const { deps, buildDraft, createHandle } = makeDeps({
+      findActiveHandle: vi.fn().mockResolvedValue(draftHandle()),
+      decideRoute: vi.fn().mockResolvedValue({ ...INTENT, confirm: true }),
+    });
+
+    const result = await handleUpdate(textUpdate("да, записывай"), CHAT, deps);
+
+    expect(result).toEqual({ status: "processed", action: "confirm" });
+    expect(buildDraft).not.toHaveBeenCalled();
+    expect(createHandle).not.toHaveBeenCalled();
+  });
+});

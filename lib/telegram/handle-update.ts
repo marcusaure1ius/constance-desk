@@ -9,11 +9,13 @@ import { loadPromptBoard, type PromptBoard } from "@/lib/telegram/board-snapshot
 import { createTelegramClient, escapeHtml, type TelegramClient } from "@/lib/telegram/client";
 import {
   draftSummary,
+  parseCaptureContext,
   parseDraftCallback,
   parseDraftFix,
   type DraftCallback,
 } from "@/lib/telegram/draft";
 import {
+  askWhatToCapture,
   captureDraft,
   correctDraft,
   loadDraft,
@@ -157,6 +159,7 @@ export type UpdateAction =
   | "draft"
   | "correction"
   | "confirm"
+  | "intent"
   | "ask_board"
   | "find_task"
   | "smalltalk"
@@ -282,13 +285,16 @@ async function respond(
 
   return processMessage(update.update_id, message, chatId, deps, {
     fixDraftId: awaited?.kind === "draft_fix" ? awaited.draftHandleId : undefined,
+    captureContext: awaited?.kind === "capture_context" ? awaited.captureContext : undefined,
   });
 }
 
 type AwaitedInput =
   | { kind: "answered"; outcome: RespondOutcome }
   /** После «✏️ Исправить»: сообщение — поправка к этому черновику. */
-  | { kind: "draft_fix"; draftHandleId: string };
+  | { kind: "draft_fix"; draftHandleId: string }
+  /** После «Что именно записать?»: сообщение — сама запись к этому намерению. */
+  | { kind: "capture_context"; captureContext: string };
 
 /**
  * Ответ на заданный вопрос: «пришлите новое название» или «что поправить?».
@@ -320,6 +326,10 @@ async function respondToAwaitedInput(
   const fix = parseDraftFix(pending.payload);
   if (fix) return { kind: "draft_fix", draftHandleId: fix.draftHandleId };
 
+  // Ответ на «что записать?» тоже можно надиктовать.
+  const intent = parseCaptureContext(pending.payload);
+  if (intent) return { kind: "capture_context", captureContext: intent.captureContext };
+
   // Новое название голосом не принимаем: ожидание уже забрано (то есть
   // погашено), а голосовое идёт обычным путём, в черновик.
   const input = parseAwaitInput(pending.payload);
@@ -345,7 +355,7 @@ async function processMessage(
   message: TelegramMessage,
   chatId: number,
   deps: HandleUpdateDeps,
-  options: { placeholderId?: number; fixDraftId?: string } = {}
+  options: { placeholderId?: number; fixDraftId?: string; captureContext?: string } = {}
 ): Promise<RespondOutcome> {
   const placeholderId = await showPlaceholder(chatId, options.placeholderId, deps);
 
@@ -370,7 +380,7 @@ async function routeMessage(
   chatId: number,
   placeholderId: number,
   deps: HandleUpdateDeps,
-  options: { fixDraftId?: string }
+  options: { fixDraftId?: string; captureContext?: string }
 ): Promise<RespondOutcome> {
   const read = await deps.readInbound(message);
   if (!read.ok) {
@@ -393,12 +403,16 @@ async function routeMessage(
     return { action: "unsupported" };
   }
 
-  const base = (route: RouteDecision): MessageContext => ({
+  const base = (route: RouteDecision, captureContext?: string): MessageContext => ({
     updateId,
     chatId,
     placeholderId,
     inbound,
-    parsed: { route, ...(inbound.transcript ? { transcript: inbound.transcript } : {}) },
+    parsed: {
+      route,
+      ...(inbound.transcript ? { transcript: inbound.transcript } : {}),
+      ...(captureContext ? { captureContext } : {}),
+    },
   });
 
   // «✏️ Исправить» уже сказал, что это поправка: Jev не спрашиваем.
@@ -407,6 +421,18 @@ async function routeMessage(
     if (open) {
       return correctDraft(open, base({ route: "capture", correction: true, source: "rule" }), deps);
     }
+  }
+
+  // Ответ на «что записать?»: это запись, Jev не спрашиваем. Агент видит
+  // объявленное намерение контекстом — эпик из него, заголовок из ответа.
+  if (options.captureContext) {
+    return captureDraft(
+      {
+        ...base({ route: "capture", correction: false, source: "rule" }, options.captureContext),
+        captureContext: options.captureContext,
+      },
+      deps
+    );
   }
 
   const open = await loadOpenDraft(chatId, deps);
@@ -422,6 +448,9 @@ async function routeMessage(
   // Поправка без открытого черновика (его уже отправили или отменили) —
   // обычная новая запись: править нечего.
   if (route.correction && open) return correctDraft(open, context, deps);
+
+  // «Хочу создать задачу» без самого дела: агента не зовём, спрашиваем, что записать.
+  if (route.intentOnly) return askWhatToCapture(context, deps);
 
   switch (route.route) {
     case "capture":

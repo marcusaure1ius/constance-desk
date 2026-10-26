@@ -558,3 +558,61 @@ describe("снимок доски в запросе захвата", () => {
     expect(prompt.endsWith(board.text)).toBe(true);
   });
 });
+
+describe("намерение без содержания", () => {
+  const INTENT = "хочу создать новую задачу в блоке ml модели";
+
+  it("промпт: только намерение — без вызовов, одной фразой спросить, что записать", () => {
+    for (const prompt of [buildCapturePrompt(base), buildCapturePrompt({ ...base, board: "Доска: …" })]) {
+      expect(prompt).toMatch(/нет содержания записи — только намерение \(«хочу создать задачу»/);
+      expect(prompt).toContain("не предлагай вызовов, а одной фразой спроси, что записать");
+      expect(prompt).toContain("Само намерение заголовком не бывает");
+      expect(prompt).toContain("«Контекст от автора»");
+    }
+  });
+
+  it("ответ на «что записать?» уходит агенту с контекстом: «Контекст от автора» и «Сама запись»", async () => {
+    const agent = fakeAgent([]);
+    await buildDraft({ ...base, inbound: inbound("обучить модель оттока"), captureContext: INTENT }, agent);
+
+    const message = agent.seen[0].message;
+    expect(message).toMatch(/^Контекст от автора/);
+    expect(message).toContain(INTENT);
+    expect(message).toContain("Это не заголовок");
+    expect(message).toContain("Сама запись:\nобучить модель оттока");
+    expect(message).not.toContain("Новая запись");
+  });
+
+  it("без контекста сообщение агенту прежнее", async () => {
+    const agent = fakeAgent([]);
+    await buildDraft({ ...base, inbound: inbound("обучить модель оттока") }, agent);
+    expect(agent.seen[0].message).toBe("Новая запись:\nобучить модель оттока");
+  });
+
+  it("поправка к такому черновику помнит контекст в истории", async () => {
+    const previous: DraftPayload = {
+      source: inbound("обучить модель оттока"),
+      corrections: [],
+      calls: [],
+      agentText: "",
+      environmentId: "env-1",
+      createdAt: "2026-10-26T10:00:00.000Z",
+      captureContext: INTENT,
+    };
+    const agent = fakeAgent([]);
+    await buildDraft({ ...base, inbound: inbound("срок завтра"), previous, correction: "срок завтра" }, agent);
+
+    expect(agent.seen[0].history?.[0].content).toContain(`Контекст от автора (его прошлое сообщение, только намерение): ${INTENT}`);
+  });
+
+  it("латиница из контекста (ml) — слова автора, предупреждения нет", async () => {
+    const agent = fakeAgent([
+      proposal([{ tool: "create_epic_task", args: { title: "ml пайплайн" }, label: "Задача «ml пайплайн»" }]),
+    ]);
+    const result = await buildDraft(
+      { ...base, inbound: inbound("пайплайн"), captureContext: INTENT },
+      agent
+    );
+    expect(result.ok && result.agentText).toBe("");
+  });
+});

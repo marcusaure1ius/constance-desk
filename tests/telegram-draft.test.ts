@@ -8,6 +8,10 @@ import {
   renderClosedCard,
   parseDraftPayload,
   parseDraftFix,
+  captureContextPayload,
+  findMentionedEpic,
+  intentQuestion,
+  parseCaptureContext,
   type DraftPayload,
 } from "@/lib/telegram/draft";
 import { taskCallback } from "@/lib/telegram/task-card";
@@ -369,5 +373,57 @@ describe("ожидание поправки", () => {
     expect(parseDraftFix({ taskId: TASK_ID, field: "title" })).toBeNull();
     expect(parseDraftFix({ draftHandleId: "коротко" })).toBeNull();
     expect(parseDraftFix(null)).toBeNull();
+  });
+});
+
+describe("намерение без содержания: помощники", () => {
+  it("findMentionedEpic: регистр, «ё» и пробелы не важны, берётся самое длинное название", () => {
+    const epics = [
+      { id: "1", name: "ML" },
+      { id: "2", name: "ML  модели" },
+      { id: "3", name: "Отчётность" },
+    ];
+    expect(findMentionedEpic("хочу создать новую задачу в блоке ml модели", epics)?.id).toBe("2");
+    expect(findMentionedEpic("задачу в отчетность", epics)?.id).toBe("3");
+    expect(findMentionedEpic("в блок ml", epics)?.id).toBe("1");
+  });
+
+  it("findMentionedEpic: только целым словом, иначе null", () => {
+    const epics = [{ id: "1", name: "ИИ" }, { id: "2", name: "Слайды" }];
+    expect(findMentionedEpic("надо завести задачу", epics)).toBeNull();
+    // «ии» внутри «линии» не считается эпиком.
+    expect(findMentionedEpic("хочу добавить подзадачу к задаче про отчёт и линии", epics)).toBeNull();
+    expect(findMentionedEpic("задача (слайды)", epics)?.id).toBe("2");
+  });
+
+  it("intentQuestion: с эпиком — экранированный HTML, без — общий вопрос", () => {
+    expect(intentQuestion({ name: "R&D <лаб>" })).toBe(
+      "Какую задачу завести в эпике «R&amp;D &lt;лаб&gt;»? Напишите или надиктуйте."
+    );
+    expect(intentQuestion(null)).toBe("Что именно записать? Напишите или надиктуйте.");
+  });
+
+  it("ожидание «что записать?»: payload туда и обратно, мусор — null", () => {
+    expect(parseCaptureContext(captureContextPayload("  хочу задачу  "))).toEqual({
+      captureContext: "хочу задачу",
+    });
+    expect(captureContextPayload("я".repeat(5000)).captureContext).toHaveLength(1000);
+    expect(parseCaptureContext({ captureContext: "  " })).toBeNull();
+    expect(parseCaptureContext({ captureContext: 1 })).toBeNull();
+    expect(parseCaptureContext({ draftHandleId: "DRAFT12345" })).toBeNull();
+    expect(parseCaptureContext(null)).toBeNull();
+  });
+
+  it("parseDraftPayload: контекст намерения — строкой или никак", () => {
+    const draft = {
+      source: { text: "пайплайн", links: [], hasUnreadableMedia: false },
+      corrections: [],
+      calls: [],
+      agentText: "",
+      environmentId: "env-1",
+      createdAt: "2026-10-26T10:00:00.000Z",
+    };
+    expect(parseDraftPayload({ ...draft, captureContext: "хочу задачу" })).not.toBeNull();
+    expect(parseDraftPayload({ ...draft, captureContext: 42 })).toBeNull();
   });
 });

@@ -7,7 +7,9 @@ import {
   CORRECTION_CASES,
   NOT_CONFIRM_CASES,
   DRAFT_SUMMARY,
+  INTENT_ONLY_CASES,
   NEW_ENTRY_CASES,
+  NOT_INTENT_ONLY_CASES,
   ROUTE_CASES,
   ROUTE_HIT_RATIO,
 } from "./fixtures/route-cases";
@@ -98,5 +100,26 @@ describe("decideRoute — реальный Jev", () => {
       console.log(`confirm=${r.d.confirm ?? false} correction=${r.d.correction} route=${r.d.route} «${r.text}»`);
     }
     expect(results.filter((r) => r.d.confirm).map((r) => r.text)).toEqual([]);
+  }, 30000);
+
+  it("узнаёт намерение без содержания: бот спросит, что записать", async () => {
+    const results = await Promise.all(
+      INTENT_ONLY_CASES.map(async (text) => ({ text, d: await decideRoute(inbound(text), null, deps) }))
+    );
+    for (const r of results) {
+      console.log(`intentOnly=${r.d.intentOnly ?? false} route=${r.d.route} (${r.d.confidence}) «${r.text}»`);
+    }
+    expect(results.filter((r) => !r.d.intentOnly).map((r) => r.text)).toEqual([]);
+  }, 30000);
+
+  it("запись с содержанием — не «только намерение»", async () => {
+    const texts = [...NOT_INTENT_ONLY_CASES, ...ROUTE_CASES.map((c) => c.text)];
+    const results = await Promise.all(
+      texts.map(async (text) => ({ text, d: await decideRoute(inbound(text), null, deps) }))
+    );
+    for (const r of results) {
+      console.log(`intentOnly=${r.d.intentOnly ?? false} route=${r.d.route} «${r.text.slice(0, 50)}»`);
+    }
+    expect(results.filter((r) => r.d.intentOnly).map((r) => r.text)).toEqual([]);
   }, 30000);
 });
