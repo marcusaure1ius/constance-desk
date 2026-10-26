@@ -80,7 +80,7 @@ const CONFIRM_THRESHOLD = 0.7;
  * час новое сообщение почти всегда новая запись, а кнопки старой карточки
  * работают до срока.
  */
-const CORRECTION_MAX_AGE_MIN = 60;
+export const CORRECTION_MAX_AGE_MIN = 60;
 /** Поправкой может быть только запись: вопрос к доске или про задачу — нет. */
 const CORRECTABLE: readonly Route[] = ["capture", "forward"];
 /** Столько знаков сообщения видит Jev. */

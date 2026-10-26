@@ -138,7 +138,44 @@ export type TelegramClientOptions = {
   deadlineAt?: number;
   /** Часы; в тестах подменяются вместе со sleep, чтобы время «шло». */
   now?: () => number;
+  /** Сколько ждать getFile, мс. */
+  getFileTimeoutMs?: number;
+  /** Сколько ждать скачивания файла целиком, мс. */
+  downloadTimeoutMs?: number;
 };
+
+/**
+ * Сроки для файлов. Зависшее скачивание держало бы «⏳ Разбираю…» до смерти
+ * функции; с таймаутом вход падает ошибкой, и заглушка становится «не
+ * разобрал» с кнопкой повтора.
+ */
+const GET_FILE_TIMEOUT_MS = 10_000;
+const DOWNLOAD_TIMEOUT_MS = 20_000;
+
+/**
+ * Обещание с таймаутом. Сигнал уходит в fetch, чтобы оборвать соединение, а
+ * гонка с таймером страхует от fetch (или тела ответа), который сигнал не
+ * слушает.
+ */
+async function withTimeout<T>(
+  label: string,
+  ms: number,
+  run: (signal: AbortSignal) => Promise<T>
+): Promise<T> {
+  const controller = new AbortController();
+  let timer: ReturnType<typeof setTimeout> | undefined;
+  const timeout = new Promise<never>((_, reject) => {
+    timer = setTimeout(() => {
+      controller.abort();
+      reject(new Error(`${label}: Telegram не ответил за ${Math.round(ms / 1000)} с`));
+    }, ms);
+  });
+  try {
+    return await Promise.race([run(controller.signal), timeout]);
+  } finally {
+    clearTimeout(timer);
+  }
+}
 
 export type SendMessageInput = {
   chatId: number;
@@ -167,8 +204,14 @@ export function createTelegramClient(options: TelegramClientOptions = {}) {
   const maxRetries = options.maxRetries ?? 2;
   const now = options.now ?? Date.now;
   const deadlineAt = options.deadlineAt;
+  const getFileTimeoutMs = options.getFileTimeoutMs ?? GET_FILE_TIMEOUT_MS;
+  const downloadTimeoutMs = options.downloadTimeoutMs ?? DOWNLOAD_TIMEOUT_MS;
 
-  async function call<T>(method: string, payload: Record<string, unknown> = {}): Promise<T> {
+  async function call<T>(
+    method: string,
+    payload: Record<string, unknown> = {},
+    signal?: AbortSignal
+  ): Promise<T> {
     if (!token) throw new Error("TELEGRAM_BOT_TOKEN не задан");
 
     for (let attempt = 0; ; attempt++) {
@@ -176,6 +219,7 @@ export function createTelegramClient(options: TelegramClientOptions = {}) {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify(payload),
+        ...(signal ? { signal } : {}),
       });
 
       const body = (await response.json().catch(() => ({}))) as {
@@ -272,7 +316,9 @@ export function createTelegramClient(options: TelegramClientOptions = {}) {
 
   /** Файл до 20 МБ; для большего Bot API ссылку не отдаёт. */
   async function getFile(fileId: string): Promise<TelegramFile> {
-    return call<TelegramFile>("getFile", { file_id: fileId });
+    return withTimeout("getFile", getFileTimeoutMs, (signal) =>
+      call<TelegramFile>("getFile", { file_id: fileId }, signal)
+    );
   }
 
   /**
@@ -284,11 +330,13 @@ export function createTelegramClient(options: TelegramClientOptions = {}) {
   async function downloadFile(filePath: string): Promise<ArrayBuffer> {
     if (!token) throw new Error("TELEGRAM_BOT_TOKEN не задан");
 
-    const response = await fetchFn(`${API_ORIGIN}/file/bot${token}/${filePath}`);
-    if (!response.ok) {
-      throw new TelegramApiError("downloadFile", response.status, `не скачался ${filePath}`);
-    }
-    return response.arrayBuffer();
+    return withTimeout("downloadFile", downloadTimeoutMs, async (signal) => {
+      const response = await fetchFn(`${API_ORIGIN}/file/bot${token}/${filePath}`, { signal });
+      if (!response.ok) {
+        throw new TelegramApiError("downloadFile", response.status, `не скачался ${filePath}`);
+      }
+      return response.arrayBuffer();
+    });
   }
 
   async function setMyCommands(commands: TelegramBotCommand[]): Promise<true> {

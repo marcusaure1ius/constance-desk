@@ -662,6 +662,45 @@ describe("захват: сообщение → черновик", () => {
       expect(input.inbound.attachments?.[0].name).toBe("transcript.md");
     });
 
+    it("повторный разбор при свежем черновике — поправка этого черновика, без нового", async () => {
+      const open = storedDraft({
+        source: { text: "вот", links: [], hasUnreadableMedia: false, attachments: [{ name: "transcript.md", text: "я: письмо", truncated: false }] },
+        createdAt: "2026-08-25T11:30:00.000Z",
+      });
+      const { deps, buildDraft, findActiveHandle, getFile, createHandle, decideRoute } = makeDeps({
+        decideRoute: vi.fn().mockResolvedValue({ route: "capture", correction: true, source: "jev", confidence: 0.9 }),
+      });
+      findActiveHandle.mockImplementation(async (_chat: number, kind: string) =>
+        kind === "draft"
+          ? draftHandle(open)
+          : { id: "ATTACH0001", kind: "attachment", payload: { document: MD_DOC }, chatId: CHAT, messageId: null }
+      );
+
+      const result = await handleUpdate(textUpdate("посмотри файл ещё раз, ты пропустил письмо"), CHAT, deps);
+
+      expect(result).toEqual({ status: "processed", action: "correction" });
+      expect(getFile).not.toHaveBeenCalled();
+      expect(decideRoute.mock.calls[0][0].attachments).toBeUndefined();
+      const input = buildDraft.mock.calls[0][0];
+      expect(input.previous?.source.attachments?.[0].name).toBe("transcript.md");
+      expect(input.correction).toBe("посмотри файл ещё раз, ты пропустил письмо");
+      expect(createHandle).not.toHaveBeenCalled();
+    });
+
+    it("черновик старше часа повторному разбору не мешает", async () => {
+      const { deps, buildDraft, findActiveHandle, downloadFile } = makeDeps();
+      downloadFile.mockResolvedValue(MD);
+      findActiveHandle.mockImplementation(async (_chat: number, kind: string) =>
+        kind === "draft"
+          ? draftHandle(storedDraft({ createdAt: "2026-08-25T10:00:00.000Z" }))
+          : { id: "ATTACH0001", kind: "attachment", payload: { document: MD_DOC }, chatId: CHAT, messageId: null }
+      );
+
+      await handleUpdate(textUpdate("разбери вложение"), CHAT, deps);
+
+      expect(buildDraft.mock.calls[0][0].inbound.attachments?.[0].name).toBe("transcript.md");
+    });
+
     it("«проанализируй файл» без недавнего файла — обычное сообщение", async () => {
       const { deps, buildDraft, getFile } = makeDeps();
 

@@ -49,7 +49,7 @@ import {
   type ManageDeps,
 } from "@/lib/telegram/manage";
 import { showCard } from "@/lib/telegram/reply";
-import { decideRoute, type RouteDecision } from "@/lib/telegram/route";
+import { CORRECTION_MAX_AGE_MIN, decideRoute, type RouteDecision } from "@/lib/telegram/route";
 import { parseTaskCallback, type TaskCallback } from "@/lib/telegram/task-card";
 import { BOT_COMMANDS } from "@/lib/telegram/commands";
 import {
@@ -508,6 +508,12 @@ async function rememberAttachment(
  * сообщении файла нет, поэтому перечитываем последний текстовый файл чата
  * (хендл `attachment`, 15 минут) и разбираем его с этим сообщением как
  * подписью. Файла нет или он не перечитался — сообщение идёт как есть.
+ *
+ * При свежем черновике (моложе часа — столько же Jev считает поправкой)
+ * файл не подклеивается: с файлом маршрут — capture правилом, и «посмотри
+ * файл ещё раз, ты пропустил письмо» завело бы второй черновик. Без файла
+ * сообщение идёт обычным путём Jev: поправка пересоберёт открытый черновик,
+ * а в его `source` файл уже лежит.
  */
 async function withRecentAttachment(
   inbound: Inbound,
@@ -516,6 +522,11 @@ async function withRecentAttachment(
 ): Promise<Inbound> {
   if (inbound.attachments?.length || !asksAboutAttachment(inbound.text)) return inbound;
   try {
+    const open = await loadOpenDraft(chatId, deps);
+    const now = deps.now?.() ?? new Date();
+    if (open && now.getTime() - new Date(open.draft.createdAt).getTime() < CORRECTION_MAX_AGE_MIN * 60_000) {
+      return inbound;
+    }
     const handle = await deps.findActiveHandle(chatId, "attachment");
     const document = handle ? parseAttachmentMemory(handle.payload) : null;
     if (!document) return inbound;

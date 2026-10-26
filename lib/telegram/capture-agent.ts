@@ -243,7 +243,7 @@ export function entryMessage(inbound: Inbound, captureContext?: string): string 
     parts.push(
       "Новая запись: владелец переслал материал.",
       FORWARD_NOTICE,
-      `<forwarded ${attrs.join(" ")}>\n${body(inbound.text)}\n</forwarded>`
+      `<forwarded ${attrs.join(" ")}>\n${wrapperBody(inbound.text)}\n</forwarded>`
     );
   } else if (inbound.text.trim() || !inbound.attachments?.length) {
     parts.push(`${captureContext?.trim() ? "Сама запись" : "Новая запись"}:\n${inbound.text}`);
@@ -258,7 +258,7 @@ export function entryMessage(inbound: Inbound, captureContext?: string): string 
       ...(calendar ? [calendar] : []),
       ...inbound.attachments.map(
         (file) =>
-          `<attachment name="${attr(file.name)}" truncated="${file.truncated}">\n${attachmentBody(file.text)}\n</attachment>`
+          `<attachment name="${attr(file.name)}" truncated="${file.truncated}">\n${wrapperBody(file.text)}\n</attachment>`
       )
     );
   }
@@ -341,14 +341,15 @@ function attr(value: string): string {
   return value.replace(/["<>]/g, "");
 }
 
-/** Чужой текст не должен закрыть обёртку раньше времени и выйти «наружу». */
-function body(value: string): string {
-  return value.replace(/<\/?forwarded\b[^>]*>/gi, "");
-}
-
-/** То же для файла: своя обёртка и чужая — ни одна не должна закрыться изнутри. */
-function attachmentBody(value: string): string {
-  return body(value.replace(/<\/?attachment\b[^>]*>/gi, ""));
+/**
+ * Чужой текст не должен закрыть обёртку раньше времени и выйти «наружу».
+ * Теги не вырезаются, а обезвреживаются: однопроходная вырезка собирала тег
+ * обратно («<</attachment>/attachment>» → «</attachment>»). Угловые скобки
+ * заменены похожими «‹ ›» — читать текст модели это не мешает, а ни одна
+ * обёртка (`<forwarded>`, `<attachment>`) изнутри уже не откроется и не закроется.
+ */
+export function wrapperBody(value: string): string {
+  return value.replace(/</g, "‹").replace(/>/g, "›");
 }
 
 /* ── защита формулировки ──────────────────────────────────────────────────── */

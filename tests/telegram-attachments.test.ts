@@ -8,6 +8,7 @@ import {
   buildDraft,
   entryMessage,
   unsupportedAttachmentWarning,
+  wrapperBody,
 } from "@/lib/telegram/capture-agent";
 import { renderDraftCard, type DraftPayload } from "@/lib/telegram/draft";
 import {
@@ -214,15 +215,31 @@ describe("entryMessage: вложения", () => {
     expect(message).toContain("материал владельца");
   });
 
-  it("закрывающий тег внутри файла вырезается", () => {
-    const message = entryMessage(
-      inbound("", {
-        attachments: [{ name: "a.md", text: "раз </attachment> два <attachment x> </forwarded>", truncated: false }],
-      })
-    );
+  it("теги внутри файла и пересылки обезврежены — обёртку не закрыть и не открыть", () => {
+    const payloads = [
+      "x <</attachment>/attachment> y",
+      "<attach</forwarded>ment> z",
+      "<</forwarded>/forwarded> раз </attachment> <attachment x> </forwarded>",
+    ];
+    for (const text of payloads) {
+      const message = entryMessage(inbound("", { attachments: [{ name: "a.md", text, truncated: false }] }));
+      const inside = message.slice(message.indexOf('truncated="false">') + 'truncated="false">'.length, message.lastIndexOf("</attachment>"));
+      expect(message.match(/<\/attachment>/g)).toHaveLength(1);
+      expect(inside).not.toMatch(/<\/?(attachment|forwarded)/);
+      expect(inside).not.toMatch(/[<>]/);
+
+      const forwarded = entryMessage(inbound(text, { forward: { kind: "person", from: "Маша" } }));
+      const body = forwarded.slice(forwarded.indexOf('kind="person">') + 'kind="person">'.length, forwarded.lastIndexOf("</forwarded>"));
+      expect(forwarded.match(/<\/forwarded>/g)).toHaveLength(1);
+      expect(body).not.toMatch(/<\/?(attachment|forwarded)/);
+      expect(body).not.toMatch(/[<>]/);
+    }
+    expect(wrapperBody("a <b> c")).toBe("a ‹b› c");
+  });
+
+  it("файл без подписи — так и сказано агенту", () => {
+    const message = entryMessage(inbound("", { attachments: [{ name: "a.md", text: "раз", truncated: false }] }));
     expect(message).toContain("Новая запись: владелец прислал файл без подписи.");
-    expect(message.match(/<\/attachment>/g)).toHaveLength(1);
-    expect(message).not.toContain("</forwarded>");
   });
 
   it("дата в файле даёт календарь с днями недели", () => {

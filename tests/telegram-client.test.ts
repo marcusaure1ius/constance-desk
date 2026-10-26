@@ -482,3 +482,35 @@ describe("clampMessageText", () => {
 function countOf(text: string, needle: string): number {
   return text.split(needle).length - 1;
 }
+
+describe("таймауты файлов", () => {
+  const hung = () => vi.fn(() => new Promise<Response>(() => {}));
+
+  it("getFile, который не отвечает, падает по таймауту и обрывает запрос", async () => {
+    const fetchFn = hung();
+    const client = createTelegramClient({
+      token: "T",
+      fetchFn: fetchFn as unknown as typeof fetch,
+      getFileTimeoutMs: 20,
+    });
+    await expect(client.getFile("f")).rejects.toThrow(/getFile: Telegram не ответил/);
+    const init = (fetchFn.mock.calls[0] as unknown as [string, RequestInit])[1];
+    expect(init.signal?.aborted).toBe(true);
+  });
+
+  it("зависшее скачивание падает по таймауту", async () => {
+    const fetchFn = hung();
+    const client = createTelegramClient({
+      token: "T",
+      fetchFn: fetchFn as unknown as typeof fetch,
+      downloadTimeoutMs: 20,
+    });
+    await expect(client.downloadFile("documents/a.md")).rejects.toThrow(/downloadFile: Telegram не ответил/);
+  });
+
+  it("быстрый ответ таймаут не трогает", async () => {
+    const fetchFn = vi.fn(async () => new Response(new Uint8Array([1, 2, 3])));
+    const client = createTelegramClient({ token: "T", fetchFn: fetchFn as unknown as typeof fetch });
+    expect((await client.downloadFile("a")).byteLength).toBe(3);
+  });
+});
